@@ -62,8 +62,7 @@ Everything editor/IDE-related lives under **`ide/`**; put new editor integration
     collapses those, silently dropping plugin registrations ([[gotcha_assembly_jar_breaks_layers]]). A second
     classpath dir `compiler-lib/` holds **only ASM**, the one backend dep "Run main" needs that `lib/` lacks.
   - Shipped: whole-workspace diagnostics, hover/go-to-def (reverse `PositionIndex`), live-edit VFS overlay,
-    completion, concrete-type hover hints (`TypeHintIndex` from `MonomorphicValue` facts — **Id-normalize
-    first**), a `▶ Run main` code lens (`MainIndex`, fires the `eliot.runMain` command), and apidoc doc hover
+    completion, concrete-type hover hints (`TypeHintIndex` from `MonomorphicValue` facts), a `▶ Run main` code lens (`MainIndex`, fires the `eliot.runMain` command), and apidoc doc hover
     (`DocIndex` from `ValueDoc` facts; the LSP activates `ApiDocPlugin` as a *non-target* plugin so only its
     processor runs, never HTML generation).
   - The one remaining design item is parser/checker **error recovery** (`docs/ide-type-hints.md`, Layers A/B) —
@@ -107,41 +106,46 @@ subset of its data.
 7. **matchdesugar** — pattern matches into function applications; exhaustiveness, nested/constructor/wildcard patterns
 8. **operator** — infix operators by precedence and associativity, into structured applications
 9. **termination** — the recursion gate (see the *Total by Default* cornerstone)
-10. **effect** — helpers only, **no phase**: `EffectMachinery` (recognises the `Effect`/`Suspend` machinery
-    abilities), `EffectCarriers` (a signature's carrier binders and declared effects), and
-    `EffectRowRendering`/`EffectCarrierNaming` (the one inverter rendering a carrier stack back as its row)
+10. **effect** — helpers only, **no phase**. After v6 there is essentially nothing here: `EffectCarriers.isHktBinder`
+    ("is this binder higher-kinded?", asked by `CarrierKindChecker`, which is a *kind* question and not an effect one).
+    The rest of the package — `EffectMachinery` and `EffectCarriers.declaredEffects`, which filter the `Effect`/`Suspend`
+    machinery abilities out of a row — has **no subject left**: nothing mints those abilities and no `.els` declares
+    them. Do not build on it; the carrier-stack renderer that used to live beside it (`EffectRowRendering`,
+    `EffectCarrierNaming`) is deleted, because a type now prints as what the user wrote.
 11. **row** — the effect phase. `row/processor/RowElaborationProcessor` produces `RowElaboratedValue` between the
-    recursion gate and saturation, doing two things **from declarations only**: **elaboration**
-    (`row/RowElaborator` desugars direct style into explicit monadic core — writes the carrier and every
-    declaration-determined type argument, hoists effectful strict arguments into `flatMap` chains, sequences
-    block `val`s, passes suspended arguments unrun, captures at carrier-headed slots, writes `Id`/`runId` at pure
-    boundaries) and **verification** (`verifyRow` checks `derived ⊆ declared` per definition). `row/RowChecker`
-    holds the derivation rules; `row/RunBoundaryFunctions` is the platform run-boundary config key. See the
+    recursion gate and saturation, running `row/BindingWriter` over **both halves** of a definition (body *and*
+    signature — a guarded return holds references too). One walk, three jobs, **from declarations only**: write each
+    phantom binder's implementation as a leading positional prefix; **thunk and apply** (an actual at a row-typed slot
+    is wrapped in a lambda, a reference to one of this definition's row-typed parameters is applied to `unit` — wrap and
+    apply are inverse, so a pass-through is an η-expansion); and erase the `with` nodes. The walk **is** the pre-mono
+    scope check: an effect with no covering declaration is the "performs but does not declare" error at that reference.
+    `row/RowChecker` is now just the demand-driven `Universe` the walk consults (its `onMiss` is what lets a
+    demand-driven consumer avoid guessing the consulted set); `row/RunBoundaryFunctions` is the platform run-boundary
+    predicate, where every effect's chain ends and an uncovered entry binds the two-site `Default` instead. See the
     *Effects Are a Channel* cornerstone.
-12. **ability** — checks and returns a type-specific ability implementation. Selection is structural (pattern match) and
-    then filtered twice: by the candidate's `where` guard, and by **constraint-aware declination** — a candidate whose
-    `~` constraints have no implementation at the matched bindings declines, so `implement[F[_] ~ Suspend] Console[F]`
-    carries `Console` only for a carrier that can suspend. That is what lets a test declare its own instance for a pure
-    fake carrier without colliding with the library's catch-all (`docs/effects.md` §6); every step of the check
-    is fail-safe *towards keeping*, so it can only remove a candidate that could not have worked. A constraint probe
-    that leads back to a resolution already in progress is answered "satisfied" off `activeFactKeys`, never demanded.
+12. **ability** — checks and returns a type-specific ability implementation. A reference whose binder was written to a
+    named implementation uses it **directly** — no structural match, no `where` filter, no coherence question, which is
+    what lets a test's double freely overlap a default. Only the `Default` marker reaches the two-site search, where
+    selection is structural (pattern match) and then filtered twice: by the candidate's `where` guard, and by
+    **constraint-aware declination** — a candidate whose `~` constraints have no implementation at the matched bindings
+    declines. Every step of the check is fail-safe *towards keeping*, so it can only remove a candidate that could not
+    have worked. A constraint probe that leads back to a resolution already in progress is answered "satisfied" off
+    `activeFactKeys`, never demanded.
 13. **monomorphize** — the NbE monomorphic type checker: evaluates data and value definitions into typed
     structures and checks all types at every instantiated usage, with the single evaluator. (It absorbed the
-    former standalone `eval` phase.) Because `row` already wrote the carrier, the checker sees effects as
-    ordinary types:
-    - **elaboration is not here** — no bind, no `pure`, no `Id` is decided by the checker. The one effect rule it
-      keeps is `check/EffectLifter.tryPureWrap` (a pure term into a *rigid* carrier-headed expected type).
-      `EffectLifter` and `CarrierKindChecker` are **not** otherwise deletable, and that is measured, not assumed
-      (`docs/effects.md` §11, "do not re-propose"): five of their six arms are live, two for
-      *soundness* — `CarrierKindChecker.verifyCarrierKinds` is the only thing rejecting a `[F[_]]` binder
-      instantiated at a fully-applied proper type, and with it off that program silently compiles. The one arm
-      that did measure dead, `mustLiftBeforeUnify`, is deleted. **Do not re-attempt the whole-file deletion**; the
-      remaining arms are a *kind* system living next door, not effect machinery.
-    - **verification is not here either** — `derived ⊆ declared` is checked twice outside it (phase 11 pre-mono,
-      and `channel/EffectAccountingProcessor` post-mono). The checker holds no effect diagnostic.
+    former standalone `eval` phase.) Because `row` already wrote every implementation, the checker sees an effect as
+    an ordinary nullary ability and a binding as an ordinary type argument:
+    - **the checker holds no effect rule at all.** `EffectLifter` went with the carrier its one surviving arm needed.
+      What is next door and must **not** be deleted as effect machinery is `check/CarrierKindChecker`, and that is
+      measured, not assumed (`docs/effects.md` §12, "do not re-propose"): `verifyCarrierKinds` is the only thing
+      rejecting a `[F[_]]` binder instantiated at a fully-applied proper type, and with it off that program silently
+      compiles. It is a *kind* system living next door.
+    - **verification is not here either** — `derived ⊆ declared` is checked twice outside it (phase 11's scope check
+      pre-mono, and `channel/EffectAccountingProcessor` post-mono, whose coverage is a *measured strict subset* of the
+      scope check's; it also owns the rejection of a supplied row entry whose argument nothing determines, which is
+      nobody's shadow). The checker holds no effect diagnostic.
     - the **compile track** keeps its mid-spine default ladder and deferred slots *by design* (`Track.Compiler`,
-      `Checker.resolveDeferredSlot`): an inline guard's carrier is inferred and pinned to `Either[E]` post hoc —
-      the sole live reader of the `Unifier`'s higher-kinded-meta record.
+      `Checker.resolveDeferredSlot`) — the sole live reader of the `Unifier`'s higher-kinded-meta record.
     - other non-equality collaborators, each hooked from `TypeStackLoop.runPostDrainResolution`:
       `check/CarrierKindChecker`, `check/GuardDischargeResolver` (W2b effectful-signature guard discharge —
       formerly `CalculatedReturnResolver`, whose calculated-return half was removed with the `auto`/implicit-generics
@@ -168,6 +172,9 @@ provide user-facing messages and debug logging.
   phases; carrying the full pipeline is free, and a new phase is then wired in exactly one place. Only true leaf
   tests (tokenizer/AST/core, or manual fact injection) list processors explicitly. The jvm backend test reuses the
   same list and appends its own: `LangProcessors(…) :+ JvmClassGenerator()`.
+- A `ProcessorTest` whose snippet calls an **ability or effect method** needs an `Implementation` stub declaring
+  `type Default` in its system modules, or the value silently loses its monomorphization **with no error at all**:
+  the write puts `Default` at the reference as an ordinary type argument, and saturation demands the value it names.
 
 ## Language Cornerstone: Types Are Values (λ\*)
 
@@ -280,17 +287,18 @@ co-located definitions of the same qualified name across root paths are **merged
 The base declares `type List[A]` and a body-less `def foldLeft(...)`; the `jvm` layer re-declares them concretely
 over its `java.util.List` native, and the compiler unifies them into one value.
 
-The carrier is **not** such a merge: there is no base `IO` at all. The concrete `data IO[A]` is the
-platform-owned `eliot.jvm.IO`, outside the prelude, and user programs never name it. `main` declares an effect row
-(`def main: {Console} Unit`); the jvm target's synthesized entry point instantiates `main`'s inferable carrier to
-`IO` by ordinary unification and runs the thunk (`SyntheticMainSourceProcessor`).
+An **effect implementation** is not such a merge either. The base declares `effect Console { … }` with no bodies;
+the jvm layer re-declares it (name resolution is per-file) and adds the anonymous `implement Console { … }` over its
+own private natives, which is the platform's *default* for that effect. `main` declares an effect row
+(`def main: {Console} Unit`), and the synthesized entry point is where every effect's chain ends: it binds each of
+`main`'s entries to the two-site default, and an effect with none reaching `main` is an error there naming it
+(`SyntheticMainSourceProcessor`, `row/RunBoundaryFunctions`).
 
 **Layers *mix*, they do not *stack*; every file must stand on its own.** Name resolution is per-file — a file's
 dictionary is its own declarations plus imports, never names declared in a *sibling* file of the same module. So
-when one file needs a name a sibling declares (e.g. a carrier-generic instance `implement[F[_] ~ Suspend]
-Console[F]`, which must be colocated with its ability and so lives in the ability's module), that file must
-**re-declare what it needs**; the merge then **verifies the copies agree** (`signatureEquality`) rather than
-letting them drift. Duplication is the sanctioned mechanism — do *not* "fix" a cross-file reference by widening
+when one file needs a name a sibling declares (e.g. an `implement Console { … }`, which must be colocated with its
+ability and so lives in the ability's module), that file must **re-declare what it needs**; the merge then
+**verifies the copies agree** (`signatureEquality`) rather than letting them drift. Duplication is the sanctioned mechanism — do *not* "fix" a cross-file reference by widening
 the resolver to span sibling files.
 
 **How it works mechanically** (the `source` + `module` packages):
@@ -330,18 +338,23 @@ body reaching a bytecode leaf stalls **loudly**, never silently wrong.
 What a layer may **not** borrow is a *sibling target* (jvm) that might be absent, so a layer's compile-time track
 must be **self-sufficient** from the base plus its own `eliot-compiler/`. Roots reach the compiler via a single
 repeatable **`--path <root>/eliot`** (no separate compiler/runtime path flags, no `compiler` Mill module);
-`LangPlugin.eliotCompilerOverlay` derives each root's sibling. Two roots ship an overlay today:
-`stdlib/eliot-compiler/` (the self-sufficient compile-time `Either`, `Option` and `Pair` — the data the evaluator's
-escape/cell intrinsics answer, `monomorphize/processor/EffectIntrinsics` — the compile-time `AbortCarrier` that
-reduces `if..else raise` return guards, and the `Interval` refinement instances) and
-`lang/eliot-compiler/eliot/lang/` (the compile-time `Id`). Anything pure and already on the path
+`LangPlugin.eliotCompilerOverlay` derives each root's sibling. **One** root ships an overlay today,
+`stdlib/eliot-compiler/`: the self-sufficient compile-time `Either`, `Option`, `Pair` and `Bound`/`Interval` (the
+data the evaluator's escape/cell intrinsics answer, `monomorphize/processor/EffectIntrinsics`), the two intrinsic
+declarations themselves (`eliot/compiler/Escape.els`, `eliot/compiler/Cell.els` — declared once and publicly,
+because `EffectIntrinsics` matches their exact FQNs, and compile-track-only so no user program can reach them), and
+the compile-time `Abort` written over `escape`, which is what makes an `if..else` return guard reduce. **The
+compile track has `Abort` and no `Throw`**: `Abort` keys its frame on its own nullary `Aborted` marker, while a
+generic binder has no value form (`escape(E[], …)` does not compile), so a compile-time reduction reaching
+`runThrow` is *stuck* — loud, not wrong — and a guarded return therefore cannot carry its author's message
+(`docs/effects.md` §7). Anything pure and already on the path
 (base bodies, a user program's pure helpers) is **borrowed, not duplicated**. `CompilerNativesProcessor` reads that pool; the
 compile-time intrinsics (`add`, `Bool` `fold`, `true`/`false`, `typeEquals`) are Scala native **leaves** in
 `SystemNativesProcessor` (lang) / `StdlibNativesProcessor` (stdlib arithmetic) — the compiler platform's leaf
 bottom, mirroring jvm's bytecode leaves.
 
-**Where to put new compiler code.** When a task needs something evaluated at compile time — a carrier, an
-intrinsic, an instance used only during checking — and it is expressible in ordinary Eliot, write it as **Eliot in
+**Where to put new compiler code.** When a task needs something evaluated at compile time — an effect
+implementation, an intrinsic, an instance used only during checking — and it is expressible in ordinary Eliot, write it as **Eliot in
 the owning layer's `eliot-compiler/` root**, keeping the abstract signature in `lang`/`stdlib` and the *runtime*
 concrete impl in `jvm`. **First ask whether it can be borrowed**: a pure body already in the base or reachable on
 the runtime track needs no overlay copy — that is how duplication is avoided. Add an overlay copy only when the
@@ -375,217 +388,163 @@ silent gap**: it is complete verification of the actual program, hard-erroring a
 Principle: *we prove a definition correct for every input it does take, not every input it could take — and reject
 any program in which some input it does take is wrong.*
 
-## Language Cornerstone: Effects Are a Channel (Rows In, the Carrier Written)
+## Language Cornerstone: Effects Are a Channel (Rows In, Implementations Written)
 
-The user writes **effect rows** (`def main: {Console} Unit`); the compiler works in **carriers**. These are two
-different things on purpose, and keeping them apart is what makes effects free of special cases. Authoritative
-design: `docs/effects.md` — Part I states the design (§1 the four user rules, §2 the surface, §3 the mechanism,
-§4 the derivation spec, §5 the standing rules) and Part II the open plan. It replaces the ten retired effect
-documents; §12 there maps their citations.
+The user writes **effect rows** (`def main: {Console} Unit`); the compiler turns each row entry into a
+**phantom generic binder** whose value is an **implementation name**, written at every reference by a
+syntax-directed pass. Rows and implementations are two different things on purpose, and keeping them apart is
+what makes effects free of special cases. Authoritative design: `docs/effects.md` — Part I states the shipped
+design (§1 the four user rules, §2 the surface, §3 the mechanism, §4 the scope check, §5 the standing rules,
+§6 testing, §7 the live limitations); Part II is how it was decided and landed, including §12's
+**do-not-re-propose** list. **There is no carrier, no monad, no `Id`, and nothing to infer** — if you are
+reading code or a comment that mentions one, it is history.
 
 **Four user rules, and the fourth outranks the other three** (§1):
 
 1. **Effects run where they are written.** Strict call-by-value in *every* plain position, a bare generic slot
-   included: `choose(readLine, readLine)` runs both reads.
-2. **Suspension is declared, and a row is not a carrier.** A parameter that must *not* run its argument declares
-   an open row (`whenTrue: {} A`, `if`'s `value: {Abort} T`). A **row** position means "a value or a
-   computation" — the empty row is a legal row — so a pure argument fits and is lifted. A **carrier-typed**
-   position (`x: G[A]`, `IO[A]`, a pinned stack) means "a computation on this carrier": a plain `A` is a type
-   error there, never a lift. Both are `F[A]` after desugaring, so the difference is read from the **row tag**
-   (`EffectRow.parameterEffects`), never the shape. The **empty row `{}`** denotes the signature's *own* carrier when
-   it binds exactly one `Effect`-constrained one — which is how `else`'s `fallback: {} A` is `G[A]` *and* accepts
-   `host else "localhost"`.
-3. **Pinned means captured.** `{Throw[E] | Id} A` is a reified computation *and* an ordinary type — usable in
-   `data` fields, discharger parameters, `List[TestCase]`. Open rows never appear in types; pinned rows are the
-   only place a type contains a computation. A discharger parameter no longer *writes* the pin (effects-v5 step 2:
-   `computation: {Throw[E]} A`); the desugar pins it to the signature's own carrier, so the type is the same.
-4. **An effect passes through a position if and only if that position declares it.** A **plain generic** (`A`,
-   `B`, `T`) is a payload, always — a function that transports effects says so (`f: A => {} B`,
-   `initial: {} B`). A **rowless** slot may not receive a computation: a hard error naming the slot, never a
-   silent re-route. A **carrier-headed** slot captures, however that carrier is named — a pinned row's stack, one
-   of the callee's own carrier binders, the concrete `Id`, or a platform run carrier. That is one predicate, not
-   four arms, and there is no third kind of slot.
+   included: `choose(readLine, readLine)` runs both reads, and `Box(shout)` runs `shout` and stores its value.
+2. **Suspension is declared.** A parameter that must *not* run its argument declares a row (`whenTrue: {} A`,
+   `if`'s `value: {Abort} T`). After desugaring such a slot is a **thunk** (`Unit => A`), but the thunk is the
+   lowering: every phase goes by the **row tag** on the declaration, never the shape.
+3. **A stored computation is bound where it is written.** A row-typed `data` field
+   (`data Task[E](step: {Throw[E]} String, label: String)`) is a thunk whose operation calls were bound at
+   construction; reading the field runs it, so the field's row is charged **at the read**. No pin, no base, no
+   `| Id`. A `with` applied to it later is an error, not a rebinding.
+4. **A binding passes into a position if and only if that position declares a row.** A **plain generic** is a
+   payload, always. A **rowless slot** receives the *value*, computed where the argument stands — there is
+   nothing to diagnose, the effects were the caller's. A **row on the slot** is what lets the lexical walk cross
+   into the argument, so a lambda at a rowless arrow (`map`'s `f: A => B`) may bind and discharge locally but
+   never reaches the enclosing def's bindings. One predicate, no third kind of slot.
 
 Rule 4 was agreed and then worked around four times, and every stall in this design's history traces to that
 erosion (doc §1 table). **It outranks the tree**: where code, a stdlib signature, an example or a test conflicts
 with it, the rule wins and the artefact is the defect.
 
-**The elaborator writes the carrier; the checker never solves for one.** `row/RowElaborator` rewrites each
-definition into fully explicit monadic core Eliot — `printLine[F]("hi")`, `flatMap[F](k, readLine[F])` — so
-monomorphization, ability resolution, `used`/`uncurry` and the backend are unchanged consumers. Because the
-ambient carrier is a *syntactic* function of the definition's own minted binder (`EffectSugarDesugarer` mints it
-as generic **0**), every carrier position is **rigid**, and the base binds once at the platform entry point, so
-both tracks (`IO` on jvm, `Either[String, _]` on the compile track) work without the elaborator knowing which.
-Three rules complete it:
+**The surface is three constructs.** An **`effect`** is an ability with no carrier binder, declared with its own
+keyword; a member's row lists what it performs *beyond* the effect it belongs to, since membership already says
+it needs that binding (so `{Console}` on a member of `effect Console` is not written). An **anonymous
+`implement`** in one of the two sites is the *default* for its pattern; a **named `implement`** is never a
+default — it may live anywhere, is never searched, is not checked for overlap, takes no parameters and closes
+over nothing (what it needs at runtime it asks an effect for), and its clauses may declare rows. **`with`** binds
+a name for its subject: infix, subject-first, loosest precedence, left-associative, in **two positions and one
+construct** — an expression in a body, and a slot's type in a signature (the same split as `f(x)` and
+`List[Int]`). `with` *inside* a row is rejected, and `with` on a def's own return row is rejected. **`with` is
+written almost nowhere**: a def declaring `{Console}` receives its binding from its caller up to `main`, and a
+`with` in production code is the same mistake as a hard-coded dependency.
 
-- a region's carrier is `Absent` / `Spelled` (writable from the definition's own declaration) / `Unspelled`
-  (exists but only a callee can name it — a pinned capture's interior), and **only `Spelled` writes**;
-- the elaborator writes **every type argument a declaration determines**, as a leading positional prefix, stopping
-  at the first binder nothing determines (the region supplies the carrier; a pinned parameter supplies its row's
-  ability arguments, instantiated from the captured argument's own declared row);
-- a callee needing more than the ambient provides runs on the **derived discharge stack** of the difference
-  (`carrier(call) = stack(callee.declaredRow ∖ ambient.declaredRow) over ambient`), filtered by the universe's own
-  pinned rows, since `Suspend`-riding effects (`Console`, `Log`, `Inf`) have no carrier to discharge onto.
+**The desugar writes the implementation; nothing solves for one.** `core/…/EffectSugarDesugarer` turns each row
+entry and each `~` constraint into one phantom binder of kind `Type` that occurs in **no parameter or return
+type** — so rows still never flow into types — and thunks a top-level row on a parameter or a `data` field.
+`row/BindingWriter` then writes each binder's value at every reference, by the resolution order: (1) the nearest
+enclosing `with`; (2) this definition's own binder for it, a **received** binding filled by the caller; (3) for an
+actual at a row-typed slot, the entries that slot **supplies**; (4) `Default` — the two-site search — for an
+**ability**, while for an **effect** an uncovered use is the "performs but does not declare" error at that
+reference. **Effect-ness is read from one place only**: the callee's declared row. Nothing keys on a name or a
+shape. Minted binders are a leading prefix because `typeArgs` applies positionally; for an ability member the
+prefix moves, since the binding must stay the last ability-level type argument.
 
-**What that deletes, and what must not come back.** With carriers rigid there is nothing to infer, so there is no
-carrier metavariable, no join solver, no `Id`-headed uniform judgment, no mode obligation and no post-drain mode
-resolver. **Reintroducing carrier *inference*** — a carrier meta, a lattice, an ordering-sensitive slot decision —
-is the historical bug class (carrier theft, premature commitment) and is **prohibited**. **The anti-accretion
-whitelist (§3.2) binds every future change**: the elaborator may consult only a callee's declared
-parameter/return types, its declared row and carrier binders, its pinned metadata, the run-boundary registry, and
-one level of type-alias expansion. A rule that inspects a *sibling argument's expression shape* is inference, not
-desugaring, and is prohibited; a decision that cannot be made from the whitelist is a gap to close **in the
-declarations**.
+**What that deletes, and what must not come back.** There is no carrier metavariable, no join solver, no lattice,
+no `Id`-headed judgment, no mode obligation, no post-drain mode resolver, and no elaborator whitelist to police
+(there is no classification left to approximate). **Reintroducing inference of a binding** — a meta, a lattice, an
+ordering-sensitive slot decision, or a **sum over a monomorphized sub-graph with transitive override**, which is
+dynamic scoping resolved at compile time — is the historical bug class in new vocabulary and is **prohibited**. A
+rule that inspects a *sibling argument's expression shape* is inference, not desugaring, and is prohibited. A
+decision that cannot be made from a declaration is a gap to close **in the declarations**.
 
-**One effect rule is left in the checker**, deliberately: a pure term meeting a **rigid** carrier-headed expected
-type is `pure`-lifted (`check/EffectLifter.tryPureWrap` — no metas, no ordering, no lattice). The checker holds no
-effect diagnostic of its own. The **compile track** keeps its mid-spine default ladder and deferral by design
-(§8): an inline guard's carrier is still inferred there, the one live reader of the `Unifier`'s
-higher-kinded-meta record.
+**A parameter row is *supplied*, and that is what makes a discharger** (§2.2). `{Abort} A` in a parameter says "on
+my caller's bindings **extended by** `Abort`": an entry the definition's own declared row already has is *not*
+supplied and the walk continues outward (so `if`'s `value: {Abort} T` rides the caller's), and an entry it lacks
+is supplied, bound by the slot's `with` or by `Default`. Only a **top-level** parameter row supplies; a row in an
+arrow codomain (`onError: E => {} A`) is the callback's own row. A supplied entry's **type arguments** are written
+from the actual's declaration (`bad : {Throw[String]} String` against `Throw[E]` gives `E := String`); where no
+declaration answers, the call spells them (`runThrow[AssertionError, Unit](body)`) and an argument nothing
+determines is **rejected**, never defaulted — which is what stops a `catch` compiling against a frame it will not
+meet. Three shapes reach that rejection honestly: the actual is a **parameter reference**, the actual **raises
+nothing**, or the slot's row names the **same ability twice**.
 
-**`Id` is the value of the empty row, and it is *written*, not manufactured.** A row-polymorphic definition
-instantiated at `ρ := {}` is written at `Id` with `runId` beside it, so it is honestly well-typed rather than
-well-typed-modulo-normalization. `Id` stays ordinary `data` (`data Id[A](runId: A)` + `implement Effect[Id]`,
-deliberately **no** `Suspend[Id]`, so real I/O can never run on it — only the pure control effects
-`Abort`/`Throw`/`State`). `channel/IdNormalizer` erases it at the `WovenValue` seam and
-`WovenValueProcessor.assertNoIdResidue` is a **hard build error** on any survivor. Recurring tax: **any new
-consumer of `MonomorphicValue` or of mid-mono `SemExpression`s must Id-normalize first.** What v2 was faulted for,
-and what is gone, is the checker *manufacturing* a carrier head on pure judgments.
+**Discharge is a frame, not a layer.** A discharger installs the frame its effect's operations exit to or thread
+through, so the entry simply never joins the row and there is nothing to spell as a negative effect. **Nesting
+order at the run site decides interaction** — `runStateToPair(s, runThrow(c))` versus
+`runThrow(runStateToPair(s, c))` is the difference between state surviving a `raise` and not — and there is no
+canonical form for the compiler to choose. A definition may now discharge the **very effect it declares** (the
+nearest enclosing frame is its own), which is what lets `describedAs` rewrite its body's failure message. A
+discharger may be called any way a function can be; v5's "must be called directly" rule has no subject.
 
-**Discharge falls out structurally, with no annotation.** A discharger's consumed effect lands on an *inner
-transformer carrier* (`StateCarrier[S, G]`, not the caller's ambient `G`), so it simply drops out of the derived
-row — which is why wrapper-reached discharge inside a `{Console}` body just compiles, and why there is nothing to
-spell as a negative effect. A discharger must be **called directly** (`runStateToPair(s0, p)`): by rule 4 the
-dot's subject is a plain type parameter, which may not carry a computation, so `p.runStateToPair(s0)` is a hard
-error naming the fix. The infix dischargers `catch`/`else` resolve to a direct call and are unaffected. A
-discharger's **handler may itself perform effects** (`catch`'s is `onError: E => {} A`, a row over the same
-carrier `G`), and a **`val`-bound** computation is dischargeable, since a call needing more than the ambient
-declares carries its own discharge stack and the `val` binds the reified computation as data. Known limitation,
-not a bug: a handler whose effects enter via a **declared carrier-typed parameter** must still return a
-carrier-headed type — that carrier is caller-chosen, so no declaration determines it.
+**Three platform-private primitives, and nothing else.** A finishing clause is a non-local exit; a stateful
+implementation threads a value through calls that never mention it. Neither is expressible in a strict pure core,
+so each target ships **escape** (`escapeInternal(body, onExit, onValue)` — an exception on jvm, one class per
+instantiation; an evaluator intrinsic on the compile track), **cell**
+(`withCellInternal(initial, body, combine)` — a static field per instantiation) and **loop** (`foreverInternal`).
+The control effects' single implementations are written over them. They are private because a public cell is
+Landin's knot (`termination/PurityGuardTest` exists to keep it out), so `runThrow`/`runAbort`/`runStateToPair`/
+`runWriterToPair`/`provide` are **body-less in the base and bodied per platform**, while `catch`/`else`/
+`runStateToValue`/`runStateToFinalState`/`runWriterToValue`/`runWriterToLog` are ordinary base bodies over those.
+Eliot has no layer-private visibility, so each jvm module needing a primitive declares its own copy — five copies
+of two shapes, which also separates the frames for free.
 
-**An ability is not an effect by nature — a method performs an effect because it declares one.** An ability method
-spells its effects with a row on its return, exactly as any other definition does
-(`ability Console[F[_]] { def printLine(s: String): {Console} Unit }`); that row desugars onto the *ability's own*
-binder (`EffectSugarDesugarer.abilityMethodCarrier`), so the ordinary declared-carrier and declared-row rules
-answer for it and **no phase reads effect-ness off the shape of an ability's signature**. A method declaring **no**
-row performs nothing — which is exactly what a **constructor class** is
-(`ability Container[F[_]] { def wrap[A](a: A): F[A] }`), and what the old "any higher-kinded binder of an ability
-method is a carrier" rule made impossible to express. The one exception is the **machinery** abilities
-`Effect`/`Suspend`, whose methods keep spelling `F[A]`: machinery is filtered out of every row by design, and they
-are recognized by name (`EffectMachinery.isMachineryAbility`).
+**Two families, and only one is rebindable.** The **control effects** (`Throw`, `Abort`, `State`, `Writer`, `Dep`,
+`Inf`) have exactly one implementation per platform over those primitives; `with` has nothing to choose there. The
+**interpretation effects** (`Console`, `Log`, `FileSystem`, `Process`, `Environment`) and every ability are what
+`with` and a naming slot are for. The families are a description, not a bit in the language: nothing keys on it.
 
-**Carrier-ness is recognized by a tag threaded from elaboration — never by name or shape.** A pinned row desugars
-to a carrier stack with no residual marker, so the marker is added at the desugar and carried on the fact
-(`EffectRow.returnPinnedEffects` / `pinnedParameterIndices`), plus the platform-contributed run boundaries
-(`row/RunBoundaryFunctions`) for concrete carriers no row can spell, like the synthetic main's `IO[A]`.
-Classifying by the `<Ability>Carrier` naming convention, an LSP reverse table, or "has an `Effect` instance"
-**miscompiles in both directions** and is prohibited.
+**Rows are the user surface and the verifiers' vocabulary — they never flow back into types.** `EffectRow` is
+declaration metadata (like `paramConstraints`), consumed by the desugar; verification is a separate **channel**
+with **two verifiers speaking one vocabulary**: the pre-mono **scope check**, which is the write's own walk and is
+complete before monomorphization, and the post-mono `monomorphize/channel/EffectAccountingProcessor`, wired as a
+**codegen precondition** via `getFactOrAbort`. Both emit "This value performs the effect 'X' but does not declare
+it…". *Forward what is declared, derive what is done* — a forwarded per-operation verdict would be a checker
+self-report and is rejected, as is any negative-effect surface. The post-mono check's coverage is a **measured
+strict subset** of the scope check's (it sees propagation through a declaring callee, not a direct operation call,
+whose row `AbilityResolver` has already rewritten away); the measurement is pinned in
+`jvm/…/EffectAccountingDerivationTest`. The processor nonetheless has a second job that is nobody's shadow — the
+supplied-argument rejection above — so retiring the subset check would not retire the processor.
 
-**Pinned rows** (`{Throw[E] | Id} A`, `docs/effects.md` §2.3): a tail after `|` makes the row a *concrete
-type* — the canonical carrier stack over the base, built in core by the `<Ability>Carrier` naming convention,
-entries leftmost-outermost = discharge order, no carrier generic minted. Stored (`data`-field) rows **MUST** be
-pinned. Since effects-v5 step 2 a **generic** tail is no longer written anywhere: a discharger spells its input as
-a plain row (`runThrow(obj: {Throw[E]} A): G[Either[E, A]]`) and the desugar pins it to that signature's own
-carrier, producing the identical type — so `signatureEquality` still holds across the merge, and a pinned tail is
-left only where the base is *concrete* (a `data` field's `| Id`). `Suspend`-riding effects (`Console`) have no
-canonical carrier and so cannot be pinned (v1) — nor supplied, which is the same diagnostic.
+**The checker holds no effect rule at all.** What lives next door and must **not** be deleted as effect machinery
+is `check/CarrierKindChecker`: `verifyCarrierKinds` is the only thing rejecting a `[F[_]]` binder instantiated at a
+fully-applied proper type, and with it off that program silently compiles. It is a *kind* system, measured, not
+assumed. Rendering has nothing to invert either — an effect is a nullary ability and an implementation is a name,
+so `GroundValueRenderer` prints what the user wrote.
 
-**`&` is a standard-library name, and an ability resolves like any other value** (`docs/effects.md` §2.5;
-full user-space `~`/`&` is decision D3, blocked). The constraint combinator is `infix left type &[A, B]` in `eliot.lang.Ability` (prelude, so
-ambient): the parser accepts *any* operator between two `~` constraints and `ValueResolver.resolveCombinator` looks
-the name up in the ordinary dictionary, requiring `WellKnownTypes.abilityCombinatorFQN` — so a module declaring its
-own `&` takes the name back and gets a diagnostic instead of the built-in meaning. The combinator rides ast→core on
-`AbilityConstraint.combinedBy` purely to reach that check and is dropped there; no phase past resolve knows it
-existed. `~` stays reserved — it is a binder marker like `:`, not a name — until the constraint channel itself
-becomes an expression (that document's stages 3-4, both **proposals**; stage 4 carries a stated reservation and
-should not be started without deciding it). Alongside it, `ValueResolverScope.getAbility` is a keyed lookup of the
-ability's **marker** (`QualifiedName(n, Ability(n))`), not a scan of `dictionary.values` for the qualifier — so an
-ability name honours import scope and shadowing exactly as a value name does, and is no longer decided by hash
-order. **Do not reintroduce the scan**, and do not add a second lookup path for ability names.
+**A named implementation is the testing injection point** (§6). Production code that declares a row names no
+implementation, so whoever runs it decides — the synthesized entry point in production, one `with` in a test. A
+double is **one declaration** in the test module: no type to hang on, no colocation, no coherence question, since a
+named implementation is never searched and may freely overlap a default. **A double cannot cheat**, because a user
+module cannot declare a native and the platform's are private to its layer — an implementation reaches the world
+only through effects **its own clauses declare**, which are charged and bound at the binding site. **Interpretation
+is per effect, not per program**: `body with mockConsole with mockFileSystem` leaves everything else at its
+default. `eliot-test`'s `mocked` binds five doubles on its slot's type, so a unit test writes no fixture at all.
 
-**An ability may require other abilities of its carrier, and that is how a set of effects gets a name**
-(`ability Web[F[_] ~ Console & Log]`, effects-v5 §7 — landed). It is the ordinary superability relation, not an
-aliasing feature: `Web` is a real ability declared with the same `~` constraints any generic parameter takes, it
-just has no methods, so it performs nothing and needs no implementation. **No syntax was added** — `ability`'s
-common generic parameters already accepted `~`; the whole feature is one rule in `ValueResolver.superConstraints`:
-a `~` constraint is closed under what the named ability itself requires **of the parameter this use bound to this
-binder**. That last clause is what keeps it shape-free — `ability Fallible[E ~ Show, F[_] ~ Throw[E, F]]` leaves
-`Show` on `E` and never lands it on the carrier, where it would read as a declared effect. The ability's own
-constraints resolve **in the ability's own scope** and its parameters are then substituted by the use's arguments;
-closure is transitive and idempotent (`expanding`), so mutually-requiring abilities close instead of looping. It
-lands in `resolveParamConstraints` **only**, because a carrier binder's constraints are the single source of truth
-for "declared" that *both* verifiers read (`RowChecker.declaredRow`, `EffectAccountingProcessor.openRow`); the
-declared row (`EffectRow`) is rendering vocabulary and keeps the name the user wrote. Two consequences to state
-plainly: the name is **real**, so it propagates to callers as itself (that is correct — the caller's carrier must
-have it too); and it is a property of the **carrier**, so discharging one effect behind it does not remove it —
-name a set for what rides together, not for what one function discharges. The same rule states a relation the tree
-could not express before: `ability Console[F[_] ~ Suspend]` would put "Console rides Suspend" in the ability
-instead of repeating it on every instance. Aliasing a *computation* (`type Test = {Writer[W]} Unit`) is a
-carrier-applied type and stays the ordinary generic — no `type` spelling of a row exists, deliberately.
+**A set of effects has no name**, deliberately (§2.4): v5's `ability Web[F[_] ~ Console & Log]` required abilities
+*of the carrier*, and there is no carrier binder to hang the requirement on. What survives is the ordinary
+**superability closure** on a `~` constraint — `~ A` is closed under what `A` itself requires of the parameter this
+use bound to this binder (`ValueResolver.superConstraints`, transitive and idempotent).
 
-**Rows are the user surface and the verifier's vocabulary — they never flow back into types.** `EffectRow` is
-declaration metadata (like `paramConstraints`), consumed by the desugar and the renderers; verification is a
-separate **channel** with exactly **two verifiers speaking one vocabulary**: the pre-mono per-definition
-`RowElaborationProcessor.verifyRow` (what declarations alone settle, reported at the definition before anything
-downstream runs) and the post-mono `channel/EffectAccountingProcessor` (`derived ⊆ declared` at ground
-instantiations, wired as a **codegen precondition** via `getFactOrAbort`, so an undeclared effect blocks code
-generation rather than merely warning). Both emit the same diagnostic ("This value performs the effect 'X' but
-does not declare it…"). Accounting gates each reference's contribution by the **ride test**: it counts only if it
-performs its effect on the value's *own* ambient carrier, compared by exact `GroundValue` equality against the
-callee's forwarded `MonomorphicValue.ambientCarriers`. *Forward what is declared, derive what is done* — a
-forwarded per-operation verdict would be a checker self-report and is rejected, as is any negative-effect surface.
-The pre-mono check is bounded exactly three times by what declarations cannot settle: an unknown callee leaves the
-derivation incomplete, a definition whose declared return could *itself* be the carrier (an applied
-`Box[String]`, `IO[Unit]`, a generic head) is the constructor-class shape, and — per row entry — a contribution
-handed to a slot that **fixes a foreign concrete carrier** (`RowChecker.fixesCarrier`: a saturated rowed callee
-delivered to a concrete applied slot headed differently from that callee's own payload) is performed in *that* carrier,
-which is the whole of the fake-carrier testing strategy (`docs/effects.md` §6). It also owns the one diagnostic
-accounting cannot voice — "declared pure but performs effects", for a definition whose return cannot host a
-carrier — since such a value's mono fails and produces no `MonomorphicValue`.
-
-**The empty row `{}` is how a definition says "on my own ambient carrier, nothing added"** — the spelling of every
-suspended-but-effect-transparent slot (`fold`'s arms, `else`'s fallback, `catch`'s handler, `foldLeft`'s `initial`,
-`.`'s `f`). It is the only spelling in the tree (`docs/effects.md` §2.1); the
-older `{Effect}` names the machinery ability explicitly and is exactly what an empty row desugars *into*, so both
-parse and mean the same thing. The synthesized constraint resolves at its fixed FQN, so `{}` needs no
-`import eliot.carrier.Effect` — which is why writing one never puts `map`/`flatMap`/`pure` in a user's scope. A row
-with a base but no entries (`{| G} A`) is rejected: that is just `G[A]`.
-
-**A non-empty row in a parameter position is *supplied* by the definition** — effects-v5 step 2, and what makes a
-discharger a discharger. `{Abort} A` in a parameter says "on my ambient carrier **extended by** `Abort`", and the
-extension is the same subtraction the elaborator applies to a call, read one level up at the declaration: an entry
-the definition's own declared (return) row already has needs no extension, so `if`'s `value: {Abort} T` rides the
-ambient carrier unchanged; an entry it lacks is supplied, so the slot is that entry's carrier stacked over the
-ambient. `EffectSugarDesugarer.supplyPinnedParameters` rewrites the supplied entries into the pinned spelling
-before anything else runs, so `else`'s `computation: {Abort} A` yields exactly the signature and the capture tag
-(`EffectRow.pinnedParameterEffects`) that `{Abort | G} A` yielded — no downstream phase knows the spelling changed.
-Machinery never supplies (`{}` is never a stack), and only a **top-level** parameter row supplies: a row in an
-arrow codomain (`onError: E => {} A`) is the callback's own row on the ambient carrier. A discharger whose base
-carrier the tail used to name now says so with the existing rule — `G[_] ~ Effect`.
+**`&` is a standard-library name, and an ability resolves like any other value** (§2.5; full user-space `~`/`&` is
+decision D3, blocked). The combinator is `infix left type &[A, B]` in `eliot.lang.Ability` (prelude, so ambient):
+the parser accepts *any* operator between two `~` constraints and `ValueResolver.resolveCombinator` looks the name
+up in the ordinary dictionary, requiring `WellKnownTypes.abilityCombinatorFQN` — so a module declaring its own `&`
+takes the name back and gets a diagnostic. It rides ast→core on `AbilityConstraint.combinedBy` purely to reach that
+check and is dropped there. `~` stays reserved — it is a binder marker like `:`, not a name. Alongside it,
+`ValueResolverScope.getAbility` is a keyed lookup of the ability's **marker** (`QualifiedName(n, Ability(n))`), not
+a scan of `dictionary.values` — **do not reintroduce the scan**, and do not add a second lookup path for ability
+names.
 
 **Ambient scope.** The whole `eliot.effect` package is auto-imported: `ModuleName.effectSystemModules` joins the
 `eliot.lang` prelude in `defaultSystemModules`, in a **weak** tier — an explicitly imported module is deduplicated,
 and an ambient name colliding with a local declaration or explicit import is silently dropped (locals always win,
-so the prelude can grow without breaking code), while explicit imports keep the strict shadowing errors. The
-carrier machinery lives in the **import-required `eliot.carrier` package** so `map`/`flatMap`/`pure`/`suspend`
-never enter user scope.
+so the prelude can grow without breaking code), while explicit imports keep the strict shadowing errors. There is
+no `eliot.carrier` package any more: `{}` names nothing and needs no import.
 
-**Cornerstone fidelity**: this is *more* types-are-values-faithful, not less — carriers are ordinary type
-constructors, `Id` is ordinary `data`, and effect flow through generics is ordinary instantiation. No side channel
-does type-like work behind the type system's back, and no kind or sort is added to the type language: the
-value/computation separation lives in the judgment's second channel, exactly like an `Int`'s refinement range.
+**One thing has no spelling and is worth knowing before you reach for it: a row cannot be closed.** A slot's row
+says what it *supplies*, not what it forbids — an entry it does not supply continues the walk into the caller's
+scope — so "this body may perform nothing at all" is unsayable. That is what deleted `eliot.test`'s `pure { … }`,
+and making it expressible would be a language addition.
 
-**User-facing text stays in payload/row vocabulary**: carrier machinery names (`ThrowCarrier`, `AbortCarrier`, …)
-and the `Id[X]` payload wrapper are never rendered to users. One inverter does it — `effect/EffectRowRendering`
-driven by `EffectCarrierNaming.abilityNameOfCarrier` — used by `monomorphize/fact/GroundValueRenderer` (LSP hover,
-ability-demand diagnostics) and `unify/SemValuePrinter` (`Expected:`/`Actual:` lines), so a carrier stack always
-reads as the pinned row that spells it (`{Abort | IO} String`). **Recognizing carrier-ness by name is sanctioned
-here and nowhere else** — a misrendering is cosmetic, the same guess in the checker miscompiles. Two deliberate
-rules: `Id[X]` is erased to `X`, but an `Id` **row base is kept** (`{Throw[E] | Id} A` is legal surface and is
-*not* the open row `{Throw[E]} A`). The one demand with a story rather than a name — `Suspend` at `Id` — gets a
-purpose-built message. A consumer of a **pre-`WovenValue`** fact must still Id-normalize its input, since
-rendering hides the names but not the inserted machinery *nodes*.
+**Cornerstone fidelity**: this is *more* types-are-values-faithful than the carrier was, not less — a phantom binder
+is an ordinary generic binder, an implementation is an ordinary ground value in `typeArguments`, specialisation is
+the ordinary monomorphization key, and effect flow is ordinary instantiation. No side channel does type-like work
+behind the type system's back, and no kind or sort is added to the type language: the value/computation separation
+lives in the judgment's second channel, exactly like an `Int`'s refinement range.
 
 ## Language Cornerstone: Total by Default (No Recursion; `Inf` is the Opt-Out)
 
@@ -605,16 +564,16 @@ negative-recursive `data`), and **purity** (no mutable cells — Landin's knot; 
 `termination/PurityGuardTest`). With a recursion-free typed core, **every program terminates by default**
 (System T, not PCF) — modulo the already-accepted `Type:Type`/Girard residual.
 
-The one opt-out is **`Inf`**, modelled as an ordinary effect *ability*
-(`ability Inf[F[_]] { def forever(step: F[Unit]): {Inf} Unit }`, ambient like all of `eliot.effect`) rather than a
-bespoke termination lattice — there is **no `Terminating` token**; termination is simply `Inf`'s *absence* from
-the effect row. Because a recursion-free core cannot itself diverge, `Inf` can **only originate on a native**, and
-it propagates to callers for free through the existing `derived ⊆ declared` subset check — a `{Console}`-only
-function calling `forever` is rejected. `Inf` is **run, not discharged**: it is the one effect that may
-legitimately reach `main` undischarged (the jvm layer's `implement Inf[IO]` realizes `forever` as a `while(true)`
-loop), where it denotes a deliberate non-terminating program — a server or firmware super-loop. Higher-order
-propagation is automatic: `Inf` rides the shared carrier like any effect (the function-coloring win — one
-effect-transparent combinator is `Inf`-iff-its-step-is), with no per-arrow bit. Deferred, needing foundations that
+The one opt-out is **`Inf`**, modelled as an ordinary **effect**
+(`effect Inf { def forever(step: {} Unit): Unit }`, ambient like all of `eliot.effect`) rather than a bespoke
+termination lattice — there is **no `Terminating` token**; termination is simply `Inf`'s *absence* from the effect
+row. Because a recursion-free core cannot itself diverge, `Inf` can **only originate on a native** (the loop
+primitive, `foreverInternal`), and it propagates to callers for free through the ordinary scope check — a
+`{Console}`-only function calling `forever` is rejected at that reference. `Inf` is **run, not discharged**: it is
+the one effect that may legitimately reach `main` undischarged, where the run boundary binds the jvm layer's
+`implement Inf` (`while(true)`) and it denotes a deliberate non-terminating program — a server or firmware
+super-loop. Higher-order propagation is automatic: `forever`'s `step` is a `{}` slot, so an effect-transparent
+combinator is `Inf`-iff-its-step-is, with no per-arrow bit. Deferred, needing foundations that
 do not yet exist: WCET/resource bounds, optional size-indexing, a *timeout*-based bound on `{Inf}` (needs a time
 type), and linearity for in-place mutation.
 
