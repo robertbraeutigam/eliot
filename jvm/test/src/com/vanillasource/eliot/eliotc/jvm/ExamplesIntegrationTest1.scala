@@ -18,35 +18,36 @@ def main: {Console} Unit = printLine("Hello World!")""")
   // `Effect[IO]` op resolved at the concrete use site (the carrier is not in `echo`'s declared effect set); `readLine`
   // and `printLine` resolve through the constrained HKT instance `implement[F[_] ~ Suspend] Console[F]` at `F := IO`, which
   // in turn discharges `Suspend[IO]`. `main` commits to the concrete runnable carrier `IO[Unit]` (Decision 8).
-  "console effect" should "read a line and echo it through the Console -> Suspend -> IO layering" in {
+  "console effect" should "read a line and echo it" in {
     compileAndRun(
       """import eliot.effect.Console
         |
         |def orEmpty(o: Option[String]): String = o.orAbort else ""
         |
-        |def echo: {Console} Unit = flatMap(s -> printLine(orEmpty(s)), readLine)
+        |def echo: {Console} Unit = printLine(orEmpty(readLine))
         |
         |def main: {Console} Unit = echo""".stripMargin,
       stdin = "echoed line\n"
     ).asserting(_ shouldBe "echoed line")
   }
 
-  // `printLine` is now the `Console` effect's method, generic over any `Suspend` carrier — yet a plain `main : IO[Unit]`
-  // still resolves it at `F := IO` (the `Console[IO]` instance rides the base `Suspend[IO]`), so the original HelloWorld
-  // keeps working unchanged.
-  it should "still print a literal via the Console effect at a concrete IO main" in {
+  // `printLine` is the `Console` effect's operation, so the original HelloWorld is a `{Console}` program and keeps
+  // working unchanged.
+  it should "still print a literal via the Console effect" in {
     compileAndRun("""import eliot.effect.Console
 def main: {Console} Unit = printLine("Hello World!")""")
       .asserting(_ shouldBe "Hello World!")
   }
 
-  // A `{Console}` business function is carrier-polymorphic; pinning it at the call site (`main : IO[Unit] = greet`)
-  // infers `F := IO` and resolves both effect operations through the layering.
-  it should "run a carrier-polymorphic {Console} function pinned to IO at the call site" in {
+  // A `{Console}` business function reached from `main`: both operations run on the implementation the boundary binds.
+  it should "run a {Console} function reached from main" in {
     compileAndRun(
       """import eliot.effect.Console
         |
-        |def greet: {Console} Unit = flatMap(ignore -> printLine("b"), printLine("a"))
+        |def greet: {Console} Unit = {
+        |   printLine("a")
+        |   printLine("b")
+        |}
         |
         |def main: {Console} Unit = greet""".stripMargin
     ).asserting(_ shouldBe "a\nb")
@@ -55,7 +56,7 @@ def main: {Console} Unit = printLine("Hello World!")""")
   // The `private` leaf native behind `printLine` is unreachable from application code: naming it across the module
   // boundary is refused by the resolver (the fail-safe that keeps untracked I/O impossible).
   "the private I/O leaf" should "be unreachable from application code" in {
-    compileForErrors("""def main: {Console} Unit = IO(_ -> eliot.effect.Console::printLineInternal("x"))""")
+    compileForErrors("""def main: {Console} Unit = eliot.effect.Console::printLineInternal("x")""")
       .asserting(_ should include("Name is private."))
   }
 
@@ -89,41 +90,10 @@ def main: {Console} Unit = printLine("Hello World!")""")
     ).asserting(_ shouldBe "carrier line")
   }
 
-  // Already-monadic code is left untouched (the rewrite is idempotent): the hand-written `flatMap` still compiles and
-  // runs exactly as before, proving auto-lift does not double-bind a stored effect action.
-  it should "leave already-monadic flatMap code unchanged" in {
-    compileAndRun(
-      """import eliot.effect.Console
-        |
-        |def orEmpty(o: Option[String]): String = o.orAbort else ""
-        |
-        |def echo: {Console} Unit = flatMap(s -> printLine(orEmpty(s)), readLine)
-        |
-        |def main: {Console} Unit = echo""".stripMargin,
-      stdin = "still works\n"
-    ).asserting(_ shouldBe "still works")
-  }
-
-  // `readLine.flatMap(f)` is `.(readLine, flatMap(f))`, and `.`'s subject slot is the plain generic `a: A`
-  // (`def .[A, B](a: A, f: A => {Effect} B): {Effect} B`). Passing a computation through it is what §1 rule 4
-  // forbids — an effect passes through a position only if that position declares one — so this spelling is
-  // **rejected**, exactly as `p.runStateToPair(s0)` is. The subject is run where it is written (rule 1) and
-  // `flatMap`'s carrier-typed storage slot then has a payload where it wanted the computation. The direct call
-  // above (`flatMap(f, readLine)`) is the spelling that works, its `fa: F[A]` slot being carrier-typed.
-  //
-  // It used to read as green: the compile failed, no jar was written, and the previous test's jar — an echo
-  // program, fed this test's own stdin — answered with the expected text.
-  it should "reject an ability method chained on an abstract carrier via the dot operator" in {
-    compileForErrors(
-      """import eliot.effect.Console
-        |
-        |def orEmpty(o: Option[String]): String = o.orAbort else ""
-        |
-        |def echo: {Console} Unit = readLine.flatMap(line -> printLine(orEmpty(line)))
-        |
-        |def main: {Console} Unit = echo""".stripMargin
-    ).asserting(_ should include("Type mismatch."))
-  }
+  // Two cases stood here and have no v6 subject: hand-written `flatMap` code left untouched by the auto-lift (there
+  // is no auto-lift and no `flatMap`), and the rejection of `readLine.flatMap(f)` — a computation passed through the
+  // dot's plain-generic subject slot. Neither shape can be written any more; what the second one guarded, that an
+  // effect only passes through a position declaring one, is rule 4 and is guarded by the scope check.
 
   // The dual case: an effectful subject dotted into a *plain-value* function (`readLine.shout`, `shout(s: Option[String])`)
   // must still bind — the inlined `shout(readLine)` sequences `readLine` into `shout`'s plain slot. Proves the inlining
@@ -167,38 +137,10 @@ def main: {Console} Unit = printLine("Hello World!")""")
   // A user-defined pipe with `.`'s shape, but declaring no row anywhere (`|>[A, B](a: A, f: A => B): B`): handing it
   // a computation is the same §1 rule-4 violation as the dot above, and here the elaborator names the slot itself
   // rather than leaving a type mismatch downstream. Rule 4 is what makes the two spellings agree — the decision is
-  // read from declarations, not from the operator.
-  it should "reject an ability method chained through a user-defined pipe operator" in {
-    compileForErrors(
-      """import eliot.effect.Console
-        |
-        |infix left below apply def |>[A, B](a: A, f: A => B): B = f(a)
-        |
-        |def orEmpty(o: Option[String]): String = o.orAbort else ""
-        |
-        |def echo: {Console} Unit = readLine |> flatMap(line -> printLine(orEmpty(line)))
-        |
-        |def main: {Console} Unit = echo""".stripMargin
-    ).asserting(_ should include("declares no effect row"))
-  }
+  // The two pipe rejections that stood here — `readLine |> flatMap(f)` through a user-defined operator and through a
+  // plain function — went with `flatMap`. The rule they guarded (an effect passes through a position only if that
+  // position declares one) is unchanged and is what the scope check reports; the shape they used to write it is gone.
 
-  // The non-infix twin — an ordinary named function with the identical signature — rejected identically, which is
-  // what "read from declarations" means: no operator plumbing takes part in the decision.
-  it should "reject an ability method chained through a non-infix pipe function" in {
-    compileForErrors(
-      """import eliot.effect.Console
-        |
-        |def pipe[A, B](a: A, f: A => B): B = f(a)
-        |
-        |def orEmpty(o: Option[String]): String = o.orAbort else ""
-        |
-        |def echo: {Console} Unit = pipe(readLine, flatMap(line -> printLine(orEmpty(line))))
-        |
-        |def main: {Console} Unit = echo""".stripMargin
-    ).asserting(_ should include("declares no effect row"))
-  }
-
-  // The bind direction through the same user pipe: the subject flows into a *concrete* `String` slot, so the deferred
   // flex slot rigidifies and the subject is sequenced.
   it should "bind an effectful subject piped into a concrete slot" in {
     compileAndRun(
@@ -218,21 +160,9 @@ def main: {Console} Unit = printLine("Hello World!")""")
   // Author-written machinery into a pure slot is a §1 rule-4 violation, and has been rejected since A.11.7-X:
   // `printLine`'s parameter is a plain `String`, which declares no effect row, so a computation may not land there.
   // The tree used to accept it — the checker hoisted it into a real `IO.pure` + `IO.flatMap` round trip for a string
-  // the caller already held.
-  it should "reject author-written machinery flowing into a pure slot" in {
-    compileForErrors(
-      """import eliot.effect.Console
-        |
-        |def echo: {Console} Unit = printLine(pure("lifted"))
-        |
-        |def main: {Console} Unit = echo""".stripMargin
-    ).asserting(_ should include("argument 1 of 'printLine' declares no effect row"))
-  }
+  // "Author-written machinery flowing into a pure slot" (`printLine(pure("lifted"))`) has no v6 subject: there is no
+  // machinery to write. `pure`/`flatMap`/`map` were the carrier's, and nothing replaces them.
 
-  // A **constructor class** — an ability over a type constructor that is not an effect. Its shape is exactly an effect
-  // ability's (a higher-kinded binder its methods' types mention), and it was read as one: the row derivation charged
-  // every use of `unwrap`/`wrap` with the effect `Ctr`, so this program was rejected with "performs the effect 'Ctr'
-  // but does not declare it" and there was no spelling that made it compile. Effect-ness is declared per method now,
   // with a row, and `Ctr` declares none.
   "a constructor-class ability" should "perform no effect, and drop into pure code" in {
     compileAndRun(
