@@ -1532,13 +1532,13 @@ four lived there.
   saturation demands the value it names. `eliot-test` is not yet moved.
 - **F8 — the gate** (§8): behavioural identity on every example, tests green, the fake examples and
   integration classes with no minted carrier, the single-word `eliot-test` case, seam resolution, the size
-  and instruction-count difference stated in the commit. **Behavioural identity is met** (see "where it stands"):
-  every example the two trees share exits the same and prints the same, on every commit. The **fake carrier is gone
-  from the suites too** — `ExamplesIntegrationTest1`'s testing group is a named implementation now
-  (`implement session: Terminal { … }` + `greet with session`, with the harness taking the program at a `with`-bound
-  slot type), which is the same claim made the v6 way rather than a deletion. What is left of the gate is the
-  remaining **100** failing tests, the `eliot-test` move, and stating the size difference. **The one size measurement
-  so far:** the synthesized entry point is 7 instructions rather than 8, having lost its `runMain` call.
+  and instruction-count difference stated in the commit. **Behavioural identity is met and the tests are green**
+  (see "where it stands"). The **fake carrier is gone from the suites too** — `ExamplesIntegrationTest1`'s testing
+  group is a named implementation (`implement session: Terminal { … }` + `greet with session`, with the harness taking
+  the program at a `with`-bound slot type), and `AbilityConstraintDeclinationTest`, whose whole subject was carrier
+  substitution, is `FakeImplementationIntegrationTest`: the same claims, made the v6 way. What is left of the gate is
+  the `eliot-test` move and stating the size difference. **The one size measurement so far:** the synthesized entry
+  point is 7 instructions rather than 8, having lost its `runMain` call.
 
   **What is left, by suite** (2026-09-09), so the next session starts from the shape rather than the count:
   `MonomorphicTypeCheckTest` 13 (the `Int`-arithmetic and W2b guard cases), `CompilerAbilityResolutionTest` 10 (the
