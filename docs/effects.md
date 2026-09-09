@@ -1385,8 +1385,9 @@ moved: §8's behavioural identity, re-read on every commit.
 to `.v6/baseline.txt` on every example the two trees share — same exit code, same stdout, all 44 jars — with only the
 three module-level differences F7 made on purpose (`EffectAbilitySet` deleted with the effect-set feature,
 `EffectsFakeCarrier` replaced by `EffectsNamedEffect`). That identity held on every intermediate commit, not only at
-the end. Failing Scala tests are down from **524 to 100**, and what remains is per-suite decisions of the same kind
-already made, not a blocked mechanism. F8's size statement and F9's documents are what is left of the plan.
+the end, and the Scala suites are green — 1,680 tests, from 524 failing at the start of the flag day. The **size
+difference is now stated** (F8 below): a third smaller, whole-tree. The `eliot-test` move and F9's documents are what
+is left of the plan.
 
 **What the gate could not see, and what that cost.** §8 reads the examples, and no example writes a guarded return
 type, a `foreach`, a `catch` with an ignoring handler, or a stored computation. Four real defects hid in exactly that
@@ -1537,16 +1538,37 @@ four lived there.
   group is a named implementation (`implement session: Terminal { … }` + `greet with session`, with the harness taking
   the program at a `with`-bound slot type), and `AbilityConstraintDeclinationTest`, whose whole subject was carrier
   substitution, is `FakeImplementationIntegrationTest`: the same claims, made the v6 way. What is left of the gate is
-  the `eliot-test` move and stating the size difference. **The one size measurement so far:** the synthesized entry
-  point is 7 instructions rather than 8, having lost its `runMain` call.
+  the `eliot-test` move.
 
-  **What is left, by suite** (2026-09-09), so the next session starts from the shape rather than the count:
-  `MonomorphicTypeCheckTest` 13 (the `Int`-arithmetic and W2b guard cases), `CompilerAbilityResolutionTest` 10 (the
-  compile-track `Either` carrier — no subject left, so the suite is a deletion), `TerminationIntegrationTest` 8,
-  `OperatorResolverProcessorTest` 7 (pinned rows), `FileIoIntegrationTest` 7,
-  `AbilityConstraintDeclinationTest` 6 (the `~ Suspend` declination, whose premise went with `Suspend`),
-  `TypeHintIndexCompileTest` 6, `AbilityImplementationCheckProcessorTest` 5, `SystemIoIntegrationTest` 5, and a tail
-  of ones and twos.
+  **The size difference, stated (2026-09-09).** Swept at `0a2f7c01` with `scripts/example-sweep.sh` against
+  `.v6/baseline.txt`, like-for-like over the **44** modules the two trees share — `EffectAbilitySet` is deleted on
+  purpose, and `EffectsFakeCarrier` is matched to its rename `EffectsNamedEffect`:
+
+  | | baseline | v6 | |
+  |---|---:|---:|---:|
+  | jar bytes | 918,686 | 600,432 | **−34.6%** |
+  | classes | 1,683 | 1,114 | **−33.8%** |
+  | instructions | 25,924 | 17,174 | **−33.8%** |
+  | the programs' own classes | 2,804 | 2,560 | −8.7% |
+  | synthesized entry stubs | 352 (8 each) | 308 (7 each) | −12.5% |
+
+  A third of the emitted program is gone, and it is the carrier: no `IO`, no `Id`, no `*Carrier` type, no `Effect`
+  instance and no `map`/`flatMap`/`pure` chain to thread one. The floor is flat — **21 of the 44 modules lose exactly
+  109 or 110 instructions** whatever else they do, which is what every program used to carry whether or not it
+  performed an effect, and **no module is unchanged**. `HelloWorld` is 132 → 23.
+
+  **Two modules grew, and both are explained.** `IfDemo` +222 (1,711 → 1,933, +19 classes) is §9.7's specialisation
+  working as designed, charged to the one program written to exercise every form of `if..else`: it discharges `Abort`
+  at three payload types (`Unit`, `String`, `Option[String]`), and `else` and `runAbort` are emitted **per
+  instantiation**, so 18 of its 19 extra classes are exactly those two dischargers × three types × three lambdas. Its
+  own class grows +167 for the thunk lambdas its suspended slots bind, where v5 built an `AbortCarrier` value instead.
+  That is the trade the −34.6% is made of, and a program discharging at one type pays none of it — `EffectsAbort` is
+  792 → 416. `Intervals` +13 (+0.9%, +1 class) has no effect machinery at all and its own class *shrank* by one
+  instruction; the difference is the F7 tree change where a combinator's return row disappears
+  (`foldBound[T, B](…): B`, not `{} B`), not a cost of the mechanism.
+
+  So there is no regression to accept: the aggregate is a third smaller, and the one real grower is the priced
+  mechanism rather than a surprise.
 
   **Two traps worth carrying forward.** `ProcessorTest` needs an `Implementation` stub (`type Default`) or every
   snippet calling an ability method loses its monomorphization **silently, with no error at all** — the write puts
