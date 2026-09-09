@@ -68,7 +68,8 @@ class JvmPlugin extends CompilerPlugin {
           )
           .updatedWith(
             RunBoundaryFunctions.configKey,
-            boundaries => (boundaries.getOrElse(Set.empty) + SyntheticMainSourceProcessor.syntheticMainVfqn).some
+            boundaries =>
+              (boundaries.getOrElse(Seq.empty) :+ ((_: ValueFQN) == SyntheticMainSourceProcessor.syntheticMainVfqn)).some
           )
       else configuration)
         .updatedWith(

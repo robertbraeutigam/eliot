@@ -37,7 +37,7 @@ import scala.collection.mutable
   * its own definition aborted upstream, and a reference the write cannot read is simply left alone — the fail-safe
   * direction, since an unwritten binder is caught by the checker rather than silently defaulted.
   */
-class RowElaborationProcessor(runBoundaryFunctions: Set[ValueFQN] = Set.empty)
+class RowElaborationProcessor(isRunBoundary: ValueFQN => Boolean = _ => false)
     extends TransformationProcessor[RecursionCheckedValue.Key, RowElaboratedValue.Key](key =>
       RecursionCheckedValue.Key(key.vfqn, key.platform)
     ) {
@@ -49,7 +49,7 @@ class RowElaborationProcessor(runBoundaryFunctions: Set[ValueFQN] = Set.empty)
     val value = recursionChecked.value
     for {
       universe <- universeFor(value, key.platform)
-      written   = BindingWriter.write(value, universe, runBoundaryFunctions.contains(value.vfqn))
+      written   = BindingWriter.write(value, universe, isRunBoundary(value.vfqn))
       _        <- report(written).whenA(key.platform == Platform.Runtime)
     } yield RowElaboratedValue(written.value)
   }
@@ -76,7 +76,7 @@ class RowElaborationProcessor(runBoundaryFunctions: Set[ValueFQN] = Set.empty)
     ): CompilerIO[RowChecker.Universe] = {
       val missed    = mutable.Set.empty[ValueFQN]
       val reporting = RowChecker.Universe(known, Set.empty, fqn => { missed += fqn; () })
-      BindingWriter.write(value, reporting, runBoundaryFunctions.contains(value.vfqn))
+      BindingWriter.write(value, reporting, isRunBoundary(value.vfqn))
       val fresh     = missed.toSet -- attempted
       if (fresh.isEmpty) RowChecker.Universe(known).pure[CompilerIO]
       else

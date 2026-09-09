@@ -72,12 +72,12 @@ class LspPlugin(vfs: VirtualFileSystem) extends CompilerPlugin with Logging {
           PathScanner.extraRuntimeMountsKey,
           mounts => (mounts.getOrElse(Seq.empty) :+ new LspMainRootMount).some
         )
-        // The wrapper roots call the jvm layer's `runMain`; register it as the platform run boundary exactly as the
-        // jvm plugin does, so its carrier capture is recognised here too (the wrapper is not a program that performs
-        // the wrapped module's effects — it *runs* them).
+        // Every wrapper root is a run boundary, exactly as the jvm plugin's synthesized entry is: the wrapper does not
+        // perform the wrapped module's effects, it is where their chain ends. There is one per module in the workspace
+        // and they cannot be enumerated up front, which is why the registration is a predicate.
         .updatedWith(
           RunBoundaryFunctions.configKey,
-          boundaries => (boundaries.getOrElse(Set.empty) + LspMainRootSourceProcessor.runBoundaryVfqn).some
+          boundaries => (boundaries.getOrElse(Seq.empty) :+ LspMainRootSourceProcessor.isRunBoundary).some
         )
     )
 

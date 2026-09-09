@@ -36,7 +36,8 @@ class CompletionIndexCompileTest extends AsyncFlatSpec with AsyncIOSpec with Mat
   }
 
   it should "offer ambient type names that never appear literally in the file" in {
-    completionNames.asserting(_ should contain allOf ("Int", "String", "IO"))
+    // `IO` was here until effects v6 deleted it: there is no carrier, so the platform ships no such type.
+    completionNames.asserting(_ should contain allOf ("Int", "String", "Bool"))
   }
 
   it should "not offer a name that is out of scope" in {

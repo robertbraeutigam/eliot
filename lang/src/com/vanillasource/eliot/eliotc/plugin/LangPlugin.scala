@@ -101,7 +101,7 @@ class LangPlugin extends CompilerPlugin {
               configuration.getOrElse(ContributedBinding.extraNativeLabelsKey, Set.empty[String]).toSeq,
             // The run-boundary carrier captures (carrier-recognition source (ii)): the jvm plugin registers
             // `eliot.jvm::runMain` in its configure(), which is already final here. Empty when no platform contributes one.
-            runBoundaryFunctions = configuration.getOrElse(RunBoundaryFunctions.configKey, Set.empty)
+            isRunBoundary = RunBoundaryFunctions.predicate(configuration.getOrElse(RunBoundaryFunctions.configKey, Seq.empty))
           )
         )
       )

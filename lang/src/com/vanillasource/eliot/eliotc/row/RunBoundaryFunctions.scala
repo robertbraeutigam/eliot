@@ -21,11 +21,18 @@ import com.vanillasource.eliot.eliotc.plugin.Configuration
   */
 object RunBoundaryFunctions {
 
-  /** The set of boundary value FQNs a platform layer contributes in its `configure()` (the jvm plugin adds the
-    * synthesized `main::main`). `LangPlugin.initialize` reads it — all `configure()`s complete before any
-    * `initialize` — and threads it to the row phase via `LangProcessors`.
+  /** The boundary **predicates** a platform layer contributes in its `configure()`. The jvm plugin contributes the one
+    * synthesized `main::main`; the LSP contributes a family, since it mounts one wrapper per module in the workspace
+    * and cannot enumerate them ahead of time. A predicate is what covers both without a second mechanism.
+    *
+    * `LangPlugin.initialize` reads them — all `configure()`s complete before any `initialize` — and threads the
+    * disjunction to the row phase via `LangProcessors`.
     */
-  // Opaque to the cache identity: this set is a deterministic function of the active plugin set (fixed within a
+  // Opaque to the cache identity: these are a deterministic function of the active plugin set (fixed within a
   // compiler build, and covered by the compiler fingerprint) and the selected `main`, which already contributes.
-  val configKey: Configuration.Key[Set[ValueFQN]] = Configuration.opaqueKey("runBoundaryFunctions")
+  val configKey: Configuration.Key[Seq[ValueFQN => Boolean]] = Configuration.opaqueKey("runBoundaryFunctions")
+
+  /** The one predicate the row phase reads: a value is a boundary iff some platform says so. */
+  def predicate(contributions: Seq[ValueFQN => Boolean]): ValueFQN => Boolean =
+    vfqn => contributions.exists(_(vfqn))
 }

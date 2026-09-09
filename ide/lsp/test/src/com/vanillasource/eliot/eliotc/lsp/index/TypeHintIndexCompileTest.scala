@@ -23,10 +23,12 @@ import scala.jdk.CollectionConverters.*
   * LangPlugin, StdlibPlugin; no JVM backend); [[LspPlugin]] demands `UsedNames(main)`, which forces a
   * [[MonomorphicValue]] for every reachable instantiation, and the index is built from those facts exactly as the
   * service builds it. `greeting`'s body exercises a string literal and a call; `main`'s body exercises a whole-value
-  * reference whose type is the value's signature; `guarded` exercises a carrier stack over `IO`; and `parsed` / `sign`
-  * exercise **discharge-to-pure**, where the checker settles the residual carrier to `Id` and splices its machinery
-  * (`runId`, `pure@Effect[Id]`) at the user's own source ranges — the shape that makes the §9 "no carrier machinery in
-  * hover" gate non-trivial.
+  * reference whose type is the value's signature; `guarded` exercises a computation *captured* by a discharger, which
+  * effects v6 renders as the thunk it is; and `parsed` / `sign` exercise discharge under a pure return.
+  *
+  * The machinery sweeps stay, and are the reason the suite exists: nothing the checker inserts may reach a user. Under
+  * v6 there is no carrier machinery left to insert, so they are a standing net rather than a live hazard — which is
+  * exactly when a net is worth keeping.
   */
 class TypeHintIndexCompileTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
   private val imports     = "import eliot.effect.Console\nimport eliot.effect.Throw"
@@ -59,24 +61,26 @@ class TypeHintIndexCompileTest extends AsyncFlatSpec with AsyncIOSpec with Match
   }
 
   it should "report the monomorphic function type at a value reference" in {
-    renderedTypesAt(printLinePosition).asserting(_ shouldBe Seq("String -> IO[Unit]"))
+    renderedTypesAt(printLinePosition).asserting(_ shouldBe Seq("String -> Unit"))
   }
 
   // The reference sits on a block statement line, so the block's lowering (a tower of immediately-applied lambdas)
   // contributes co-located application nodes; the value's own hint is among them.
   it should "report a whole value's type at a reference to it" in {
-    renderedTypesAt(greetingPosition).asserting(_ should contain("IO[Unit]"))
+    renderedTypesAt(greetingPosition).asserting(_ should contain("Unit"))
   }
 
-  it should "render a concrete carrier stack as its pinned effect row" in {
-    renderedTypesAt(guardedPosition).asserting(_ shouldBe Seq("{Throw[String] | IO} String"))
+  // A computation delivered to a discharger's slot is a **thunk** under effects v6 — the row lowers to `Unit -> A` —
+  // and that is what hover shows. There is no carrier stack to render as a pinned row any more, and no inverter to
+  // render it with; what the user sees is the type the program actually has.
+  it should "render a captured computation as the thunk it is" in {
+    renderedTypesAt(guardedPosition).asserting(_ should contain("Unit -> String"))
   }
 
-  // The `Id` *base* is kept on purpose: `{Throw[String] | Id} String` is the legal surface spelling of a stack pinned
-  // to the pure base, and it is a different type from the open row `{Throw[String]} String`. What must never surface
-  // is carrier machinery — see the sweep below.
-  it should "render a stack over the pure base as a row pinned to Id" in {
-    renderedTypesAt(pureGuardedPosition).asserting(_ shouldBe Seq("{Throw[String] | Id} String"))
+  // The same capture under a *pure* return reads identically, which is the point: discharge is a runtime frame now,
+  // so nothing about the enclosing definition's own row changes the type at this position.
+  it should "render the same thunk for a capture under a pure return" in {
+    renderedTypesAt(pureGuardedPosition).asserting(_ should contain("Unit -> String"))
   }
 
   /** The effects-as-channel §9 gate: hover never shows carrier machinery. Swept over *every* position of the
@@ -92,10 +96,10 @@ class TypeHintIndexCompileTest extends AsyncFlatSpec with AsyncIOSpec with Match
     renderedTypesAcross(signLineNumber, signLine.length).asserting(_.filter(machinery) shouldBe Seq.empty)
   }
 
-  // The same sweep, positively: the `{Abort}` the `else` discharges *is* present at that line, rendered as a row. Without
-  // this the machinery assertion above would also pass on a line the index simply failed to cover.
-  it should "render the discharged row of an if..else at the line it is written" in {
-    renderedTypesAcross(signLineNumber, signLine.length).asserting(_ should contain("{Abort | Id} String"))
+  // The same sweep, positively: the computation `else` discharges *is* present at that line, as the thunk it lowers
+  // to. Without this the machinery assertion above would also pass on a line the index simply failed to cover.
+  it should "render the discharged computation of an if..else at the line it is written" in {
+    renderedTypesAcross(signLineNumber, signLine.length).asserting(_ should contain("Unit -> String"))
   }
 
   it should "report nothing where there is no expression node" in {
