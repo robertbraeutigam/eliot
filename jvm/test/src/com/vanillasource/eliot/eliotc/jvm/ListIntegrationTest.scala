@@ -134,7 +134,7 @@ class ListIntegrationTest extends FullIntegrationTest {
         |
         |def joinAll(list: List[String]): String = list.foldLeft("", e -> acc -> acc ++ e)
         |
-        |def main: {Console} Unit = printLine(joinAll(digits.map(show)))""".stripMargin
+        |def main: {Console} Unit = printLine(joinAll(digits.map(n -> show(n))))""".stripMargin
     ).asserting(_ shouldBe "123")
   }
 
@@ -172,7 +172,7 @@ class ListIntegrationTest extends FullIntegrationTest {
         |
         |def joinAll(list: List[String]): String = list.foldLeft("", e -> acc -> acc ++ e)
         |
-        |def main: {Console} Unit = printLine(joinAll(digits.filter(e -> e > 2).map(show)))""".stripMargin
+        |def main: {Console} Unit = printLine(joinAll(digits.filter(e -> e > 2).map(n -> show(n))))""".stripMargin
     ).asserting(_ shouldBe "34")
   }
 
@@ -186,7 +186,7 @@ class ListIntegrationTest extends FullIntegrationTest {
         |
         |def joinAll(list: List[String]): String = list.foldLeft("", e -> acc -> acc ++ e)
         |
-        |def main: {Console} Unit = printLine(joinAll(digits.reverse.map(show)) ++ joinAll(empty.reverse))""".stripMargin
+        |def main: {Console} Unit = printLine(joinAll(digits.reverse.map(n -> show(n))) ++ joinAll(empty.reverse))""".stripMargin
     ).asserting(_ shouldBe "321")
   }
 

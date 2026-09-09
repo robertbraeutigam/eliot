@@ -11,11 +11,12 @@ package com.vanillasource.eliot.eliotc.jvm
   * monad-transformer lifting pattern (an impl method calling the same-named abstract method on an inner carrier) is not
   * mistaken for recursion.
   *
-  * M2 (higher-order propagation, the function-coloring piece): because `Inf` is an ordinary effect riding the carrier
-  * (M1's design choice), a single effect-transparent higher-order combinator is `Inf`-iff-its-step-is — terminating
+  * M2 (higher-order propagation, the function-coloring piece): because `Inf` is an ordinary effect and a suspended
+  * slot supplies nothing, a single effect-transparent higher-order combinator is `Inf`-iff-its-step-is — terminating
   * over a terminating step, looping over an `Inf` step — with no separate termination lattice and no change to the
-  * combinator. The step's own capability effects union with `Inf` through the shared carrier, an `Inf` action survives
-  * a round-trip through a data field, and the same subset check governs propagation through a higher-order driver.
+  * combinator. The step's own capability effects union with `Inf` at the caller that binds both, an `Inf` action
+  * survives a round-trip through a data field, and the same subset check governs propagation through a higher-order
+  * driver.
   */
 class TerminationIntegrationTest extends FullIntegrationTest {
 
@@ -80,14 +81,12 @@ class TerminationIntegrationTest extends FullIntegrationTest {
     ).asserting(_ should include("recursively"))
   }
 
-  // Signature split, Step 8: the monad-transformer lifting pattern stays accepted end-to-end. `{Abort}` + `else` forces
-  // the compile-time and runtime `AbortCarrier` instances (over `IO`), whose `Effect`/`Abort` method bodies call the
-  // *same-named* abstract ability methods (`pure`/`flatMap`/`abort`) on the inner carrier. Those abstract methods are a
-  // different FQN (`Qualifier.Ability`) from the implementation methods (`Qualifier.AbilityImplementation`) containing
-  // them, so the no-recursion gate — now running on both twins of each such value — does not mistake the lift for
-  // recursion. (The signature twins' recursion check is a structural no-op here; the runtime twins are the classic
-  // ability-method-vs-implementation-method distinction.)
-  "the monad-transformer lifting pattern (an Abort carrier over IO)" should "not be mistaken for recursion" in {
+  // Signature split, Step 8: an implementation method calling the *same-named* abstract ability method is not
+  // recursion. `{Abort}` + `else` forces the platform's `Abort` implementation, whose `abort` body reaches the
+  // primitive through names that are a different FQN (`Qualifier.Ability`) from the implementation methods
+  // (`Qualifier.AbilityImplementation`) containing them, so the no-recursion gate — running on both twins of each
+  // such value — does not mistake the call for a cycle.
+  "an implementation method calling its own ability's method" should "not be mistaken for recursion" in {
     compileAndRun(
       """import eliot.effect.Console
         |import eliot.effect.Abort
@@ -125,29 +124,30 @@ class TerminationIntegrationTest extends FullIntegrationTest {
     ).asserting(_ should include("performs the effect 'Inf'"))
   }
 
-  // Run, don't discharge: an `{Inf}` program is realised on the `IO` carrier and run forever. `main : IO[Unit]` drives
-  // `forever`, whose JVM instance loops the step's deferred block endlessly — the loop never returns, so the test bounds
-  // it and confirms the step ran many times (not just once).
-  "an IO main built from forever over a terminating step" should "run the step endlessly" in {
+  // Run, don't discharge: an `{Inf}` program reaches `main` undischarged and is bound to the platform's `Inf`
+  // implementation at the run boundary, whose `forever` loops the step's thunk endlessly — the loop never returns, so
+  // the test bounds it and confirms the step ran many times (not just once).
+  "a main built from forever over a terminating step" should "run the step endlessly" in {
     compileAndRunBounded(
       """import eliot.effect.Console
         |import eliot.effect.Inf
         |
-        |def main: {Console} Unit = forever(printLine("tick"))""".stripMargin,
+        |def main: {Inf, Console} Unit = forever(printLine("tick"))""".stripMargin,
       timeoutMillis = 400
     ).asserting(_.linesIterator.count(_ == "tick") should be > 5)
   }
 
-  // The same loop reached through a carrier-polymorphic `{Inf, Console}` value pinned to `IO` at `main`: the declared
-  // effect set resolves to the concrete `IO` carrier (the `Inf[IO]` and `Console[IO]` instances) and runs end-to-end.
-  "a carrier-polymorphic {Inf, Console} super-loop pinned to IO at main" should "run endlessly" in {
+  // The same loop reached through an `{Inf, Console}` value: `main` receives both effects, binds each to the
+  // platform's default implementation at the run boundary, and runs end-to-end. `Inf` is the one effect that may
+  // legitimately reach `main` undischarged — it denotes a deliberately non-terminating program.
+  "an {Inf, Console} super-loop reached from main" should "run endlessly" in {
     compileAndRunBounded(
       """import eliot.effect.Console
         |import eliot.effect.Inf
         |
         |def serve: {Inf, Console} Unit = forever(printLine("serving"))
         |
-        |def main: {Console} Unit = serve""".stripMargin,
+        |def main: {Inf, Console} Unit = serve""".stripMargin,
       timeoutMillis = 400
     ).asserting(_.linesIterator.count(_ == "serving") should be > 5)
   }
@@ -160,9 +160,9 @@ class TerminationIntegrationTest extends FullIntegrationTest {
   "a higher-order combinator over a terminating step" should "itself terminate" in {
     compileAndRun(
       """import eliot.effect.Console
-        |def runStep[F[_]](step: Function[Unit, F[Unit]]): F[Unit] = step(unit)
+        |def runStep(step: {} Unit): Unit = step
         |
-        |def main: {Console} Unit = runStep(_ -> printLine("done"))""".stripMargin
+        |def main: {Console} Unit = runStep(printLine("done"))""".stripMargin
     ).asserting(_ shouldBe "done")
   }
 
@@ -174,43 +174,41 @@ class TerminationIntegrationTest extends FullIntegrationTest {
       """import eliot.effect.Console
         |import eliot.effect.Inf
         |
-        |def runStep[F[_]](step: Function[Unit, F[Unit]]): F[Unit] = step(unit)
+        |def runStep(step: {} Unit): Unit = step
         |
-        |def main: {Console} Unit = runStep(_ -> forever(printLine("loop")))""".stripMargin,
+        |def main: {Inf, Console} Unit = runStep(forever(printLine("loop")))""".stripMargin,
       timeoutMillis = 400
     ).asserting(_.linesIterator.count(_ == "loop") should be > 5)
   }
 
   // An `Inf` action stored in a data structure, pulled back out through its field accessor and run, carries its `Inf`
-  // to the caller: the effect rides the carrier `F` of `Box[F]`, so the stored action loops when run — data is only a
-  // courier for the carrier-typed value, it does not launder the effect.
+  // to the caller: a row-typed field is a thunk bound at construction (A7), so the stored action loops when the
+  // accessor's result is run — data is only a courier for the computation, it does not launder the effect.
   "an Inf action stored in data then run through its accessor" should "loop endlessly" in {
     compileAndRunBounded(
       """import eliot.effect.Console
         |import eliot.effect.Inf
         |
-        |data Box(action: IO[Unit])
+        |data Box(action: {Inf, Console} Unit)
         |
-        |def runBox(b: Box): IO[Unit] = action(b)
+        |def runBox(b: Box): {Inf, Console} Unit = action(b)
         |
-        |def main: {Console} Unit = runBox(Box(forever(printLine("boxed"))))""".stripMargin,
+        |def main: {Inf, Console} Unit = runBox(Box(forever(printLine("boxed"))))""".stripMargin,
       timeoutMillis = 400
     ).asserting(_.linesIterator.count(_ == "boxed") should be > 5)
   }
 
   // The claim the test above rests on, made observable: a computation stored in a `data` field is *stored*, not run
-  // at construction (§1 rule 3 — a concrete carrier type is an ordinary type, and its slot hosts the computation).
-  // Until A.11.7-Y shape 1 the elaborator hoisted such an argument, so the effect ran where the value was built and
-  // the accessor's run did nothing; the v2 carrier router `pure`-wrapped the leftover payload back into the declared
-  // type, which is what kept the misplacement type-correct and therefore silent. Without this ordering assertion the
-  // `forever` case above passes either way — it loops at construction just as happily.
+  // at construction (`docs/effects.md` §9.5 "Storage"). Without this ordering assertion the `forever` case above
+  // passes either way — it loops at construction just as happily. Under v6 the field is a thunk and the accessor
+  // hands it back unrun, so what orders the two lines is A7's rule that *reading* the field runs it.
   "an effect stored in a data field" should "run when the accessor's computation is run, not at construction" in {
     compileAndRun(
       """import eliot.effect.Console
         |
-        |data Box(action: IO[Unit])
+        |data Box(action: {Console} Unit)
         |
-        |def runBox(b: Box): IO[Unit] = action(b)
+        |def runBox(b: Box): {Console} Unit = action(b)
         |
         |def main: {Console} Unit = {
         |   val b = Box(printLine("stored"))
@@ -220,19 +218,18 @@ class TerminationIntegrationTest extends FullIntegrationTest {
     ).asserting(_ shouldBe "before\nstored")
   }
 
-  // The same claim in the *other* spelling rule 3 sanctions: a **pinned row** field. A concrete carrier (`IO[Unit]`
-  // above) and a pinned row are the same thing said two ways, so both must store rather than run — but they reached
-  // the elaborator by different routes, and this one arrived untagged: `CoreProcessor` collapsed the field's row to
-  // its carrier stack (`EffectSugarDesugarer.desugar(DataDefinition)`) *before* `DataDefinitionDesugarer` built the
-  // constructor, so the per-function pass had no `{…}` left to read and recorded no pinned parameter. The argument
-  // was then hoisted onto the ambient carrier, which — unlike the concrete-carrier case, where the v2 router made it
-  // type-check silently — failed loudly ("Expected: {Abort | IO} Unit / Actual: IO(Unit)"). The data-level pass now
-  // rewrites open rows only.
-  "an effect stored in a data field spelled as a pinned row" should "also run at the accessor, not at construction" in {
+  // The same claim for a field storing a computation that also carries a *control* effect. A stored row is one
+  // spelling now — v5's pinned `{Abort | IO}` is gone with the carrier — and the ordering must hold for it too: the
+  // field's `Abort` is supplied at construction and discharged where the read is, so what runs between the two
+  // `printLine`s is the read, not the build. This is the shape that arrived untagged before A7: the data-level pass
+  // thunked the field before the split into functions, so the constructor's slot was never a row position and the
+  // argument was charged to the builder.
+  "a control effect stored in a data field" should "also run at the accessor, not at construction" in {
     compileAndRun(
       """import eliot.effect.Console
+        |import eliot.effect.Abort
         |
-        |data Holder(computation: {Abort | IO} Unit)
+        |data Holder(computation: {Abort, Console} Unit)
         |
         |def main: {Console} Unit = {
         |   val h = Holder(if(true, printLine("stored")))
@@ -250,9 +247,9 @@ class TerminationIntegrationTest extends FullIntegrationTest {
       """import eliot.effect.Console
         |import eliot.effect.Inf
         |
-        |def driver(step: {Console} Unit): {Inf, Console} Unit = forever(step)
+        |def driver(step: {} Unit): {Inf, Console} Unit = forever(step)
         |
-        |def main: {Console} Unit = driver(printLine("tick"))""".stripMargin,
+        |def main: {Inf, Console} Unit = driver(printLine("tick"))""".stripMargin,
       timeoutMillis = 400
     ).asserting(_.linesIterator.count(_ == "tick") should be > 5)
   }
@@ -264,7 +261,7 @@ class TerminationIntegrationTest extends FullIntegrationTest {
       """import eliot.effect.Console
         |import eliot.effect.Inf
         |
-        |def driver(step: {Console} Unit): {Console} Unit = forever(step)
+        |def driver(step: {} Unit): {Console} Unit = forever(step)
         |
         |def main: {Console} Unit = driver(printLine("tick"))""".stripMargin
     ).asserting(_ should include("performs the effect 'Inf'"))

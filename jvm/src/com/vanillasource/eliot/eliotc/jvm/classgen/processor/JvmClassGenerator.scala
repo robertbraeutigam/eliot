@@ -218,6 +218,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
       // (a qualifier component, say), which silently reordered every method of every module class and renumbered
       // their constant pools, making the example jars differ from their baseline with no semantic change at all. A
       // jar's members must depend on the program, not on a hash, for byte-identity to mean anything.
+      _                      <- usedValues.toSeq.sortBy(_._1.show).traverse_(verifyIntrinsicSaturation)
       functionFiles          <-
         usedValues.view
           // Intrinsics (`+`/`-`/`*`, `show`, `nativeWiden`) are emitted inline at the call site by
@@ -239,6 +240,34 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                                   )
                                 )
     } yield ()
+
+  /** An intrinsic is emitted **inline** at each call site, which only a *saturated* call can be: the emission indexes
+    * its operands directly, and it has no static method for a closure chain to end at
+    * ([[NativePartialApplication]]'s levels call one). So `digits.map(show)` — handing `show` on as a function — has
+    * nowhere to link, and before this it took the compiler down with a `NoSuchElementException` off an empty argument
+    * list, or (once that was guarded) linked to a method never emitted and died at runtime with `NoSuchMethodError`.
+    *
+    * It is reported here, at the definition, naming the fix: wrap it in a lambda (`digits.map(n -> show(n))`), which
+    * makes the call saturated and costs nothing. The same shape for an ordinary native is *supported* — that is what
+    * [[NativePartialApplication]] is — so this is a gap in the backend rather than a rule of the language; it is a hard
+    * error rather than a silent miscompile until the inline emission can also be reached from a closure frame.
+    */
+  private def verifyIntrinsicSaturation(entry: (ValueFQN, UsageStats)): CompilerIO[Unit] = {
+    val (vfqn, stats) = entry
+    Intrinsics.arity(vfqn).flatMap(full => stats.directCallApplications.keys.filter(_ < full).toSeq.minOption.map(full -> _)) match {
+      case None                => ().pure[CompilerIO]
+      case Some((full, used)) =>
+        getFactOrAbort(UnifiedModuleValue.Key(vfqn)).flatMap(umv =>
+          compilerAbort[Unit](
+            umv.namedValue.qualifiedName.as(
+              s"'${vfqn.name.name}' is a backend intrinsic emitted inline, so it must be applied to all $full of its " +
+                s"arguments; here it is used with $used. Wrap it in a lambda at the use site, as " +
+                s"`x -> ${vfqn.name.name}(x)`."
+            )
+          )
+        )
+    }
+  }
 
   /** Fail-safe enforcement of the I/O boundary: an impure leaf native (e.g. `printLineInternal`) must be declared
     * `private` so no application module can name it and perform untracked I/O. The compiler cannot detect a native's

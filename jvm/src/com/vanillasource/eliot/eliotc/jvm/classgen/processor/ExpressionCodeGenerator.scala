@@ -155,7 +155,11 @@ object ExpressionCodeGenerator {
     typedTarget.expression match {
       // A backend intrinsic is emitted inline *at this node's own stamped width*, so it has no boundary to re-encode.
       // It is the one such shape, and the only reason the two are told apart here rather than inside the emission.
-      case MonomorphicValueReference(sourcedCalledVfqn, typeArgs) if Intrinsics.isIntrinsic(sourcedCalledVfqn.value) =>
+      // Only a **saturated** one: an inline emission indexes its operands directly, so an under-applied intrinsic
+      // (`digits.map(show)`, handing `show` on as a function) falls through to the generic call path, which builds the
+      // partial application the ordinary way.
+      case MonomorphicValueReference(sourcedCalledVfqn, typeArgs)
+          if Intrinsics.isSaturatedIntrinsic(sourcedCalledVfqn.value, arguments.size) =>
         for {
           classes <- generateIntrinsic(
                        moduleName,

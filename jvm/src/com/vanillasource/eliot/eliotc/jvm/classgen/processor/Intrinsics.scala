@@ -1,5 +1,6 @@
 package com.vanillasource.eliot.eliotc.jvm.classgen.processor
 
+import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.module.fact.ModuleName.defaultSystemPackage
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, QualifiedName, Qualifier, ValueFQN}
 
@@ -98,4 +99,24 @@ object Intrinsics {
 
   def isIntrinsic(vfqn: ValueFQN): Boolean =
     all.contains(vfqn) || showIntShow(vfqn) || numericIntArith(vfqn) || intComparison(vfqn)
+
+  /** How many value arguments an intrinsic's inline emission reads, or `None` for a name that is not one.
+    *
+    * An intrinsic is emitted **inline**, so its emission indexes its operands directly and only a *saturated* call can
+    * be emitted that way. Anything else — `digits.map(show)` handing `show` on as a function, a half-applied `&&` — is
+    * an ordinary under-applied reference and takes the generic call path, which already knows how to build the partial
+    * application. Without this the emission read `arguments.head` of an empty list and the compile died with
+    * `NoSuchElementException`, which is why the arity lives here beside the recognition rather than as a check inside
+    * each arm.
+    */
+  def arity(vfqn: ValueFQN): Option[Int] =
+    if (vfqn === boolTrueFQN || vfqn === boolFalseFQN) Some(0)
+    else if (vfqn === boolNotFQN || showIntShow(vfqn)) Some(1)
+    else if (vfqn === boolAndFQN || vfqn === boolOrFQN || numericIntArith(vfqn) || intComparison(vfqn)) Some(2)
+    else if (vfqn === boolFoldFQN) Some(3)
+    else None
+
+  /** Whether this reference is an intrinsic applied to exactly the operands its inline emission reads. */
+  def isSaturatedIntrinsic(vfqn: ValueFQN, argumentCount: Int): Boolean =
+    arity(vfqn).contains(argumentCount)
 }

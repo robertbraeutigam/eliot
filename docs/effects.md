@@ -1618,6 +1618,15 @@ and do not land a narrowed version (standing rule 2).
   `jvm/…/StoredComputationIntegrationTest`; all 45 example jars stay byte-identical, since a `data` that stores no
   computation lowers exactly as before.
 
+- **A9 — an under-applied backend intrinsic has nowhere to link.** An intrinsic is emitted **inline** at each call
+  site, so only a *saturated* call can be emitted at all: the emission indexes its operands directly, and it has no
+  static method for a partial-application closure chain to end at (`NativePartialApplication`'s levels call one). So
+  `digits.map(show)` — handing `show` on as a function — took the compiler down with a `NoSuchElementException` off an
+  empty argument list. It is a hard error at the definition now, naming the fix (`digits.map(n -> show(n))`, which is
+  saturated and costs nothing). The same shape for an ordinary *native* is supported, so this is a gap in the backend
+  rather than a rule of the language; closing it means reaching the inline emission from a closure frame, whose
+  operands are already on the stack, or emitting the intrinsic's full-arity method beside its inline uses.
+
 - **A8 — a guarded return cannot carry its author's message**, because the compile-track `Throw` went with the
   carrier (the reversal recorded at F5). Accepted 2026-09-09 rather than fixed; the route back is keying `Throw`'s
   compile-time frame on a fixed marker the way `Abort` keys on `Aborted`, at the cost of two instantiations sharing
