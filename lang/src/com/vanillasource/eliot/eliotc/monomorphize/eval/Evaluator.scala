@@ -5,6 +5,7 @@ import com.vanillasource.eliot.eliotc.monomorphize.domain.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
 import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
+import scala.util.DynamicVariable
 
 /** Pure, synchronous NbE evaluator. Evaluates ORE syntax into the semantic domain (SemValue) via the shared
   * [[NbeEvaluator]] traversal — it only has to project ORE nodes onto [[NbeEvaluator.Term]], evaluating its ORE
@@ -179,7 +180,28 @@ object Evaluator {
     * `lookupNative` is the checker's binding cache (`vfqn => bindingCache.getOrElse(vfqn, None)`), which already holds
     * every native reachable from the term (prefetched before evaluation).
     */
+  /** The native lookup the innermost [[renormalize]] is running under, for a consumer that has to renormalize from
+    * *inside* an evaluation it did not start — the effect intrinsics' frames
+    * ([[com.vanillasource.eliot.eliotc.monomorphize.processor.EffectIntrinsics]]), which must settle everything that
+    * crosses a frame boundary while the frame is still installed, natives included.
+    *
+    * Dynamically scoped and installed only at the *outermost* call, so a recursive descent costs one reference
+    * comparison rather than a thread-local write per node.
+    */
+  val defaultNativeLookup: ValueFQN => Option[SemValue] = _ => None
+
+  val currentNativeLookup: DynamicVariable[ValueFQN => Option[SemValue]] = new DynamicVariable(defaultNativeLookup)
+
   def renormalize(
+      v: SemValue,
+      metaStore: MetaStore,
+      lookupNative: ValueFQN => Option[SemValue],
+      deep: Boolean = false
+  ): SemValue =
+    if (currentNativeLookup.value eq lookupNative) renormalizeUnder(v, metaStore, lookupNative, deep)
+    else currentNativeLookup.withValue(lookupNative)(renormalizeUnder(v, metaStore, lookupNative, deep))
+
+  private def renormalizeUnder(
       v: SemValue,
       metaStore: MetaStore,
       lookupNative: ValueFQN => Option[SemValue],

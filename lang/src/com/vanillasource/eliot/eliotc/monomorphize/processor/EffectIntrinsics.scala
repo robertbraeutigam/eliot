@@ -110,9 +110,21 @@ object EffectIntrinsics {
     frames.value.collectFirst { case frame: CellFrame if ConcreteNormalForm.equal(frame.key, key) => frame }
 
   /** Force a value that is about to cross a frame boundary, so every pending application inside it runs while the frame
-    * is still installed. No native lookup: a stuck native is legitimately stuck, and re-firing is the checker's business.
+    * is still installed — **natives included**, under the lookup the enclosing evaluation is running with
+    * ([[Evaluator.currentNativeLookup]]).
+    *
+    * It passed no lookup at first, on the reasoning that "a stuck native is legitimately stuck and re-firing is the
+    * checker's business". Inside a frame there is no later pass to re-fire it in: the frame is gone by the time the
+    * checker looks again. So a condition computed by a native — `s == "/api"`, any comparison, any arithmetic — stayed
+    * stuck, its `fold` never chose an arm, and the whole frame reduced to a stuck value that read back as a *false*
+    * guard rather than as an error. That is the fail-safe direction, which is why it was invisible: the program
+    * compiled and simply selected the other implementation. Measured 2026-09-09 against a bodied condition, which
+    * reduced where the native one did not.
+    *
+    * Re-firing can only ever reduce further: [[Evaluator.renormalize]] keeps a native stuck when it does not fire.
     */
-  private def settle(v: SemValue): SemValue = Evaluator.renormalize(v, MetaStore.empty, _ => None)
+  private def settle(v: SemValue): SemValue =
+    Evaluator.renormalize(v, MetaStore.empty, Evaluator.currentNativeLookup.value)
 
   // ----------------------------------------------------------------------------------------------------------------
   // escape
@@ -128,9 +140,23 @@ object EffectIntrinsics {
     if (!ConcreteNormalForm.isConcrete(key)) VStuckNative.of(escapeFQN, key, body)
     else {
       val frame = new EscapeFrame(key)
-      try right(inFrame(frame)(settle(Evaluator.applyValue(body, Evaluator.unitValue))))
-      catch { case Exiting(exited, value) if exited eq frame => left(value) }
+      try {
+        val result = inFrame(frame)(settle(Evaluator.applyValue(body, Evaluator.unitValue)))
+        // A body that settles to a **neutral** decided nothing: it is waiting on a variable this evaluation has not
+        // bound, which is what happens when a definition's own body is reduced before its arguments arrive. Answering
+        // `Right(neutral)` there consumes the frame — the escape is gone from the reduced body, and when the neutral is
+        // finally re-reduced at a concrete argument, an `exit` inside it has no frame to reach and either sticks or
+        // lands in whatever frame happens to be installed then. Staying stuck instead lets the whole escape re-fire
+        // once the argument is there, with its frame installed around the part that needs it.
+        if (isNeutral(result)) VStuckNative.of(escapeFQN, key, body) else right(result)
+      } catch { case Exiting(exited, value) if exited eq frame => left(value) }
     }
+
+  /** Whether a settled value is still waiting on a variable — a neutral head, or one under an application spine. */
+  private def isNeutral(v: SemValue): Boolean = v match {
+    case _: SemValue.VNeutral => true
+    case _                    => false
+  }
 
   /** `exit(key, value)` — leave to the nearest enclosing escape frame keyed by `key`, with `value` settled first (an
     * exit pending inside the payload is taken before this one, as strict evaluation would). Stuck when no such frame

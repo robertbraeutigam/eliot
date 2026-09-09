@@ -1618,6 +1618,23 @@ and do not land a narrowed version (standing rule 2).
   `jvm/…/StoredComputationIntegrationTest`; all 45 example jars stay byte-identical, since a `data` that stores no
   computation lowers exactly as before.
 
+- **A10 — a compile-time escape frame must not be consumed before its arguments arrive. FIXED 2026-09-09.** The
+  compile track reduces a definition's body once, at its own instantiation, and only later substitutes a concrete
+  argument into the neutral that comes out. `EffectIntrinsics.escape` installed its frame, settled the body to a
+  neutral (the condition inside was waiting on the definition's own parameter) and answered `Right(neutral)` — which
+  *consumes* the frame: it is gone from the reduced body, and when that neutral is finally re-reduced at a concrete
+  argument, an `exit` inside it either sticks or lands in whatever frame happens to be installed then. An escape whose
+  body settles to a neutral now stays **stuck** instead, so the whole thing re-fires once the argument is there, with
+  its frame installed around the part that needs it. `settle` gained the enclosing evaluation's native lookup with it
+  (`Evaluator.currentNativeLookup`), because re-firing a stuck native is exactly what that re-reduction does — the
+  original "a stuck native is legitimately stuck, re-firing is the checker's business" is not true *inside* a frame,
+  where there is no later pass: the frame is gone by then.
+
+  It was invisible because it fails in the safe direction: the guard reduced to a stuck value that read back as a
+  *false* verdict, so the program compiled and selected the other implementation. What catches it is
+  `EffectIntrinsicsIntegrationTest`'s two-frame case, an exit passing through a frame of another instantiation to its
+  own.
+
 - **A9 — an under-applied backend intrinsic has nowhere to link.** An intrinsic is emitted **inline** at each call
   site, so only a *saturated* call can be emitted at all: the emission indexes its operands directly, and it has no
   static method for a partial-application closure chain to end at (`NativePartialApplication`'s levels call one). So
