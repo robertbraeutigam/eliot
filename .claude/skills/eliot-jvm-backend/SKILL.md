@@ -80,7 +80,7 @@ native maker), which is the only reason this needs its own path rather than the 
   leaves stay `impure = false`.
 - `processor/JvmClassGenerator.scala` — the dispatch above (`createModuleMethod`). Read-only for most tasks; the
   leaf is emitted into **the class named by its FQN's module** and only if `used` reached it.
-- `asm/CommonPatterns.scala` — `mangledMethodName`, `valueType` (a `GroundValue`'s erased carrier FQN).
+- `asm/CommonPatterns.scala` — `mangledMethodName`, `valueType` (a `GroundValue`'s erased JVM class).
 
 ## Recipe A — a native-method leaf (fixed signature)
 
@@ -184,7 +184,8 @@ merger via the plugin's `configure()`; the two existing labels are already wired
 instance is *borrowed* into the compiler pool for resolution, so often no compiler copy is needed. You need a
 `stdlib/eliot-compiler/` overlay copy only when the compiler must be **self-sufficient** (LSP type-checks without jvm)
 *and* the concrete instance body it would borrow is a jvm-only representation the compiler can't run — that is the
-`Either`/`Option` carriers (`data` + folds). But when the instance is **body-less** (its methods are native leaves
+`Either`/`Option`/`Pair` overlay (`data` + folds), which is what the evaluator's escape and cell intrinsics answer
+through. But when the instance is **body-less** (its methods are native leaves
 attached per-platform), the declaration is already platform-neutral, so it lives **once in the base** and every pool
 borrows it — no overlay, no duplication. `Eq[String]` is exactly this: one body-less `implement Eq[String]` in
 `stdlib/.../String.els`, the JVM backend attaches `String.equals`, `StdlibNativesProcessor` attaches the compile-time
@@ -224,7 +225,7 @@ exercise your leaf at runtime, drive it from an effect** (`readLine == "yes"`), 
 ## Gotchas
 
 - **Abstract type absent from `NativeType.types`** → bad descriptor / `NoClassDefFoundError`. Map it (to a boxed
-  wrapper, never a primitive — carriers are `Object`-erased).
+  wrapper, never a primitive — generic positions are `Object`-erased).
 - **Generic leaf as a native method** silently mismatches the mangled call name → "not implemented" or a link
   error. Generics go inline.
 - **Forgot `Intrinsics.all`** → your inline FQN hits the body-less abort instead of `generateIntrinsic`.
@@ -235,10 +236,16 @@ exercise your leaf at runtime, drive it from an effect** (`readLine == "yes"`), 
   and `NativeType`); `WellKnownTypes` type FQNs are `Qualifier.Type`. Match Default for backend maps.
 - **`.els` imports**: the `eliot.lang` prelude (`ModuleName.defaultSystemModules`: `BigInteger`/`Bool`/`Compare`/
   `Either`/`Eq`/`Function`/`Int`/`Interval`/`Numeric`/`Option`/`Pair`/`Runtime`/`Show`/`String`/`Unit`) + `Type` are
-  ambient; every effect — and the jvm carrier `eliot.jvm.IO` — needs an explicit `import`. A missing import shows as
-  "Name not defined" (with a cascade onto callers).
+  ambient, as is the whole `eliot.effect` package (weak tier). Everything else needs an explicit `import`; a
+  missing one shows as "Name not defined" (with a cascade onto callers).
 - **A leaf is only emitted if `used` reaches it** — an unreferenced native produces no method; test through a real
   call from `main`.
+- **Under-application**: a native is emitted at its declared arity, but a call site emits at the spine's arity, so
+  handing one on as a function (`xs.map(show)`) needs the partial-arity variants `NativePartialApplication` emits —
+  one method plus one closure class per missing argument. Both branches of `generateValueBody` run it, the
+  module-level one and the ability-implementation one; forgetting either is a clean compile and a `NoSuchMethodError`
+  at runtime. An **intrinsic** cannot have them (it is emitted inline and has no static method for a closure chain to
+  end at) and is a hard error at the definition instead, naming the lambda fix.
 
 ## See also
 
