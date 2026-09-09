@@ -1145,7 +1145,8 @@ without one is merely stuck at compile time, which is the loud fail-safe the com
 
 ### 9.8 What it deletes, keeps and adds
 
-**Deleted:** `RowElaborator` and `RowElaborationProcessor`'s elaboration half; the carrier-minting,
+**Deleted** (all of it, 2026-09-09 — with two corrections to this list, marked below): `RowElaborator` and
+`RowElaborationProcessor`'s elaboration half; the carrier-minting,
 pinning and supplying halves of `EffectSugarDesugarer`; `EffectLifter`; `IdNormalizer` and
 `assertNoIdResidue`; `EffectCarrierNaming` and `EffectRowRendering`; `RunBoundaryFunctions`; the
 constraint-aware declination and `activeFactKeys` probe in `AbilityImplementationProcessor`;
@@ -1153,10 +1154,16 @@ constraint-aware declination and `activeFactKeys` probe in `AbilityImplementatio
 stdlib and jvm; the `eliot.carrier` package; the compile-track `Id.els` and `AbortCarrier`; the "a
 discharger must be called directly" diagnostic.
 
-**Kept:** `RowChecker.verifyRow` as the scope check and `EffectAccountingProcessor` (through the flag day,
-D7); `AbilityResolver` and `AbilityImplementationProcessor` (structural match + `where`) for the two-site
-default; `EffectRow` as declaration metadata; `CarrierKindChecker` as the kind system it is;
-`WovenRecheck`; the seam-groundness test, re-pointed at bindings.
+Two entries were wrong. **`RunBoundaryFunctions` is kept** — F4 repurposed it to "the values where every effect's
+chain ends", which is where the write binds `Default` instead of reporting the row undeclared. And
+**`RowElaborationProcessor` is not renamed**: it kept its name and gained a job, since the write covers signatures
+too.
+
+**Kept:** the scope check — which is the write's own walk, not a `RowChecker` method any more — and
+`EffectAccountingProcessor` (through the flag day, D7); `AbilityResolver` and `AbilityImplementationProcessor`
+(structural match + `where`) for the two-site default; `EffectRow` as declaration metadata; `CarrierKindChecker` as
+the kind system it is; `WovenRecheck`; the seam-groundness test, re-pointed at bindings (`EffectsSeamGroundnessTest`:
+no mono-key argument at the seam is still a parameter, and one definition at two bindings is two instances).
 
 **Added:** the `effect` keyword, the named `implement`, and `with` in both positions, with their desugar;
 the impl-name component of `Qualifier.AbilityImplementation`; the phantom binder per row entry and constraint,
@@ -1164,6 +1171,10 @@ the `Default` marker and the implementation-valued ground argument; the read-the
 `AbilityResolver`; the three primitives per platform and the two evaluator intrinsics; the boundary rule in
 `SyntheticMainSourceProcessor`. **Not added:** a bindings field on
 `ValueReference`, a scoping node, a new `MonomorphicValue.Key` component, a consulted-set fixpoint.
+
+Two things were added that this list did not anticipate, both because a thunked slot carries less than a carrier-typed
+one did: the **signature half of the write** (F2, without which no guarded return type compiles) and the **rejection
+of a supplied row entry whose argument nothing determines** (A6, without which a `catch` can compile and crash).
 
 ### 9.9 Standing rules, re-read for v6
 
@@ -1365,17 +1376,33 @@ that boundary.
 
 ### 10.2 The flag day
 
-It was planned as one change. It is landing as five, because the tree stops building the moment the desugar stops
+It was planned as one change. It landed as many, because the tree stops building the moment the desugar stops
 minting carriers and there is no green checkpoint until the primitives exist — so the honest thing was to commit the
-work in reviewable pieces, each stating that the tree does not build, rather than hold weeks of it uncommitted. The
-gate is unchanged: §8's behavioural identity, read at the end.
+work in reviewable pieces, each stating what it left broken, rather than hold weeks of it uncommitted. The gate never
+moved: §8's behavioural identity, re-read on every commit.
 
-**Where it stands (2026-09-09).** F1, F4, F5 and F7 are landed, and **the tree has no known blocker left**: a full
-sweep is behaviourally identical to `.v6/baseline.txt` on every example the two trees share — same exit code, same
-stdout, all 44 jars — and the only module-level differences are the three F7 made on purpose (`EffectAbilitySet`
-deleted with the effect-set feature, `EffectsFakeCarrier` replaced by `EffectsNamedEffect`). Effects, dischargers,
-per-instantiation frames, cells and `with` all run. F2, F3, F6 and F9 are untouched; the Scala tests still failing
-are the v5 carrier, elaborator and mono suites, which F2 and F3 delete or rewrite.
+**Where it stands (2026-09-09).** **F1–F7 are landed.** A full `scripts/example-sweep.sh` is behaviourally identical
+to `.v6/baseline.txt` on every example the two trees share — same exit code, same stdout, all 44 jars — with only the
+three module-level differences F7 made on purpose (`EffectAbilitySet` deleted with the effect-set feature,
+`EffectsFakeCarrier` replaced by `EffectsNamedEffect`). That identity held on every intermediate commit, not only at
+the end. Failing Scala tests are down from **524 to 100**, and what remains is per-suite decisions of the same kind
+already made, not a blocked mechanism. F8's size statement and F9's documents are what is left of the plan.
+
+**What the gate could not see, and what that cost.** §8 reads the examples, and no example writes a guarded return
+type, a `foreach`, a `catch` with an ignoring handler, or a stored computation. Four real defects hid in exactly that
+gap, three of them found only by clearing the test suites:
+
+1. **The write never walked signatures** — every guarded return type failed with a type mismatch. Fixed: the write
+   covers both halves of a definition (see F2/F3 below).
+2. **The compile-track `escape`/`withCell` declared `body: Function[Unit, A]` rather than `{} A`**, so a caller
+   passing a suspended parameter through had it *applied* — running the computation outside the frame and handing the
+   intrinsic its result to apply again. Fixed by spelling both slots the way the jvm leaves already do.
+3. **`stdlib`'s `foreach` did not compile**: its body was `foldLeft(pure(unit), …)`, and `pure` went with the carrier.
+4. **A `catch` whose handler ignores its error compiled and crashed** — guarded now, and open as A6.
+
+The lesson is not that the gate is wrong; it is that the gate is a *behavioural* identity over the corpus the examples
+cover, and the corpus does not cover the type-level surface. A shape with no example has no gate, and every one of the
+four lived there.
 
 - **F1 — the desugar. DONE** (`590e79dd`, `c73a9144`, `0eb0e06e`, `1b6482aa`, `c5c0485d`), in four parts.
   - *The `with` resolution path.* A named `implement` mints, beside its methods and its marker, a **name marker**
@@ -1420,17 +1447,30 @@ are the v5 carrier, elaborator and mono suites, which F2 and F3 delete or rewrit
     outside, so the slot was never recorded as a row position at all — the actual was then written in the caller's
     scope and the very effects the `with` binds were reported undeclared there. Both readers now look through the
     `with`, exactly as the thunking rule already did.
-- **F2 — deletions. DONE** (2026-09-09). Everything in §9.8's deleted list: `RowElaborator` and `RowChecker`'s
+- **F2 — deletions. DONE** (`72ba7558`, `4bb25c00`, `cfcb92b3`, 2026-09-09). Everything in §9.8's deleted list: `RowElaborator` and `RowChecker`'s
   derivation half (which keeps `Universe`, `checkable` and `peelBinders`), `IdNormalizer` with `assertNoIdResidue` —
   so the `WovenValue` seam now *rewrites nothing* and is only where the three codegen preconditions are checked —
   `EffectRowRendering`/`EffectCarrierNaming` with the renderer and printer arms that inverted a carrier stack back
   into a pinned row, `AbilityResolver.sideEffectOnPureCarrier`, and the `Id`/`Effect`-combinator well-known types.
-  `RowElaborationProcessor` is not renamed: it kept its name and gained a job (it writes signatures too).
-- **F3 — the checker. DONE** (2026-09-09). `EffectLifter` and the ladder's two pure-wrap arms are gone (no rigid
+  `RowElaborationProcessor` is not renamed: it kept its name and gained a job.
+
+  **The write covers signatures, not only bodies** (`1dfd24db`). A guarded return is compile-time code in *type*
+  position, and its `if`/`else`/`fold` are ordinary calls with row-typed slots and phantom binders, so the same
+  thunking and the same binding write are needed there or the guard reaches the checker as a bare `Type` at a
+  `Unit -> Type` slot. Two rules make that safe: the signature is walked with **no thunk parameters in scope**, so a
+  dependent reference to a value parameter is never mistaken for a thunk; and an uncovered effect in a signature
+  **defaults instead of being reported**, because a signature's `raise`/`abort` is the guard channel's vocabulary,
+  discharged by the guarded-return read rather than performed. The flag moved from the `Writer` to the `Scope`, where
+  it names both regions that have it — a platform run boundary and a signature. The body gate moved with it:
+  `RowElaborationProcessor` no longer decides whether to write at all (a `@Signature` twin and a body-less declaration
+  both need their signature written) and `BindingWriter` decides per half.
+- **F3 — the checker. DONE** (`72ba7558`, `4bb25c00`, 2026-09-09). `EffectLifter` and the ladder's two pure-wrap arms are gone (no rigid
   carrier to lift into), and with them the **deferred slot** — `SlotOutcome`/`SlotRecord`/`rebuildChain` and the whole
   two-phase spine — `Track.Compiler.pinCarriers`, and `TypeStackLoop`'s C2 carrier fence. `typeImmediateLambda` is an
-  ordinary `let`. Rendering: an effect prints as the name the user wrote. *Not* done as stated: an unsolved phantom is
-  still not an error of its own; what catches the one shape that mattered is A6's rejection at the call.
+  ordinary `let`. Rendering: an effect prints as the name the user wrote — `GroundValueRenderer`'s two entry points
+  collapse to one, since they existed only because a carrier's last argument means one thing applied to a payload and
+  another not. *Not* done as stated: an unsolved phantom is still not an error of its own; what catches the one shape
+  that mattered is A6's rejection at the call.
 - **F4 — the run boundary. DONE** (`1b6482aa`). There is no carrier to instantiate: the synthesized entry is
   `def main: Unit = <user main>`, and `RunBoundaryFunctions` is repurposed from "values whose parameter 0 hosts a
   computation" to **the values where every effect's chain ends** — the jvm plugin registers the synthesized
@@ -1477,7 +1517,7 @@ are the v5 carrier, elaborator and mono suites, which F2 and F3 delete or rewrit
   must drop the leading binding rather than ground it; and **meta companions must be written too** — a `^Meta`
   brace calls ordinary abilities, its parameters are *not* thunked, and its row record must therefore be empty to
   match.
-- **F6 — accounting. DONE** (2026-09-09). `EffectAccountingProcessor` reads **received bindings**: an instantiation
+- **F6 — accounting. DONE** (`cfcb92b3`, 2026-09-09). `EffectAccountingProcessor` reads **received bindings**: an instantiation
   receives one implementation per phantom binder of its own signature (its mono key's arguments at those indices), and
   a reference *forwards* one when the binding written at its own phantom slot is that same implementation and the
   callee declares that ability as a row entry. `MonomorphicValue.ambientCarriers` went with the ride test — it was a
@@ -1493,12 +1533,30 @@ are the v5 carrier, elaborator and mono suites, which F2 and F3 delete or rewrit
 - **F8 — the gate** (§8): behavioural identity on every example, tests green, the fake examples and
   integration classes with no minted carrier, the single-word `eliot-test` case, seam resolution, the size
   and instruction-count difference stated in the commit. **Behavioural identity is met** (see "where it stands"):
-  every example the two trees share exits the same and prints the same. What is left of the gate is the tests, the
-  `eliot-test` move, and stating the size difference. **The one size measurement so far:** the synthesized entry
-  point is 7 instructions rather than 8, having lost its `runMain` call.
+  every example the two trees share exits the same and prints the same, on every commit. The **fake carrier is gone
+  from the suites too** — `ExamplesIntegrationTest1`'s testing group is a named implementation now
+  (`implement session: Terminal { … }` + `greet with session`, with the harness taking the program at a `with`-bound
+  slot type), which is the same claim made the v6 way rather than a deletion. What is left of the gate is the
+  remaining **100** failing tests, the `eliot-test` move, and stating the size difference. **The one size measurement
+  so far:** the synthesized entry point is 7 instructions rather than 8, having lost its `runMain` call.
+
+  **What is left, by suite** (2026-09-09), so the next session starts from the shape rather than the count:
+  `MonomorphicTypeCheckTest` 13 (the `Int`-arithmetic and W2b guard cases), `CompilerAbilityResolutionTest` 10 (the
+  compile-track `Either` carrier — no subject left, so the suite is a deletion), `TerminationIntegrationTest` 8,
+  `OperatorResolverProcessorTest` 7 (pinned rows), `FileIoIntegrationTest` 7,
+  `AbilityConstraintDeclinationTest` 6 (the `~ Suspend` declination, whose premise went with `Suspend`),
+  `TypeHintIndexCompileTest` 6, `AbilityImplementationCheckProcessorTest` 5, `SystemIoIntegrationTest` 5, and a tail
+  of ones and twos.
+
+  **Two traps worth carrying forward.** `ProcessorTest` needs an `Implementation` stub (`type Default`) or every
+  snippet calling an ability method loses its monomorphization **silently, with no error at all** — the write puts
+  `Default` at the reference as an ordinary type argument and saturation demands the value it names. And never run
+  `./mill` while `scripts/example-sweep.sh` is running: it rebuilds `out/` underneath the sweep, and the report then
+  reads as a large regression that is not there.
 - **F9 — the documents. NOT DONE.** Part I rewritten to the v6 design (this Part's §9 is its draft); the CLAUDE.md
   *Effects Are a Channel* cornerstone rewritten; the `eliot-code`, `eliot-layers` and `eliot-jvm-backend`
-  skills' effect sections; the `TODO.md` pointer.
+  skills' effect sections; the `TODO.md` pointer. Part I is **still the v5 design as written** — it is accurate about
+  nothing in the tree except the four user rules, and reading it as current is the main hazard this Part leaves.
 
 If the gate cannot be met, the assessment in §9.2 is wrong somewhere — find where before landing anything,
 and do not land a narrowed version (standing rule 2).
@@ -1514,6 +1572,14 @@ and do not land a narrowed version (standing rule 2).
 - **A4 — D4 dissolves** (any effect is storable and suppliable); Part I's limitation 5 dissolves with D5
   (§9.4).
 - **A5 — retire the post-mono accounting verifier** under the §8 method (D7).
+- **A6 — the write must fill a supplied row entry's own arguments.** A parameter row lowers to a thunk, which erases
+  the entry's arguments from the type, so `catch[E, A](computation: {Throw[E]} A, onError: E => {} A)` leaves `E` to
+  the handler — and a handler that ignores its error determines nothing. Until this lands the argument is written at
+  the call (`catch[String, String](…)`), and a defaulted one is **rejected** by `EffectAccountingProcessor` rather
+  than allowed to miscompile (2026-09-09; it used to compile and crash on a frame-key mismatch). The fix is the rule
+  §3.1 already states for a supplying slot — instantiate the entry's arguments from the *actual's* own declared row —
+  and it is inside §3.2's whitelist, so it is a gap in the write and not a new mechanism.
+
 - **A7 — a `data` field cannot store a computation.** §9.5 says a row-typed field is a thunk bound at construction,
   and it is — in the *type*. What is missing is the metadata: `EffectSugarDesugarer.desugar(DataDefinition)` thunks
   the field before `DataDefinitionDesugarer` splits the `data`, so the constructor's slot is never recorded as a row.
@@ -1524,13 +1590,14 @@ and do not land a narrowed version (standing rule 2).
   *parameter*. Both halves are the write's, and both are needed together. Measured 2026-09-09; `eliot-test` does not
   depend on it (D13 closed: a `TestCase` carries no body).
 
-- **A6 — the write must fill a supplied row entry's own arguments.** A parameter row lowers to a thunk, which erases
-  the entry's arguments from the type, so `catch[E, A](computation: {Throw[E]} A, onError: E => {} A)` leaves `E` to
-  the handler — and a handler that ignores its error determines nothing. Until this lands the argument is written at
-  the call (`catch[String, String](…)`), and a defaulted one is **rejected** by `EffectAccountingProcessor` rather
-  than allowed to miscompile (2026-09-09; it used to compile and crash on a frame-key mismatch). The fix is the rule
-  §3.1 already states for a supplying slot — instantiate the entry's arguments from the *actual's* own declared row —
-  and it is inside §3.2's whitelist, so it is a gap in the write and not a new mechanism.
+  A6 and A7 are **one family**: a row-typed slot lowers to a thunk, and the thunk carries neither the entry's own
+  arguments nor the fact that it *is* a slot. Both are the write's to restore from declarations it already reads, and
+  neither needs a mechanism the whitelist does not already allow.
+
+- **A8 — a guarded return cannot carry its author's message**, because the compile-track `Throw` went with the
+  carrier (the reversal recorded at F5). Accepted 2026-09-09 rather than fixed; the route back is keying `Throw`'s
+  compile-time frame on a fixed marker the way `Abort` keys on `Aborted`, at the cost of two instantiations sharing
+  one frame.
 
 ## 11. Open decisions
 
@@ -1562,6 +1629,11 @@ Under names the post-mono check is "received bindings consulted ⊆ declared row
 that the pre-mono scope check already establishes lexically. The expectation is **yes, after the flag day**
 (A5), by the §8 method: keep it through the flag day as the codegen precondition, trace it, retire it when
 it fires on nothing. Not before, and not on the argument alone.
+
+**The trace is armed** (F6, 2026-09-09): `EffectAccountingProcessor` logs every non-empty derivation, so the question
+is now answered by reading a build rather than by argument. One thing to weigh when it is: the processor has since
+gained a **second** job — A6's rejection of a supplied row entry whose argument nothing determines — and that one is
+not a shadow of anything. Retiring the subset check does not retire the processor.
 
 ### D13 — can every `eliot-test` case be built with its handlers already applied?
 
