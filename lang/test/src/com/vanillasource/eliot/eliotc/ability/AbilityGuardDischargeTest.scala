@@ -69,10 +69,19 @@ class AbilityGuardDischargeTest
         "type Function[A, B]\ndef apply[A, B](f: Function[A, B], a: A): B"
       ) ++
       compilerScan(Seq("eliot", "lang"), "String", "type String") ++
+      // A row-typed slot lowers to a thunk `Unit -> A`, and the compile-time `fold` applies the arm it selects to
+      // `eliot.lang.Unit::unit` — so both the `Unit` type (the thunk's parameter type) and that value must be
+      // loadable, and the `{}` row's synthesised constraint resolves at `eliot.carrier.Effect`.
+      compilerScan(Seq("eliot", "lang"), "Unit", "type Unit\ndef unit: Unit") ++
+      compilerScan(Seq("eliot", "carrier"), "Effect", "ability Effect[F] { }") ++
       compilerScan(
         Seq("eliot", "lang"),
         "Bool",
-        "import eliot.lang.Function\ntype Bool\ndef true: Bool\ndef false: Bool\ndef fold[A](cond: Bool, whenTrue: A, whenFalse: A): A"
+        // `fold`'s arms are **suspended**, as the real `eliot.lang.Bool` declares them: the compile-time reduction
+        // applies the arm it selects, so a stub with plain arms hands it a value where it expects a thunk and the
+        // guard silently stops reducing. The `{}` row synthesises a constraint at `eliot.carrier.Effect`, which is
+        // why that module is in the base set below.
+        "import eliot.lang.Function\ntype Bool\ndef true: Bool\ndef false: Bool\ndef fold[A](cond: Bool, whenTrue: {} A, whenFalse: {} A): A"
       ) ++
       compilerScan(
         Seq("eliot", "lang"),

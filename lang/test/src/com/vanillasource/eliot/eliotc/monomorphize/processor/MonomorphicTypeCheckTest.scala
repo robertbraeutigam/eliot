@@ -725,7 +725,11 @@ class MonomorphicTypeCheckTest
     "Compare"    -> ProcessorTest.compareStubContent,
     "Arithmetic"    -> ProcessorTest.arithmeticStubContent,
     "Bool"       ->
-      "type Bool\ndef true: Bool\ndef false: Bool\ninfix def &&(a: Bool, b: Bool): Bool\ndef fold[A](condition: Bool, whenTrue: A, whenFalse: A): A",
+      // `fold`'s arms are **suspended** (`{} A`), exactly as the real `eliot.lang.Bool` declares them: effects v6 made
+      // the arms thunks so that only the selected one runs, and the compile-time reduction applies the arm it picks.
+      // A stub declaring plain arms hands that reduction a value where it expects a thunk, and every bound formula
+      // reached through `min`/`max` (which are `fold` over `lessThanOrEqual`) silently stops reducing.
+      "type Bool\ndef true: Bool\ndef false: Bool\ninfix def &&(a: Bool, b: Bool): Bool\ndef fold[A](condition: Bool, whenTrue: {} A, whenFalse: {} A): A",
     "Option"     -> "type Option[A]\ndef some[A](value: A): Option[A]\ndef none[A]: Option[A]",
     "Int"        ->
       """import eliot.lang.Bool
@@ -900,15 +904,21 @@ class MonomorphicTypeCheckTest
   // carrier, so nothing is inserted, and what the `row` phase writes now (an implementation per phantom binder) is
   // pinned by the `jvm` suites end to end. What survives is the one diagnostic that phase owns.
 
-  "the scope check" should "report an effectful body under a pure return as an undeclared effect, at the definition" in {
+  // Reported **at each reference**, not at the definition name: the check falls out of the same walk that writes the
+  // bindings, so it knows exactly which call has nothing covering it. Both `printLine` and the `readLine` it takes are
+  // named, because each performs the effect on its own.
+  "the scope check" should "report an effectful body under a pure return at every uncovered reference" in {
     runGenerator(
       "import eliot.effect.Console\ndef echo: String = printLine(readLine)",
       MonomorphicValue.Key(ValueFQN(testModuleName, default("echo")), Seq.empty),
       systemImports
     ).map(result => toTestErrors(result._1))
       .asserting(
-        _ should contain(
-          "This value performs the effect 'Console' but does not declare it; add it to its { ... } effect set." at "echo"
+        _ shouldBe Seq(
+          "This value performs the effect 'Console' but does not declare it; add it to its { ... } effect set."
+            at "printLine(readLine)",
+          "This value performs the effect 'Console' but does not declare it; add it to its { ... } effect set."
+            at "readLine"
         )
       )
   }
