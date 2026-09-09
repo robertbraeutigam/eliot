@@ -728,8 +728,9 @@ this gate.
 
 **The gate for the flag day itself** is different, because the output legitimately changes wholesale:
 byte-identity is replaced by **behavioural identity**. Before the change, run every example jar and record
-its standard output and exit code — that recording is `.v6/baseline.txt`, made by the same script (§10.1
-step 9); after it, the same sweep must produce the same transcript. Plus: `./mill __.test` green; the
+its standard output and exit code — that recording was `.v6/baseline.txt`, made by the same script (§10.1
+step 9), and it is deleted with the staging now that it has done its job; its totals are in F8. After the change,
+the same sweep must produce the same transcript. Plus: `./mill __.test` green; the
 fake-carrier examples (`EffectsFakeCarrier`, `EffectsFakeConsole`, `EffectsTestFramework`) and the two
 integration test classes express the same tests **without minting a carrier type**; `eliot-test`'s
 single-word case (`"…" should "…" in mocked { … }`) still reads as one word; and the seam test finds every
@@ -1530,15 +1531,16 @@ four lived there.
   carried `implement Effect[Either[String]]` and `implement Throw[String, Either[String]]`, which cannot survive a
   tree with no `eliot.carrier`; and the `Default` sentinel **does** need a declaration after all
   (`stdlib/eliot/eliot/lang/Implementation.els`), because a written binding is an ordinary type argument and
-  saturation demands the value it names. `eliot-test` is not yet moved.
+  saturation demands the value it names. **`eliot-test` moved 2026-09-09**, which is what finished F7 and let
+  `.v6/` and its `V6TreeParseTest` gate be deleted.
 - **F8 — the gate** (§8): behavioural identity on every example, tests green, the fake examples and
   integration classes with no minted carrier, the single-word `eliot-test` case, seam resolution, the size
   and instruction-count difference stated in the commit. **Behavioural identity is met and the tests are green**
   (see "where it stands"). The **fake carrier is gone from the suites too** — `ExamplesIntegrationTest1`'s testing
   group is a named implementation (`implement session: Terminal { … }` + `greet with session`, with the harness taking
   the program at a `with`-bound slot type), and `AbilityConstraintDeclinationTest`, whose whole subject was carrier
-  substitution, is `FakeImplementationIntegrationTest`: the same claims, made the v6 way. What is left of the gate is
-  the `eliot-test` move.
+  substitution, is `FakeImplementationIntegrationTest`: the same claims, made the v6 way. **The gate is met**: the
+  `eliot-test` move landed on 2026-09-09 and its 96 cases pass, the single-word case included.
 
   **The size difference, stated (2026-09-09).** Swept at `0a2f7c01` with `scripts/example-sweep.sh` against
   `.v6/baseline.txt`, like-for-like over the **44** modules the two trees share — `EffectAbilitySet` is deleted on
@@ -1569,6 +1571,31 @@ four lived there.
 
   So there is no regression to accept: the aggregate is a third smaller, and the one real grower is the priced
   mechanism rather than a surprise.
+
+  **What the `eliot-test` move found (2026-09-09).** The staged framework was written before A6, so it met the write's
+  determination rule in three places the staging had not anticipated, and each is the rule reading correctly rather
+  than a gap:
+
+  - **A parameter reference declares nothing to the write.** `describedAs`'s `runThrow(body)` and `raising`'s
+    `runThrow(body)` take a *parameter* whose row is `{Throw[AssertionError]}` / `{Throw[E]}`. A6 reads a supplied
+    entry's arguments off the **actual callee's** declared row, and a parameter has no callee, so the prefix stops and
+    the accounting rejection fires. Both are written out (`runThrow[AssertionError, Unit]`, `runThrow[E, Unit]`) — the
+    escape hatch the diagnostic names. Reading a parameter's *declared* row here would be in the whitelist and would
+    settle these two, but it is not always enough and would need deciding on its own: `mocked`'s body declares **two**
+    `Throw` entries (`Throw[IoError]` and `Throw[AssertionError]`), so nothing but the call can say which one its
+    `catch` discharges, and it is written `catch[IoError, Unit](body, …)`.
+  - **A body that raises nothing has no error type to read.** `raising("…", raising("expected", printLine("no raise
+    here")))` checks that a raise did *not* happen, so the inner body's declared row has no `Throw` entry at all and
+    `E` is genuinely unnameable from any declaration. Spelled `raising[AssertionError]`.
+  - **An operation's row is now what it *adds*.** `effect Process`'s `run` declares `{Throw[IoError]}`, not
+    `{Process}` — performing `Process` is what being its operation means — so a helper calling it declares
+    `{Process, Throw[IoError]}`. Three helpers in the process suite had to say so.
+
+  It also turned up a **backend defect of its own**, unrelated to effects and fixed with it (`32406522`): an
+  ability-implementation native handed on as a function (`listDirectory(…).map(show)`) linked to a partial-arity
+  method that was never emitted. `NativePartialApplication` had been wired into the module-level branch only; the
+  impl branch now runs the same generator. All 44 example jars stay byte-identical, since no example under-applies
+  one.
 
   **Two traps worth carrying forward.** `ProcessorTest` needs an `Implementation` stub (`type Default`) or every
   snippet calling an ability method loses its monomorphization **silently, with no error at all** — the write puts
