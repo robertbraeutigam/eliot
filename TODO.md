@@ -35,8 +35,8 @@ notes.
   projection (`step.cycles`), never bound; return-position entries are expressions (axiomatic on
   natives, checked contracts on bodied defs) — showcase, with cross-channel composition:
   `def fold[T, A](ls: List[T], init: A, step: F[A]): {cycles: ls.size.end * step.cycles + 7} F[A]`.
-  Grade-only rows on pure functions do not force a carrier (precedent: negatives-only discharge
-  rows are pure pass-throughs). Leaf grades are stated on native signatures by the platform
+  Grade-only rows on pure functions perform nothing and bind nothing (they name no ability, so the
+  write has no binder to fill). Leaf grades are stated on native signatures by the platform
   layer (AVR datasheet cycle counts); width-dependent leaf costs are either expressions over the
   operands' value-metas or accounted post-lowering where `Represent`'s layout is known (same as
   stack frames). Accounting = generalize the effect walk (`EffectUsageCollector` + discharge-
@@ -56,13 +56,14 @@ notes.
 
 ## Effects & I/O
 
-The effect system has **one** document, `docs/effects.md`: Part I is the shipped (v5) design, Part II is the
-decided plan to replace its carriers with implementation records — effects as abilities, an implementation
-as a value applied by `with` (v6): the reversal record and the model (§9), the implementation steps before, at
-and after the flag day (§10), the decisions still open (§11: D3 `~`/`&` in user space, D5 a lambda at a
-rowless arrow slot, D7 retiring the post-mono verifier, D10 purity annotations, D11 the row spelling of a
-ground ability default, D12 a user-declared boundary default) and §12's list of things closed by measurement
-or decision. Nothing effect-related is tracked here; add it there.
+The effect system has **one** document, `docs/effects.md`. **Effects v6 shipped 2026-09-09**: there is no
+carrier — an effect is an ability declared with the `effect` keyword, an implementation is a **name** bound by
+`with` and forwarded lexically from `main` inward, and a row entry is a phantom compile-time binder written at
+every reference. Part I is that design; Part II is how it was decided and landed (§9 the model and its
+reasoning, §10 the steps, §11 the decisions still open — only **D3** (`~`/`&` in user space) and **D7**
+(retiring the post-mono verifier) remain — and §12's list of things closed by measurement or decision, which
+must not be re-proposed); Part III is provenance for source comments citing retired documents.
+Nothing effect-related is tracked here; add it there.
 
 ## Syntax sugar & ergonomics
 
