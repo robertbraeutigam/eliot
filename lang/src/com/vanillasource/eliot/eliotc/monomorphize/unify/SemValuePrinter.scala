@@ -1,7 +1,6 @@
 package com.vanillasource.eliot.eliotc.monomorphize.unify
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.effect.EffectRowRendering
 import com.vanillasource.eliot.eliotc.module.fact.{Qualifier, ValueFQN, WellKnownTypes}
 import com.vanillasource.eliot.eliotc.monomorphize.domain.*
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
@@ -73,34 +72,16 @@ object SemValuePrinter {
     }
   }
 
-  /** An FQN-headed application: the identity carrier's payload wrapper prints as its payload, a canonical carrier stack
-    * as its pinned row, anything else as `name[args]` for a **type constructor** ([[Qualifier.Type]]) and `name(args)`
-    * for a **value constructor**, matching how the user writes them (`Box[String]` the type, `Box("a")` the value) and
+  /** An FQN-headed application: `name[args]` for a **type constructor** ([[Qualifier.Type]]) and `name(args)` for a
+    * **value constructor**, matching how the user writes them (`Box[String]` the type, `Box("a")` the value) and
     * agreeing with [[com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValueRenderer]] on the ground side.
+    *
+    * The carrier inverter that used to front this — an `Id[X]` payload wrapper printed as `X`, a canonical stack as
+    * the pinned row that spells it — went with the carrier (effects v6, F3). Nothing in a type is machinery now, so
+    * `Expected:` / `Actual:` show exactly the names the user wrote.
     */
-  private def showHeaded(fqn: ValueFQN, spine: Spine, metaStore: MetaStore, depth: Int): String = {
-    val args = spine.toList
-    args match {
-      case payload +: _ if fqn === WellKnownTypes.idFQN => go(payload, metaStore, depth, topLevel = true)
-      case _                                            =>
-        layerOf(fqn, args)
-          .map(EffectRowRendering.row(_, peel(metaStore, depth), render(metaStore, depth)))
-          .getOrElse(appliedHeaded(fqn, spine, metaStore, depth))
-    }
-  }
-
-  private def layerOf(fqn: ValueFQN, args: Seq[SemValue]): Option[EffectRowRendering.Layer[SemValue]] =
-    EffectRowRendering.layerOf(fqn, args, appliedToPayload = args.sizeIs >= 2)
-
-  private def peel(metaStore: MetaStore, depth: Int)(value: SemValue): Option[EffectRowRendering.Layer[SemValue]] =
-    Evaluator.force(value, metaStore) match {
-      case VTopDef(fqn, _, spine, _) => EffectRowRendering.layerOf(fqn, spine.toList, appliedToPayload = false)
-      case VStuckNative(fqn, spine)  => EffectRowRendering.layerOf(fqn, spine.toList, appliedToPayload = false)
-      case _                         => None
-    }
-
-  private def render(metaStore: MetaStore, depth: Int)(value: SemValue): String =
-    go(value, metaStore, depth, topLevel = true)
+  private def showHeaded(fqn: ValueFQN, spine: Spine, metaStore: MetaStore, depth: Int): String =
+    appliedHeaded(fqn, spine, metaStore, depth)
 
   private def applied(name: String, spine: Spine, metaStore: MetaStore, depth: Int): String = {
     val args = spine.toList.map(go(_, metaStore, depth, topLevel = false))

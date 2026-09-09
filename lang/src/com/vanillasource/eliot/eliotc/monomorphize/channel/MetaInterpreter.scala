@@ -150,9 +150,6 @@ object MetaInterpreter {
     *     error for a meta-carrying return, or a value whose monomorphization failed upstream;
     *   - the call is **not saturated** — a partial application is a function value (whose type carries no meta anyway),
     *     and an over-application applies the callee's *result* to further arguments, which is the higher-order case.
-    *
-    * The body is [[IdNormalizer]]-normalized first, as every consumer of a pre-`WovenValue` fact must be: the uniform
-    * carrier path wraps a literal in `pure@Effect[Id]`, under which a provable range reads as ⊤.
     */
   private def derive(
       callee: ValueFQN,
@@ -166,11 +163,8 @@ object MetaInterpreter {
       carriesMeta(resultType).ifM(
         getFactIfProduced(MonomorphicValue.Key(callee, typeArguments)).flatMap {
           case Some(mv) if mv.naturalArity.contains(argMetas.size) =>
-            val body = mv.runtime.map(runtime =>
-              IdNormalizer.eraseIdInBody(IdNormalizer.normalizeValue(mv.vfqn, mv.signature, runtime))
-            )
-            body.flatMap(b =>
-              bindParameters(b.as(MonomorphicExpression(IdNormalizer.eraseIdTypes(mv.signature), b.value)), argMetas)
+            mv.runtime.flatMap(b =>
+              bindParameters(b.as(MonomorphicExpression(mv.signature, b.value)), argMetas)
             ) match {
               case Some((node, env)) => interpret(node, env, budget - 1)
               case None              => unknown(budget)

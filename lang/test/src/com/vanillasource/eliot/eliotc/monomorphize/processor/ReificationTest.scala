@@ -5,7 +5,6 @@ import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes
 import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
-import com.vanillasource.eliot.eliotc.monomorphize.channel.IdNormalizer
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, MonomorphicExpression, MonomorphicValue}
 import com.vanillasource.eliot.eliotc.plugin.LangProcessors
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -106,7 +105,7 @@ class ReificationTest extends ProcessorTest(LangProcessors()*) {
       v: MonomorphicValue,
       body: Sourced[MonomorphicExpression.Expression]
   ): MonomorphicExpression.Expression =
-    IdNormalizer.eraseIdInBody(IdNormalizer.normalizeValue(v.vfqn, v.signature, body)).value
+    body.value
 
   private def errorsFor(source: String, name: String, typeArgs: Seq[GroundValue]): IO[Seq[TestError]] =
     runGenerator(source, MonomorphicValue.Key(ValueFQN(testModuleName, default(name)), typeArgs), matchImports)

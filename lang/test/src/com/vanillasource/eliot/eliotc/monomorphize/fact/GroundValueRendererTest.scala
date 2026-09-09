@@ -4,13 +4,10 @@ import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, QualifiedName, Qu
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
 
-/** User-facing rendering of ground types ([[GroundValueRenderer]]) — in particular the effects-as-channel §9 invariant
-  * that **no carrier machinery name and no `Id` payload wrapper is ever shown to a user**: a carrier stack renders as
-  * the pinned effect row that spells it, and `Id[X]` renders as `X`.
+/** User-facing rendering of ground types ([[GroundValueRenderer]]): a type prints the way the user writes it.
   *
-  * The one deliberate exception is an `Id` *row base*: `{Throw[String] | Id} String` is the legal surface a user writes
-  * for a stack pinned to the pure base, and it is a different type from the open row `{Throw[String]} String`, so the
-  * base is kept rather than suppressed.
+  * The carrier-inversion cases this suite used to carry — a canonical stack rendered as the pinned row that spells it,
+  * `Id[X]` rendered as `X` — went with the carrier (effects v6, F3). There is no machinery in a type to hide.
   */
 class GroundValueRendererTest extends AnyFlatSpec with Matchers {
 
@@ -52,57 +49,4 @@ class GroundValueRendererTest extends AnyFlatSpec with Matchers {
     render(con(WellKnownTypes.functionDataTypeFQN, string, con(listFQN, string))) shouldBe "String -> List[String]"
   }
 
-  it should "erase the identity carrier's payload wrapper" in {
-    render(con(WellKnownTypes.idFQN, string)) shouldBe "String"
-  }
-
-  it should "erase a nested identity carrier wrapper inside another type" in {
-    render(con(listFQN, con(WellKnownTypes.idFQN, string))) shouldBe "List[String]"
-  }
-
-  it should "erase the identity carrier wrapper on both sides of an arrow" in {
-    val fn = con(WellKnownTypes.functionDataTypeFQN, con(WellKnownTypes.idFQN, string), con(WellKnownTypes.idFQN, unit))
-    render(fn) shouldBe "String -> Unit"
-  }
-
-  it should "render a single-layer carrier stack as its pinned row" in {
-    render(con(throwCarrier, string, io, string)) shouldBe "{Throw[String] | IO} String"
-  }
-
-  it should "render an ability-argument-less carrier as a bare row entry" in {
-    render(con(abortCarrier, io, string)) shouldBe "{Abort | IO} String"
-  }
-
-  it should "keep an Id row base, which is legal surface and not the same type as an open row" in {
-    render(con(throwCarrier, string, id, string)) shouldBe "{Throw[String] | Id} String"
-  }
-
-  it should "flatten a nested carrier stack leftmost-outermost" in {
-    val stack = con(throwCarrier, string, constructor(stateCarrier, string, id), unit)
-    render(stack) shouldBe "{Throw[String], State[String] | Id} Unit"
-  }
-
-  it should "render a payload-unapplied carrier as a row without a payload" in {
-    GroundValueRenderer.renderConstructor(constructor(abortCarrier, io)) shouldBe "{Abort | IO}"
-  }
-
-  // Regression: read as a *type*, `ThrowCarrier[String, StateCarrier[String, IO]]` splits one slot off and printed
-  // `{Throw | String} {State | String} IO` — a confidently wrong reading. An ability's carrier argument is an `F[_]`,
-  // so it must be read as a type constructor. `valueType` cannot tell the two apart (it is `Type` for both).
-  it should "read an ability's carrier argument as a constructor, not as a payload-applied type" in {
-    val stack = constructor(throwCarrier, string, constructor(stateCarrier, string, io))
-    GroundValueRenderer.renderConstructor(stack) shouldBe "{Throw[String], State[String] | IO}"
-  }
-
-  it should "render a single-layer carrier constructor with its ability argument in the row, not the base" in {
-    GroundValueRenderer.renderConstructor(constructor(throwCarrier, string, io)) shouldBe "{Throw[String] | IO}"
-  }
-
-  it should "recognize any carrier following the naming convention, not a fixed table" in {
-    render(con(writerCarrier, con(listFQN, string), io, unit)) shouldBe "{Writer[List[String]] | IO} Unit"
-  }
-
-  it should "leave a non-carrier type whose name merely ends in Carrier alone" in {
-    render(con(typeFQN(Seq("app"), "Freight", "TruckCarrier"), string)) shouldBe "TruckCarrier[String]"
-  }
 }

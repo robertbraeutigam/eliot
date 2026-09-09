@@ -84,19 +84,12 @@ class RefinementChannelProcessor
       key: RefinementTable.Key,
       mv: MonomorphicValue
   ): CompilerIO[RefinementTable] = {
-    // Effects-as-channel §6/§10: the flow analysis reads `MonomorphicValue`, a **sibling** of `WovenValueProcessor` —
-    // so under the uniform-carrier path its body still carries the pervasive `Id` machinery (`pure@Effect[Id]`/`runId`
-    // wrappers, `Id[X]` node/signature types) that the codegen seam erases but this channel would otherwise trip over: a
-    // literal's `[n,n]` range hides inside `pure@Effect[Id]( n )` and a merge's `A := Id[Int]` finds no `Id$Meta`, so a
-    // provable range reads as ⊤ ("meta-information is not known"). Normalize `Id` away up front, exactly as
-    // `WovenValueProcessor` does (a no-op on the legacy path, which inserts no `eliot.lang.Id`), so the flow sees the bare
-    // literal and `Id`-erased types.
-    val erasedSig      = IdNormalizer.eraseIdTypes(mv.signature)
-    val normalizedBody =
-      mv.runtime.map(body => IdNormalizer.eraseIdInBody(IdNormalizer.normalizeValue(mv.vfqn, mv.signature, body)))
+    // The Id-normalization this used to do up front (the uniform-carrier path wrapped every literal in
+    // `pure@Effect[Id]`, hiding its `[n,n]` range from the flow) went with the carrier: effects v6 inserts no
+    // machinery at a pure boundary, so the flow already sees the bare literal.
     for {
-      result <- normalizedBody match {
-                  case Some(body) => walkFlow(body.as(MonomorphicExpression(erasedSig, body.value)))
+      result <- mv.runtime match {
+                  case Some(body) => walkFlow(body.as(MonomorphicExpression(mv.signature, body.value)))
                   case None       => Flow(None, Seq.empty).pure[CompilerIO]
                 }
     } yield RefinementTable(key.vfqn, key.typeArguments, result.records)

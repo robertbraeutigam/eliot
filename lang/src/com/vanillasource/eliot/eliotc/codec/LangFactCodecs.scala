@@ -45,8 +45,6 @@ object LangFactCodecs {
       : FactCodec[com.vanillasource.eliot.eliotc.uncurry.fact.UncurriedMonomorphicValue] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_uncurry_fact_UncurriedMonomorphicValue_Key
       : FactCodec[com.vanillasource.eliot.eliotc.uncurry.fact.UncurriedMonomorphicValue.Key] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_effect_EffectRowRendering_Layer[A: FactCodec]
-      : FactCodec[com.vanillasource.eliot.eliotc.effect.EffectRowRendering.Layer[A]] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_resolve_processor_ValueResolverScope
       : FactCodec[com.vanillasource.eliot.eliotc.resolve.processor.ValueResolverScope] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_resolve_fact_AbilityFQN
@@ -443,8 +441,6 @@ object LangFactCodecs {
       : FactCodec[com.vanillasource.eliot.eliotc.monomorphize.fact.MonomorphicValue] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_monomorphize_fact_MonomorphicValue_Key
       : FactCodec[com.vanillasource.eliot.eliotc.monomorphize.fact.MonomorphicValue.Key] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_monomorphize_check_CheckState_CarrierHead
-      : FactCodec[com.vanillasource.eliot.eliotc.monomorphize.check.CheckState.CarrierHead] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_monomorphize_check_SemExpression_IntegerLiteral
       : FactCodec[com.vanillasource.eliot.eliotc.monomorphize.check.SemExpression.IntegerLiteral] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_monomorphize_check_SemExpression_StringLiteral

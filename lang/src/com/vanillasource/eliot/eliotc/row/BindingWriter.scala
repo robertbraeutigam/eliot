@@ -128,8 +128,13 @@ object BindingWriter {
     *
     * The result is always a contiguous prefix from index 0, because a type-argument list applies positionally and the
     * write is a prefix write; [[nonPrefixPhantom]] reports the one declaration shape that would break that.
+    *
+    * Public because it is also the reading the post-mono effect accounting needs: a mono key's arguments at these
+    * indices are the implementations that instantiation *received*
+    * ([[com.vanillasource.eliot.eliotc.monomorphize.channel.EffectAccountingProcessor]]). One definition of where a
+    * binding sits, read by the writer and by the verifier.
     */
-  private def phantoms(orv: OperatorResolvedValue): Seq[(Int, AbilityFQN)] =
+  def phantoms(orv: OperatorResolvedValue): Seq[(Int, AbilityFQN)] =
     orv.name.value.qualifier match {
       case ResolveQualifier.Ability(name) => Seq(0 -> AbilityFQN(orv.vfqn.moduleName, name))
       case _                              => prefixOf(mintedPhantoms(orv))

@@ -5,7 +5,6 @@ import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
-import com.vanillasource.eliot.eliotc.monomorphize.channel.IdNormalizer
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, MonomorphicExpression, MonomorphicValue}
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression
 import com.vanillasource.eliot.eliotc.plugin.LangProcessors
@@ -196,7 +195,7 @@ class MonomorphicTypeCheckProcessorTest
     * ability-impl reference) rather than the uniform-carrier `pure@Id`/`runId` wrapper. A no-op on the legacy path.
     */
   private def normalizedBody(result: MonomorphicValue): MonomorphicExpression.Expression =
-    IdNormalizer.eraseIdInBody(IdNormalizer.normalizeValue(result.vfqn, result.signature, result.runtime.get)).value
+    result.runtime.get.value
 
   private def unwrapFunctionLiterals(expr: MonomorphicExpression.Expression): MonomorphicExpression.Expression =
     expr match {

@@ -28,22 +28,6 @@ object WellKnownTypes {
   val unitValueFQN: ValueFQN =
     ValueFQN(ModuleName(defaultSystemPackage, "Unit"), QualifiedName("unit", Qualifier.Default))
 
-  private val effectModule: ModuleName = ModuleName(ModuleName.carrierPackage, "Effect")
-
-  /** The `Effect` ability's `flatMap` (`eliot.carrier.Effect`) — the sequencing combinator of the internal effect
-    * machinery, inserted by the effect auto-lift and never named by users. Defined here (rather than as
-    * `EffectMachinery` privates) so the effect phase and the checker-side effect lift share one definition.
-    */
-  val effectFlatMapFQN: ValueFQN = ValueFQN(effectModule, QualifiedName("flatMap", Qualifier.Ability("Effect")))
-
-  /** The `Effect` ability's `map` — the sequencing combinator used when the continuation is pure (lifting it into the
-    * carrier). See [[effectFlatMapFQN]].
-    */
-  val effectMapFQN: ValueFQN = ValueFQN(effectModule, QualifiedName("map", Qualifier.Ability("Effect")))
-
-  /** The `Effect` ability's `pure` — lifts a pure value into the carrier. See [[effectFlatMapFQN]]. */
-  val effectPureFQN: ValueFQN = ValueFQN(effectModule, QualifiedName("pure", Qualifier.Ability("Effect")))
-
   /** The opaque top carrier that erased or `Type`-typed values collapse to under
     * [[com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue.carrierFQN]]. It is deliberately not a declared
     * stdlib type — it is the erased-representation sentinel every backend needs (the JVM maps it to
@@ -115,38 +99,6 @@ object WellKnownTypes {
     * Recognised by the effects-as-channel weaver alongside [[boolFoldFQN]] to keep conditional arms unsequenced.
     */
   val boolIfFQN: ValueFQN = ValueFQN(boolModule, QualifiedName("if", Qualifier.Default))
-
-  private val idModule: ModuleName = ModuleName(defaultSystemPackage, "Id")
-
-  /** The identity carrier `Id[A]` — the carrier that realizes the *empty* effect row. Abstract in the lang layer's own
-    * `eliot/` root (`type Id[A]` — beside `Bool`/`Option`, since the compiler references it by fixed FQN), concrete per
-    * platform (`data Id[A](runId: A)` in the jvm layer and lang's `eliot-compiler/` overlay). The checker's
-    * elaborator writes this carrier, and its `runId` projection, at the two pure boundaries, so `if..else` and the
-    * other dischargers work in a pure function. (The checker's own `tryIdDefault`, which used to solve a
-    * fully-discharged body's still-flex residual carrier to this type, retired with the effects-as-rows slices.) Deliberately has NO `Suspend` instance: a genuinely side-effecting native can never
-    * instantiate at `Id`, so only pure control effects (`Abort`/`Throw`/`State`) ever run on it.
-    */
-  val idFQN: ValueFQN = ValueFQN(idModule, QualifiedName("Id", Qualifier.Type))
-
-  /** The value *constructor* of [[idFQN]] — `Id(a): Id[A]` in the value namespace ([[Qualifier.Default]], vs the
-    * type-constructor [[idFQN]]). The effects-as-channel Id-normalization stage (docs/effects-as-channel.md §6)
-    * recognises an application of this constructor and erases it (`Id(e) ⤳ e`), since `Id` is the pure carrier and
-    * carries no representation. A compiler-owned insertion, so hardcoding its FQN is the ordinary well-known-types
-    * practice, not the unsound user-name hardcoding the v1 weaver's `fold`/`if` recognition was.
-    */
-  val idConstructorFQN: ValueFQN = ValueFQN(idModule, QualifiedName("Id", Qualifier.Default))
-
-  /** The module the identity carrier [[idFQN]] and its `Effect[Id]` instance live in (`eliot.lang.Id`). The
-    * Id-normalization stage recognises the `Effect[Id]` combinators (`pure`/`flatMap`/`map`) by this module plus the
-    * `Effect` ability qualifier, so it need not hardcode the instance's canonical pattern string.
-    */
-  val idModuleName: ModuleName = idModule
-
-  /** `runId[A](obj: Id[A]): A` — the total, pure projection out of [[idFQN]] (a plain `data` field accessor at
-    * runtime). The checker inserts it at a pure return boundary after solving the residual carrier to `Id`; unlike
-    * running any real carrier, unwrapping `Id` performs nothing, so the insertion never drops an effect.
-    */
-  val runIdFQN: ValueFQN = ValueFQN(idModule, QualifiedName("runId", Qualifier.Default))
 
   private val eitherModule: ModuleName = ModuleName(defaultSystemPackage, "Either")
 

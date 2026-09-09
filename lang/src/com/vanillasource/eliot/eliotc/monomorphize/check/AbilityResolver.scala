@@ -178,9 +178,7 @@ class AbilityResolver(
       groundArgs: Seq[GroundValue]
   ): CheckIO[Boolean] =
     liftF(getFactIfProduced(AbilityImplementation.Key(ref.value, groundArgs, platform))).flatMap { factOpt =>
-      // An ability's type arguments are rendered as **type constructors**: a carrier argument sits in the ability's
-      // `F[_]` slot, so its last argument is the base carrier, not a payload (`GroundValueRenderer`'s two entry points).
-      val argsShown = groundArgs.map(GroundValueRenderer.renderConstructor).mkString("[", ", ", "]")
+      val argsShown = groundArgs.map(GroundValueRenderer.render).mkString("[", ", ", "]")
       factOpt.map(_.resolution) match {
         case None                                                      => pure(false)
         case Some(AbilityImplementation.Resolution.Resolved(_, _))     => pure(false)
@@ -188,9 +186,7 @@ class AbilityResolver(
           liftF(
             compilerError(
               ref.as(
-                sideEffectOnPureCarrier(abilityName, groundArgs).getOrElse(
-                  s"No ability implementation found for ability '$abilityName' with type arguments $argsShown."
-                )
+                s"No ability implementation found for ability '$abilityName' with type arguments $argsShown."
               )
             ) >> abort[Boolean]
           )
@@ -206,31 +202,6 @@ class AbilityResolver(
           )
       }
     }
-
-  /** The one unresolvable ability demand that has a story worth telling instead of an ability name: an effect demanded
-    * on a row whose **base carrier is the identity `Id`**. `Id` has no `Suspend` instance **by design**
-    * (docs/effects-as-channel.md §6) — that absence is precisely what stops real I/O from running in a pure
-    * computation — so such a demand always means the same thing: an action reached a computation whose carrier is (or
-    * was pinned to) the pure base. The generic wording would instead hand the user `with type arguments [Id]`, naming
-    * machinery they never wrote and cannot act on.
-    *
-    * The *base* is what is read, not the argument itself, because since constraint-aware declination
-    * (`AbilityImplementationProcessor.constraintsSatisfied`, docs/testing-effects.md L1) the demand that fails is the
-    * user's own: `printLine` into a `{Throw[String] | Id}` body now fails as `Console` at that row — its jvm instance
-    * declines for want of `Suspend` — rather than as a `Suspend[Id]` raised deep inside the stdlib lift that used to
-    * carry it. Failing at the user's call is the better position; reading the base is what keeps the better wording.
-    *
-    * [[None]] for every other demand, which keeps the generic message — this only rewords a failure, never creates or
-    * suppresses one.
-    */
-  private def sideEffectOnPureCarrier(abilityName: String, groundArgs: Seq[GroundValue]): Option[String] =
-    Option.when(
-      groundArgs.exists(arg => GroundValueRenderer.baseCarrier(arg).typeFQN.contains(WellKnownTypes.idFQN))
-    )(
-      s"The effect '$abilityName' cannot run here, because the computation it runs in is pure: its effect row is " +
-        "pinned to the identity base 'Id', which carries only the pure control effects (Abort, Throw, State, Dep, " +
-        "Writer). Discharge or run the effect before this point, or pin the row to a base carrier that can perform it."
-    )
 
   /** The number of ability-level type parameters of the ability owning `methodVfqn` — read off the ability *marker*'s
     * signature (the synthetic value named after the ability, sharing the method's `Ability(name)` qualifier), whose

@@ -5,7 +5,6 @@ import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
-import com.vanillasource.eliot.eliotc.monomorphize.channel.IdNormalizer
 import com.vanillasource.eliot.eliotc.monomorphize.fact.{GroundValue, MonomorphicExpression, MonomorphicValue}
 import com.vanillasource.eliot.eliotc.plugin.LangProcessors
 import com.vanillasource.eliot.eliotc.pos.PositionRange
@@ -1125,7 +1124,7 @@ class MonomorphicTypeCheckTest
 
   /** Id-normalize a monomorphic value's runtime body as `WovenValueProcessor` does before codegen (see [[liftedBody]]). */
   private def idNormalized(mv: MonomorphicValue, body: Sourced[MonomorphicExpression.Expression]): MonomorphicExpression.Expression =
-    IdNormalizer.eraseIdInBody(IdNormalizer.normalizeValue(mv.vfqn, mv.signature, body)).value
+    body.value
 
   /** The build errors of checking the named value at the stub `IO` carrier. */
   private def liftedErrors(

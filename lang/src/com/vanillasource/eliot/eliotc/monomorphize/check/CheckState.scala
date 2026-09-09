@@ -55,12 +55,6 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   *   ability rather than the method). Recorded by [[AbilityResolver]], which fetches it anyway to slice the impl query;
   *   read back by the post-drain quoter, which must slice a reference's type arguments the same way to rebuild the
   *   [[abilityResolutions]] key and has no `getFact` of its own.
-  * @param ambientCarriers
-  *   The value-under-check's own *ambient* effect-carrier heads: for each of its higher-kinded, ability-constrained
-  *   signature binders (the M1 `{E...}` carrier, `[F[_] ~ E...]`), the forced head of the binder's value in ρ after
-  *   type-argument application and instantiation — a [[CheckState.CarrierHead.TopDef]] for a concrete instantiation
-  *   (`IO`), a [[CheckState.CarrierHead.Meta]] for a peeled one. Recorded once by [[TypeStackLoop]]; read by the
-  *   checker-side effect lift (`isEffectCarrierHeaded`, the pure-wrap arm).
   * @param metaConstraints
   *   The ability constraints a callee reference declared on each of its freshly-peeled instantiation metas — keyed by
   *   the meta's raw id (docs/effects-as-channel.md §10 U4-f). Recorded at instantiation ([[recordMetaConstraints]],
@@ -73,7 +67,6 @@ case class CheckState(
     unifier: Unifier,
     bindingCache: Map[ValueFQN, Option[SemValue]],
     abilityResolutions: Map[CheckState.AbilityResolutionKey, (ValueFQN, Seq[GroundValue])],
-    ambientCarriers: Set[CheckState.CarrierHead] = Set.empty,
     metaConstraints: Map[Int, Seq[CheckState.MetaConstraint]] = Map.empty,
     abilityArities: Map[ValueFQN, Int] = Map.empty
 ) {
@@ -81,10 +74,6 @@ case class CheckState(
   /** Record a higher-kinded type-parameter instantiation meta with its expected kind, for post-drain verification. */
   def recordHigherKindedMeta(id: MetaId, expectedKind: SemValue, context: Sourced[String]): CheckState =
     withUnifier(unifier.recordHigherKindedMeta(id, expectedKind, context))
-
-  /** Record the value-under-check's ambient effect-carrier heads. See [[ambientCarriers]]. */
-  def recordAmbientCarriers(heads: Set[CheckState.CarrierHead]): CheckState =
-    copy(ambientCarriers = ambientCarriers ++ heads)
 
   /** Record the ability constraints a callee reference declared on one of its instantiation metas. See
     * [[metaConstraints]].
@@ -198,21 +187,6 @@ object CheckState {
         val atRef = resolutions.collect { case ((r, _), impl) if r == ref => impl }.toSeq.distinct
         Option.when(atRef.sizeIs == 1)(atRef.head)
       }
-
-  /** The forced head identity of an ambient effect carrier ([[CheckState.ambientCarriers]]): the two shapes a carrier
-    * binder's ρ value can take after type-argument application and instantiation. Identity-comparable (no closures),
-    * unlike the [[SemValue]]s themselves.
-    */
-  sealed trait CarrierHead
-
-  object CarrierHead {
-
-    /** A concrete carrier instantiation — the binder was applied to a type constructor (`F := IO`). */
-    case class TopDef(fqn: ValueFQN) extends CarrierHead
-
-    /** A still-open carrier — the binder was peeled to an instantiation metavariable. */
-    case class Meta(id: Int) extends CarrierHead
-  }
 
   /** One ability constraint a callee reference declared on an instantiation meta, its type arguments already evaluated
     * against the callee's binder→instantiation-meta substitution ([[metaConstraints]]). The carrier binder itself is
