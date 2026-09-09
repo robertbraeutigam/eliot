@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.row
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.module.fact.{ValueFQN, WellKnownTypes}
+import com.vanillasource.eliot.eliotc.module.fact.{Qualifier, Role, ValueFQN, WellKnownTypes}
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.*
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
 import com.vanillasource.eliot.eliotc.resolve.fact.{AbilityFQN, Qualifier as ResolveQualifier}
@@ -66,8 +66,14 @@ object BindingWriter {
 
   /** The lexical environment at one point. `bindings` is innermost-first, so a nearer `with` shadows an outer one for
     * the same ability; `thunks` are the row-typed parameters in scope, whose references apply.
+    *
+    * @param uncoveredDefaults
+    *   Whether an **effect** with nothing in scope binds `Default` instead of being reported. True in exactly two
+    *   regions, and both because something other than this definition's row answers for the effect: a platform **run
+    *   boundary**, where every effect's chain ends (§9.5), and a **signature**, whose `raise`/`abort` is the guard
+    *   channel's vocabulary and is discharged by the guarded-return read, not performed at runtime at all.
     */
-  private case class Scope(bindings: Seq[Binding], thunks: Set[String]) {
+  private case class Scope(bindings: Seq[Binding], thunks: Set[String], uncoveredDefaults: Boolean = false) {
     def bind(binding: Binding): Scope = copy(bindings = binding +: bindings)
     def shadow(name: String): Scope   = copy(thunks = thunks - name)
 
@@ -81,21 +87,51 @@ object BindingWriter {
       bindings.find(_.ability == ability).map(_.term)
   }
 
-  /** @param atBoundary
+  /** Writes both halves of a definition, because both hold references: the **body**, and the **signature**.
+    *
+    * A signature is not decoration. A guarded return (`def head[COND: Bool]: if(COND, String[]) else raise("empty")`)
+    * is compile-time code in type position, and its `if`/`else`/`raise` are ordinary calls with row-typed slots and
+    * phantom binders — so the same thunking and the same binding write are needed there, or the guard reaches the
+    * checker as a bare `Type` at a `Unit -> Type` slot. What differs is only the scope check: a signature's effects
+    * are the guard channel's, discharged by the guarded-return read rather than performed, so an uncovered one
+    * defaults instead of being reported ([[Scope.uncoveredDefaults]]).
+    *
+    * @param atBoundary
     *   True for a platform **run boundary** ([[RunBoundaryFunctions]]) — the synthesized entry point. It is where every
     *   effect's chain ends (§9.5), so an uncovered effect is bound to the two-site `Default` there instead of being
-    *   reported undeclared. Everywhere else an uncovered effect is the error, which is the whole of the scope check.
+    *   reported undeclared. Everywhere else an uncovered effect in a *body* is the error, which is the whole of the
+    *   scope check.
     */
   def write(orv: OperatorResolvedValue, universe: RowChecker.Universe, atBoundary: Boolean = false): Written = {
-    val writer = new Writer(universe, atBoundary)
-    val scope  = Scope(receivedBindings(orv, universe), thunkParameters(orv))
-    val view   = SignatureView.of(orv.signature)
-    val body   = orv.runtime.map(writer.walkDefinition(_, scope, view.binders.size + view.parameters.size))
+    val writer    = new Writer(universe)
+    val received  = receivedBindings(orv, universe)
+    val scope     = Scope(received, thunkParameters(orv), uncoveredDefaults = atBoundary)
+    val view      = SignatureView.of(orv.signature)
+    val body      = Option
+      .when(writableBody(orv))(orv.runtime)
+      .flatten
+      .map(writer.walkDefinition(_, scope, view.binders.size + view.parameters.size))
+    val signature =
+      writer.walkDefinition(orv.signature, Scope(received, Set.empty, uncoveredDefaults = true), view.binders.size)
     Written(
-      orv.copy(runtime = body.orElse(orv.runtime), signature = strippedSignature(orv)),
+      orv.copy(runtime = body.orElse(orv.runtime), signature = signature),
       writer.violations.toSeq
     )
   }
+
+  /** Whether this value's **body** is written: everything with a runtime body except a type constructor, and only on
+    * the runtime role — a `@Signature` twin's "body" is its own arrow chain, which the signature write covers.
+    *
+    * A **meta companion** is written like any other body, unlike under v5's row derivation: a `^Meta` transfer brace or
+    * a `^Where` predicate is ordinary compile-track code calling ordinary abilities, and every one of those references
+    * needs its binding written or the checker grounds the binder to `Type` and the dispatch fails naming an ability the
+    * user never saw.
+    */
+  private def writableBody(orv: OperatorResolvedValue): Boolean =
+    orv.vfqn.name.role == Role.Runtime && (orv.vfqn.name.qualifier match {
+      case Qualifier.Type => false
+      case _              => true
+    })
 
   /** The bindings a definition receives from its caller — resolution-order step 2 — one per phantom binder of its own
     * signature, naming that binder.
@@ -202,17 +238,6 @@ object BindingWriter {
     case _: IntegerLiteral | _: StringLiteral => Seq.empty
   }
 
-  /** This definition's signature with every slot `with` removed — it is a declaration about the slot, not part of its
-    * type, and nothing past this phase knows the node.
-    */
-  private def strippedSignature(orv: OperatorResolvedValue): Sourced[OperatorResolvedExpression] =
-    orv.signature.map(stripWith)
-
-  private def stripWith(expr: OperatorResolvedExpression): OperatorResolvedExpression = expr match {
-    case WithBinding(subject, _) => stripWith(subject.value)
-    case other                   => OperatorResolvedExpression.mapChildrenM[cats.Id](stripWith)(other)
-  }
-
   /** The implementations a slot's type binds, outermost `with` last, as written. */
   private def slotBindings(tpe: OperatorResolvedExpression): Seq[Sourced[ValueFQN]] = tpe match {
     case WithBinding(subject, implementation) => slotBindings(subject.value) :+ implementation
@@ -226,7 +251,7 @@ object BindingWriter {
       case _                                                     => None
     })
 
-  private class Writer(universe: RowChecker.Universe, atBoundary: Boolean) {
+  private class Writer(universe: RowChecker.Universe) {
     val violations: mutable.Buffer[Violation] = mutable.Buffer.empty
 
     /** The definition's own leading binders — its generic binders and then its value parameters — are peeled without
@@ -392,8 +417,8 @@ object BindingWriter {
         scope: Scope
     ): OperatorResolvedExpression =
       scope.lookup(ability) match {
-        case Some(term)                     => term
-        case None if isEffect && !atBoundary =>
+        case Some(term)                              => term
+        case None if isEffect && !scope.uncoveredDefaults =>
           violations += Violation(
             at.as(
               s"This value performs the effect '${ability.abilityName}' but does not declare it; " +
@@ -402,7 +427,7 @@ object BindingWriter {
             Seq(s"Or bind an implementation for it here with `with`.")
           )
           defaultBinding(at)
-        case None            => defaultBinding(at)
+        case None                                    => defaultBinding(at)
       }
 
     private def nameOf(reference: Sourced[OperatorResolvedExpression]): Sourced[ValueFQN] =
