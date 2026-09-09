@@ -92,12 +92,6 @@ class TypeStackLoop(
       // binder is bound in ρ (an explicit type argument to its concrete value, a leftover to its instantiation meta).
       _ <- recordAmbientCarriers(resolvedValue)
 
-      // Compiler-track carrier pinning (CP-D): a `{Throw[E]}` effect carrier in a compile-time value has no runtime
-      // carrier to infer, so it is fixed to the compile-time `Throw` carrier `Either[E]` before the body is checked —
-      // solving the carrier's instantiation meta lets the body's `pure`/`raise` dispatch resolve and reduce. Runtime
-      // track never pins here (its carriers are inferred from the runtime use, or pinned to `IO` at `main`).
-      _ <- track.pinCarriers(checker, resolvedValue)
-
       // Settle the return position at the read (signature-unification C1) — one stateless, shape-driven step:
       //   - on the **runtime** track, discharge a guard off the re-inflated leaf shape (`dischargeGuardedSignature`):
       //     `Right(t)` ⤳ the plain type `t`, `Left(msg)` aborts with the author message, an `Either`/`Bool`
@@ -155,12 +149,8 @@ class TypeStackLoop(
     val view               = SignatureView.of(resolvedValue.signature)
     // The arrow chain with the generic binders stripped (they are bound in ρ/Γ by `bindTwinBinders`): `params → return`.
     val bodyExpr           = resolvedValue.signature.as(view.copy(binders = Seq.empty).toExpression)
-    // Carrier binders (the M1 `{E...}` effect carriers) a *leftover* binder must stay a metavariable for, so
-    // `pinCarriers` can fix it to the compile-time `Either[String]` (signature-unification C2 fence): a generic leftover
-    // binder becomes a `SignatureBinder` (→ `GroundValue.Param`), but a carrier leftover is pinned, not parameterised.
-    val carrierBinderNames = EffectCarriers.carrierBinders(view).filter(resolvedValue.paramConstraints.contains)
     for {
-      _          <- bindTwinBinders(view.binders, typeArguments, carrierBinderNames)
+      _          <- bindTwinBinders(view.binders, typeArguments)
       // Capture ρ now — holding only the erased type-stack binders (their ground values / carrier metas), *before* the
       // check binds any value / pattern binder of the arrow chain. This is the same clean env the value mono captures
       // before its body check; the read-back reduces the checked chain under it, so a signature-position `match`'s
@@ -169,10 +159,6 @@ class TypeStackLoop(
       monoEnv    <- inspect(_.rho)
       _          <- recordAmbientCarriers(resolvedValue)
       checked    <- checker.check(bodyExpr, VType)
-      // Compile-time carrier pinning runs *after* the arrow-chain check (as the value mono pins after its signature
-      // walk): a declared `{Throw[String]}` carrier binder's meta is bound above and an *inline* guard's inferred
-      // carrier meta is created by the check, so both are present to pin to the compile-time `Either[String]` now.
-      _          <- track.pinCarriers(checker, resolvedValue)
       abilityRefs = checker.abilityResolver.collectAbilityRefs(bodyExpr.as(checked))
       quoter     <- drainAndBuildQuoter(resolvedValue, abilityRefs, None, monoEnv)
       // The signature's ground read-back. Reduce the **raw** evaluated arrow chain first (renormalising natives as it
@@ -223,8 +209,7 @@ class TypeStackLoop(
     */
   private def bindTwinBinders(
       binders: Seq[SignatureView.Binder],
-      typeArguments: Seq[GroundValue],
-      carrierBinderNames: Set[String]
+      typeArguments: Seq[GroundValue]
   ): CheckIO[Unit] =
     binders.zipWithIndex.traverse_ { case (binder, i) =>
       for {
@@ -236,14 +221,15 @@ class TypeStackLoop(
         kindSem <- binder.parameterType.traverse(kind => checker.evalExpr(kind.value)).map(_.getOrElse(VType))
         // ρ's value at this binder (signature-unification C2):
         //   - an explicit ground argument ⟹ its applicable head form;
-        //   - a leftover **carrier** binder ⟹ a fresh instantiation meta that stays open for `pinCarriers` to fix to the
-        //     compile-time `Either[String]` (a pinned carrier, not a generic parameter);
-        //   - any other leftover (a generic type parameter) ⟹ a `SignatureBinder` neutral, so the arrow chain reads back
+        //   - a leftover binder (a generic type parameter) ⟹ a `SignatureBinder` neutral, so the arrow chain reads back
         //     **under its binder** as a `GroundValue.Param` (a parametric signature) instead of defaulting to `Type`.
+        //
+        // The third arm this had — a leftover *carrier* binder became a fresh meta, left open for `pinCarriers` to fix
+        // to the compile-time `Either[String]` — went with the pinning (effects v6, F3). With no pin behind it the
+        // meta would simply default to `Type`, where a `SignatureBinder` reads back honestly as parametric.
         value   <- typeArguments.lift(i) match {
-                     case Some(arg)                                              => pure(Evaluator.groundToSem(arg))
-                     case None if carrierBinderNames.contains(binder.name.value) => checker.freshMeta.widen[SemValue]
-                     case None                                                   =>
+                     case Some(arg) => pure(Evaluator.groundToSem(arg))
+                     case None      =>
                        pure(VNeutral(NeutralHead.SignatureBinder(i, binder.name.value), Spine.SNil): SemValue)
                    }
         _       <- modify(_.bindTypeStackParam(binder.name.value, kindSem, value))

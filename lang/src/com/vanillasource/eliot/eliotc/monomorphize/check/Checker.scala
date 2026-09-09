@@ -196,8 +196,7 @@ class Checker(
     } yield result
 
   /** Check-mode resolution at a *return boundary* (a lambda body against its codomain, a def body against its declared
-    * return): the shared [[resolveGuardedLadder]]. The ladder never produces a [[SlotOutcome.Bound]] anymore (its
-    * bind-lift arms were deleted with the effects-as-rows slices), so a non-`Resolved` outcome here is a compiler bug.
+    * return): the shared [[resolveGuardedLadder]].
     */
   private def checkAgainst(
       tm: Sourced[OperatorResolvedExpression],
@@ -217,11 +216,7 @@ class Checker(
       inferred: SemValue,
       expected: SemValue
   ): CheckIO[SemExpression] =
-    resolveGuardedLadder(tm, expr, inferred, expected).map {
-      case SlotOutcome.Resolved(e) => e
-      case other                   =>
-        throw new IllegalStateException(s"Return-boundary resolution produced a non-Resolved outcome: $other")
-    }
+    resolveGuardedLadder(tm, expr, inferred, expected)
 
   /** The check-mode resolution ladder shared by return boundaries ([[checkAgainst]]) and spine argument slots
     * ([[checkArgumentSlot]]), fronted by the W2b guard-kind acceptance. A value whose type is on the compile-time
@@ -230,24 +225,22 @@ class Checker(
     * letting the unifier reject `Either[..]` ≠ `Type`. Otherwise runs the plain [[resolveLadder]]. The expectation is
     * forced here (not at the callers): by the time the ladder runs, inference of the term may have solved metas in it.
     *
-    * This is the single entry the two fresh-check sites share ([[check]]'s fallback via [[checkAgainst]], and
-    * [[checkArgumentSlot]]); the deferred-slot re-entry ([[resolveDeferredSlot]]) calls [[resolveLadder]] directly,
-    * where a guard acceptance never applied.
+    * This is the single entry every check site shares — [[check]]'s fallback via [[checkAgainst]], and
+    * [[checkArgumentSlot]].
     */
   private def resolveGuardedLadder(
       tm: Sourced[OperatorResolvedExpression],
       expr: SemExpression,
       inferred: SemValue,
       expected: SemValue,
-  ): CheckIO[SlotOutcome] =
+  ): CheckIO[SemExpression] =
     for {
       forcedExpected <- force(expected)
       guardKind      <- forcedExpected match {
                           case VType => guards.isGuardCarrier(inferred)
                           case _     => pure(false)
                         }
-      outcome        <- if (guardKind) pure(SlotOutcome.Resolved(expr): SlotOutcome)
-                        else resolveLadder(tm, expr, inferred, expected)
+      outcome        <- if (guardKind) pure(expr) else resolveLadder(tm, expr, inferred, expected)
     } yield outcome
 
   /** The check-mode resolution ladder proper — the algorithm shared verbatim by return boundaries and argument slots
@@ -267,23 +260,24 @@ class Checker(
       expr: SemExpression,
       inferred: SemValue,
       expected: SemValue
-  ): CheckIO[SlotOutcome] =
+  ): CheckIO[SemExpression] =
     for {
       (updatedExpr, instantiated) <- instantiatePolymorphic(expr, inferred)
       out                         <- resolveFailureLadder(tm, updatedExpr, instantiated, expected)
     } yield out
 
-  /** The failure ladder consulted when definitional equality (arm 1) does not immediately unify: try the pure-wrap
-    * arm, then commit the exact mismatch.
+  /** The failure ladder consulted when definitional equality does not immediately unify: commit the exact mismatch.
+    * Since effects v6 there is no arm between the two — a pure term meeting a carrier-headed expectation was the one
+    * shape that recovered here, and there is no carrier.
     */
   private def resolveFailureLadder(
       tm: Sourced[OperatorResolvedExpression],
       updatedExpr: SemExpression,
       instantiated: SemValue,
       expected: SemValue
-  ): CheckIO[SlotOutcome] =
+  ): CheckIO[SemExpression] =
     tryUnifyCommitting(instantiated, expected, tm.as("Type mismatch.")).flatMap {
-      case true  => pure(SlotOutcome.Resolved(updatedExpr): SlotOutcome)
+      case true  => pure(updatedExpr)
       case false => commitMismatch(instantiated, expected, tm, updatedExpr)
     }
 
@@ -295,9 +289,9 @@ class Checker(
       expected: SemValue,
       tm: Sourced[OperatorResolvedExpression],
       fallbackExpr: SemExpression
-  ): CheckIO[SlotOutcome] =
+  ): CheckIO[SemExpression] =
     modify(st => st.withUnifier(st.unifier.addMismatch(instantiated, expected, tm.as("Type mismatch."))))
-      .as(SlotOutcome.Resolved(fallbackExpr): SlotOutcome)
+      .as(fallbackExpr)
 
   /** Peel leading VLam closures by substituting fresh metas; return the non-VLam head together with the fresh metas in
     * order.
@@ -467,16 +461,9 @@ class Checker(
     * alone has no inferable parameter type, so it is inferred from the first argument), anything else is inferred —
     * then resolve the arguments left to right:
     *
-    *   - **each slot** ([[applyInferred]]) runs the resolution ladder immediately. The one exception is a slot whose
-    *     domain is a bare flex metavariable receiving a carrier-headed argument, which is *deferred*: resolving it
-    *     eagerly would solve the meta to the carrier type before later arguments could rigidify it. Only the
-    *     **compile-time track** produces such a slot now (the §8 boundary — the row elaborator classifies every
-    *     runtime position from its declaration, docs/effects-as-rows.md §1 rule 4).
-    *   - **the deferred slots** ([[resolveDeferredSlot]], left to right) are decided after the spine: a still-bare-flex
-    *     domain adopts the carrier-headed argument (pass-through, so the enclosing slot decides), anything else runs
-    *     the ladder.
-    *   - **Assemble** ([[assembleSpine]]): rebuild the chain if a deferred slot changed. Nothing is folded *around*
-    *     the core anymore — the checker inserts no binds.
+    *   - **each slot** ([[applyInferred]]) runs the resolution ladder immediately, left to right. There is no second
+    *     phase: the deferral that used to hold a bare flex domain receiving a carrier-headed argument went with the
+    *     carrier (effects v6, F3), and nothing is folded *around* the core — the checker inserts no binds.
     *
     * Each fold step receives the intermediate application node's own [[Sourced]] target, so diagnostics and the
     * rebuilt [[SemExpression]] keep the exact positions the former per-curried-node recursion produced.
@@ -492,117 +479,17 @@ class Checker(
       apps: List[(Sourced[OperatorResolvedExpression], Sourced[OperatorResolvedExpression])]
   ): CheckIO[(SemExpression, SemValue)] = {
     for {
-      (start, rest)    <- head.value match {
+      (start, rest) <- head.value match {
                             case OperatorResolvedExpression.FunctionLiteral(paramName, None, body) =>
                               typeImmediateLambda(head, paramName, body, apps.head._2, None).map((_, apps.tail))
                             case _                                                                 =>
                               infer(head).map((_, apps))
                           }
-      (built, records) <- rest.foldLeftM((start, Vector.empty[SlotRecord])) {
-                            case (((targetExpr, targetType), recs), (target, arg)) =>
-                              applyInferred(target, targetExpr, targetType, arg).map { case (expr, tpe, record) =>
-                                ((expr, tpe), recs :+ record)
-                              }
-                          }
-      hadDeferred       = records.exists(_.outcome.isInstanceOf[SlotOutcome.Deferred])
-      finalRecords     <- records.traverse(resolveDeferredSlot)
-      result           <- assembleSpine(built, finalRecords, hadDeferred)
+      result        <- rest.foldLeftM(start) { case ((targetExpr, targetType), (target, arg)) =>
+                         applyInferred(target, targetExpr, targetType, arg)
+                       }
     } yield result
   }
-
-  /** The outcome of resolving one spine argument slot. */
-  private sealed trait SlotOutcome {
-
-    /** The expression this slot contributes to the application chain — final for `Resolved` (the ladder ran),
-      * provisional (the uninstantiated argument) for `Deferred`.
-      */
-    def slotExpr: SemExpression
-  }
-
-  private object SlotOutcome {
-
-    /** The ladder resolved the slot in place (unified, coerced, or pure-wrapped). */
-    case class Resolved(slotExpr: SemExpression) extends SlotOutcome
-
-    /** Phase-A deferral (bare flex domain + effect-carrier-headed argument); decided in Phase B. */
-    case class Deferred(slotExpr: SemExpression, argType: SemValue, domain: SemValue) extends SlotOutcome
-
-  }
-
-  /** One spine slot's record: the intermediate application node's [[Sourced]] target and argument, the instantiated
-    * target expression used to build the node, the node's return type, and the slot's (possibly still deferred)
-    * outcome.
-    */
-  private case class SlotRecord(
-      target: Sourced[OperatorResolvedExpression],
-      arg: Sourced[OperatorResolvedExpression],
-      updatedTarget: SemExpression,
-      retType: SemValue,
-      outcome: SlotOutcome
-  )
-
-  /** Phase B: decide a deferred slot — the **compile-time track's** mid-spine decision (the §8 boundary: the
-    * compile-time track keeps the default ladder by design). Two arms, both exercised by the guard discharge in the
-    * compile-time `Either`: a still-bare-flex domain **adopts** the carrier-headed argument (pass-through — the effect
-    * rides up into the domain meta and the enclosing slot decides), and anything else runs the ladder.
-    *
-    * The **runtime** track produces no deferral at all anymore (docs/effects-as-rows.md A.11.8 step 1): since §1 rule 4
-    * every position classifies from its declaration, so the row elaborator writes the placement and the carrier before
-    * the checker sees the body. This arm is reached on that track only by a shape neither the payload nor the carrier
-    * routing claimed, where adopt-or-ladder is exactly what it did before the A.8.7 obligations existed — a
-    * unification decision, never a silent accept.
-    */
-  private def resolveDeferredSlot(record: SlotRecord): CheckIO[SlotRecord] = record.outcome match {
-    case SlotOutcome.Deferred(argExpr, argType, domain) =>
-      for {
-        forcedDomain <- force(domain)
-        outcome      <- forcedDomain match {
-                          case VMeta(id, Spine.SNil) =>
-                            for {
-                              (updated, instantiated) <- instantiatePolymorphic(argExpr, argType)
-                              _                       <- doUnify(VMeta(id, Spine.SNil), instantiated, record.arg.as("Type mismatch."))
-                            } yield SlotOutcome.Resolved(updated): SlotOutcome
-                          case _                     =>
-                            // A meta-*applied* domain (`?G[?A]`, a generic container parameter) and a rigidified one
-                            // alike: the carrier can legitimately ride into the domain, so the ladder decides.
-                            resolveLadder(record.arg, argExpr, argType, domain)
-                        }
-      } yield record.copy(outcome = outcome)
-    case _                                              => pure(record)
-  }
-
-  /** Assemble the spine result: rebuild the application chain when Phase B changed a deferred slot's expression. The
-    * checker no longer folds effect-binds around a spine core — every argument the elaboration sequences is either
-    * hoisted by the desugar up front (§1 rule 4: every position classifies from its declaration) — so with no deferral
-    * this is the Phase-A build unchanged.
-    */
-  private def assembleSpine(
-      built: (SemExpression, SemValue),
-      records: Vector[SlotRecord],
-      hadDeferred: Boolean
-  ): CheckIO[(SemExpression, SemValue)] =
-    pure((if (hadDeferred) rebuildChain(records) else built._1, built._2))
-
-  /** Rebuild the application chain with each slot's final expression (needed only when Phase B changed a deferred
-    * slot, so the Phase-A build holds a provisional argument). Node types are the Phase-A computed return types; the
-    * head-level target keeps its instantiated form, and each inner node carries the type the per-slot instantiation
-    * assigned it.
-    */
-  private def rebuildChain(records: Vector[SlotRecord]): SemExpression =
-    records
-      .foldLeft(Option.empty[SemExpression]) { case (prev, record) =>
-        val targetExpr = prev match {
-          case None       => record.updatedTarget
-          case Some(node) => node.copy(expressionType = record.updatedTarget.expressionType)
-        }
-        Some(
-          SemExpression(
-            record.retType,
-            SemExpression.FunctionApplication(record.target.as(targetExpr), record.arg.as(record.outcome.slotExpr))
-          )
-        )
-      }
-      .getOrElse(throw new IllegalStateException("Rebuilding an empty application spine."))
 
   /** Decompose a nested (curried) application into its head and, for each argument, the intermediate application
     * node's target paired with that argument — e.g. `f(a)(b)` yields `(f, [(f, a), (f(a), b)])`. The intermediate
@@ -621,15 +508,14 @@ class Checker(
   /** Apply one argument of a spine ([[inferSpine]]'s Phase-A fold step): peel any polytype (`VLam`) layers with fresh
     * metas, then apply the argument to the resulting monotype. If the monotype isn't already `VPi`, it gets unified
     * against a fresh one. The implicit metas introduced by peeling are baked into the target reference. The argument
-    * itself is resolved by [[checkArgumentSlot]] (the ladder, the flex-slot deferral, the bind-lift); the returned
-    * [[SlotRecord]] carries the slot's outcome for Phase B and the spine assembly.
+    * itself is resolved by [[checkArgumentSlot]].
     */
   private def applyInferred(
       target: Sourced[OperatorResolvedExpression],
       targetExpr: SemExpression,
       targetType: SemValue,
       arg: Sourced[OperatorResolvedExpression]
-  ): CheckIO[(SemExpression, SemValue, SlotRecord)] =
+  ): CheckIO[(SemExpression, SemValue)] =
     for {
       (updatedTarget, peeled) <- instantiatePolymorphic(targetExpr, targetType)
       vpi                     <- peeled match {
@@ -642,8 +528,7 @@ class Checker(
                                        _       <- doUnify(peeled, p, target.as("Not a function."))
                                      } yield p
                                  }
-      outcome                 <- checkArgumentSlot(arg, vpi.domain)
-      argExpr                  = outcome.slotExpr
+      argExpr                 <- checkArgumentSlot(arg, vpi.domain)
       argSem                  <- evalExpr(arg.value)
       // The codomain may embed a native applied to the target's instantiation metas — e.g. a dependent result type
       // `Int[add(LMin,RMin), …]`. Those bounds are solved by the argument checks just above, so renormalise the
@@ -667,26 +552,23 @@ class Checker(
         retType,
         SemExpression.FunctionApplication(target.as(updatedTarget), arg.as(argExpr))
       ),
-      retType,
-      SlotRecord(target, arg, updatedTarget, retType, outcome)
+      retType
     )
 
-  /** Resolve one spine argument against its parameter domain (Phase A). Lambda-shaped arguments route through the
-    * ordinary [[check]] (a lambda is never effect-carrier-headed, so neither deferral nor lift applies — and the
-    * immediately-applied-lambda `let` shape needs the expected type pushed down). Everything else is inferred once and
-    * then either *deferred* (a bare flex domain receiving an effect-carrier-headed argument — Phase B decides) or run
-    * through the shared resolution ladder ([[resolveGuardedLadder]], which folds in the effectful-signatures kind
-    * acceptance (W2b) exactly as the return-boundary [[checkAgainst]] does).
+  /** Resolve one spine argument against its parameter domain. Lambda-shaped arguments route through the ordinary
+    * [[check]] (the immediately-applied-lambda `let` shape needs the expected type pushed down); everything else is
+    * inferred once and run through the shared resolution ladder ([[resolveGuardedLadder]], which folds in the
+    * effectful-signatures kind acceptance (W2b) exactly as the return-boundary [[checkAgainst]] does).
     */
   private def checkArgumentSlot(
       arg: Sourced[OperatorResolvedExpression],
       domain: SemValue
-  ): CheckIO[SlotOutcome] =
+  ): CheckIO[SemExpression] =
     arg.value match {
       case _: OperatorResolvedExpression.FunctionLiteral                                                 =>
-        check(arg, domain).map(SlotOutcome.Resolved.apply)
+        check(arg, domain)
       case OperatorResolvedExpression.FunctionApplication(target, _) if isUnannotatedLambda(target.value) =>
-        check(arg, domain).map(SlotOutcome.Resolved.apply)
+        check(arg, domain)
       case _                                                                                             =>
         for {
           (argExpr, argType) <- infer(arg)
@@ -707,7 +589,7 @@ class Checker(
       argExpr: SemExpression,
       argType: SemValue,
       forcedDomain: SemValue
-  ): CheckIO[SlotOutcome] =
+  ): CheckIO[SemExpression] =
     resolveGuardedLadder(arg, argExpr, argType, forcedDomain)
 
   /** Whether `expr` is an unannotated function literal `(x -> body)`. Its parameter type cannot be inferred from the
