@@ -79,11 +79,17 @@ object AbilityMatcher {
 
   /** Check that an impl method's signature is compatible with the ability's abstract method signature.
     *
-    * The abstract method's leading type parameters (both ability-level and method-level) are zipped with the impl
-    * marker's pattern arguments: the ability-level params get bound to the pattern args, and any remaining
-    * method-level params stay as free metas that unify with the impl side's method-level metas by position.
+    * The abstract method's leading type parameters are zipped with the impl marker's pattern arguments: the
+    * ability-level params get bound to the pattern args, and any remaining method-level params stay as free metas that
+    * unify with the impl side's method-level metas by position. The impl method body is then unified against the
+    * (substituted) abstract method body.
     *
-    * The impl method body is then unified against the (substituted) abstract method body.
+    * **The binding binder is dropped first.** Effects v6 mints, ahead of an ability's own parameters, a binder for the
+    * implementation itself ([[com.vanillasource.eliot.eliotc.ast.fact.AbilityMembers]]) — but an `implement` marker
+    * still takes one argument per *pattern* element and no binding, so the two lists are off by one. Zipping them as
+    * they come pairs the binding with the first pattern argument and every real parameter with the wrong one, which
+    * made this check both miss a genuine mismatch (`implement Show[Int] { def show(x: Bool): Bool }` passed) and invent
+    * one (`Convert[Int, String]` was rejected against its own ability).
     */
   def signaturesCompatible(
       abstractMethodSig: Sourced[OperatorResolvedExpression],
@@ -95,7 +101,7 @@ object AbilityMatcher {
       (s1, absParams, absBody)       = peelToBody(setup, abstractMethodSig)
       (s2, _, implBody)              = peelToBody(s1, implMethodSig)
       marker                         = peelPattern(s2, implMarkerSig)
-    } yield attemptSigCompat(marker.setup, absParams, marker.args, absBody, implBody, abstractMethodSig)
+    } yield attemptSigCompat(marker.setup, absParams.drop(1), marker.args, absBody, implBody, abstractMethodSig)
 
   // ---- Phase 1: classify every transitively-referenced ORE value ----
 

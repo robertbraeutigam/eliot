@@ -369,42 +369,27 @@ class AbilityImplementationCheckProcessorTest
     """).asserting(_.nonEmpty shouldBe true)
   }
 
-  // --- effect-set sugar `{E} A` desugaring to the HKT carrier (effects M1) ---
+  // --- a constrained generic instance, `implement[F[_] ~ Suspend] Console[F]` ---
+  //
+  // The `{E} A`-desugars-to-a-carrier case that used to open this group is deleted: effects v6 has no carrier, so the
+  // sugar's meaning is not the M0 form and there is nothing to compare. The M0 form itself — a constructor class
+  // reached through `[F[_] ~ Monad]` — is asserted above and is the durable half. What the two cases below assert is
+  // likewise not about effects: an implementation generic over its own pattern and *constrained*, resolving at a
+  // concrete argument; and an obligation the signature does not name, deferred to the use site. Neither ability spells
+  // a row, because a member of a *parameterised* ability may not carry one (its parameters are inferred at each call
+  // and stand between the binding and the member's own).
 
-  it should "resolve a higher-kinded ability constraint introduced by effect-set sugar" in {
-    // The `{Monad} String` sugar desugars to exactly the M0 `[F[_] ~ Monad]` carrier form, so this is the M0
-    // acceptance program written in surface syntax: it must type-check and resolve `flatMap` at F := Box end-to-end.
-    runEngineForErrors("""
-        ability Monad[F[_]] {
-          def flatMap[A, B](fa: F[A], f: Function[A, F[B]]): F[B]
-        }
-
-        data Box[A](content: A)
-
-        implement Monad[Box] {
-          def flatMap[A, B](fa: Box[A], f: Function[A, Box[B]]): Box[B] = f(content(fa))
-        }
-
-        def someBox: Box[String]
-        def runTwice(fa: {Monad} String): {Monad} String = flatMap(fa, ignore -> fa)
-        def f: Box[String] = runTwice(someBox)
-    """).asserting(_ shouldBe Seq.empty)
-  }
-
-  // --- constrained HKT instance `implement[F[_] ~ Suspend] Console[F]` (effects M2) ---
-
-  it should "resolve a constrained higher-kinded instance through a recursive carrier constraint" in {
-    // The net-new M2 case: a fine effect `Console[F]` whose instance is generic over the carrier and constrained by
-    // a base effect (`F ~ Suspend`), never pinned to a concrete carrier. Resolving `cprintln` at `F := Mio` must match
-    // the `[F[_] ~ Suspend] Console[F]` instance and, in turn, discharge its own `Suspend[Mio]` obligation from the body's
-    // `suspend` call — the `Console → Suspend → carrier` layering of Decisions 9/10, type-checked end-to-end.
+  it should "resolve a constrained higher-kinded instance through a recursive constraint" in {
+    // A generic instance `Console[F]` constrained by another ability of the same parameter (`F ~ Suspend`), never
+    // pinned to a concrete argument. Resolving `cprintln` at `F := Mio` must match the `[F[_] ~ Suspend] Console[F]`
+    // instance and, in turn, discharge its own `Suspend[Mio]` obligation from the body's `suspend` call.
     runEngineForErrors("""
         ability Suspend[F[_]] {
           def suspend[A](thunk: Function[Unit, A]): F[A]
         }
 
         ability Console[F[_]] {
-          def cprintln(s: String): {Console} String
+          def cprintln(s: String): F[String]
         }
 
         data Mio[A](block: Function[Unit, A])
@@ -422,12 +407,10 @@ class AbilityImplementationCheckProcessorTest
     """).asserting(_ shouldBe Seq.empty)
   }
 
-  it should "defer an uncovered carrier ability call to the concrete use site (M2 main shape)" in {
-    // `program` is constrained only by `Console[F]`, yet its body calls `flatMap` (an `Effect[F]` op) on the same
-    // carrier. `Effect[F]` is the internal machinery, never named as a user-facing effect, so the only declared effect
-    // stays Console (the M2 `main : {Console} Unit = flatMap(...)` shape). At `F := Mio`, `Effect[Mio]` exists, so the
-    // deferred `flatMap` resolution succeeds. This is the use-site-verification cornerstone applied to a carrier
-    // capability the signature does not name.
+  it should "defer an uncovered ability call to the concrete use site" in {
+    // `program` is constrained only by `Console[F]`, yet its body calls `flatMap`, an `Effect[F]` operation on the
+    // same parameter that its signature never names. At `F := Mio` the instance exists, so the deferred resolution
+    // succeeds — the use-site-verification cornerstone applied to an obligation no declaration discharges abstractly.
     runEngineForErrors("""
         ability Effect[F[_]] {
           def flatMap[A, B](fa: F[A], f: Function[A, F[B]]): F[B]
@@ -438,7 +421,7 @@ class AbilityImplementationCheckProcessorTest
         }
 
         ability Console[F[_]] {
-          def cprintln(s: String): {Console} String
+          def cprintln(s: String): F[String]
         }
 
         data Mio[A](block: Function[Unit, A])
