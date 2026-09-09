@@ -56,12 +56,21 @@ object NamedImplementation {
           (genericParameters, name) <- head
           ability                   <- acceptIfAll(isIdentifier, isUpperCase)("ability name")
           pattern                   <- optionalBracketedCommaSeparatedItems("[", sourced(Expression.typeRunParser), "]")
-          (errors, functions)       <-
-            (component[FunctionDefinition] or TypeAliasDefinition.typeAliasDefinition.parser)
+          // Tagged by branch: a `def` is a **clause** and carries the block's clause row, a `type` is an associated
+          // type and must not ([[ImplementationRows]]).
+          (errors, members)         <-
+            (component[FunctionDefinition].map(f => (f, true)) or
+              TypeAliasDefinition.typeAliasDefinition.parser.map(f => (f, false)))
               .recoveringAtLeastOnce(t => isKeyword(t) && (hasContent("def")(t) || hasContent("type")(t)))
               .between(symbol("{"), symbol("}"))
               .optional()
               .map(_.getOrElse(Seq.empty, Seq.empty))
+          // What the implementation itself performs, on every clause: `with recordingConsole` writes not only the
+          // marker but the implementations its clauses' `{Writer[String]}` runs on (effects v6 §9.4 step 3).
+          clauseRow                  = ImplementationRows.union(members.collect { case (f, true) => f })
+          functions                  = members.map { case (f, isClause) =>
+                                         if (isClause) ImplementationRows.carrying(clauseRow, f) else f
+                                       }
         } yield (
           errors,
           NamedImplementation(name.map(_.content), genericParameters, ability.map(_.content), pattern, functions)

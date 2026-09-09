@@ -71,6 +71,12 @@ object BindingWriter {
     def bind(binding: Binding): Scope = copy(bindings = binding +: bindings)
     def shadow(name: String): Scope   = copy(thunks = thunks - name)
 
+    /** This scope with `abilities` bound to `Default` — what a slot's `with` resolves its own bindings against, since
+      * the scope that covers them is the callee's and not this one.
+      */
+    def defaulting(abilities: Seq[AbilityFQN], at: Sourced[?]): Scope =
+      abilities.foldLeft(this)((acc, ability) => acc.bind(Binding(ability, defaultBinding(at))))
+
     def lookup(ability: AbilityFQN): Option[OperatorResolvedExpression] =
       bindings.find(_.ability == ability).map(_.term)
   }
@@ -239,7 +245,7 @@ object BindingWriter {
         case WithBinding(subject, implementation) =>
           abilityOf(implementation.value, universe) match {
             case Some(ability) =>
-              walk(subject, scope.bind(Binding(ability, ValueReference(implementation))))
+              walk(subject, scope.bind(Binding(ability, boundImplementation(implementation, scope))))
             case None          =>
               violations += Violation(implementation.as("This name is not an implementation."))
               walk(subject, scope)
@@ -304,9 +310,46 @@ object BindingWriter {
         .flatMap(marker => abilityOf(marker.value, universe).map(_ -> marker))
         .toMap
       slot.filterNot(rides).foldLeft(scope) { (acc, ability) =>
-        acc.bind(Binding(ability, declared.get(ability).fold(defaultBinding(anchor))(m => ValueReference(m))))
+        acc.bind(Binding(ability, declared.get(ability).fold(defaultBinding(anchor))(slotImplementation(_, acc))))
       }
     }
+
+    /** The term a `with` binds: the implementation's marker **applied to its own clause-row bindings** (§9.4 step 3),
+      * resolved in the scope the `with` stands in. A named implementation whose clauses declare a row is itself
+      * parameterised by what they perform — `greeting[recordingConsole[cellWriter]]` — and transitivity is nothing
+      * more than this being an ordinary written reference: whatever the scope holds for those abilities was written
+      * the same way when *it* was bound. An implementation with no clause row writes as the bare marker, exactly as
+      * before.
+      */
+    private def boundImplementation(
+        implementation: Sourced[ValueFQN],
+        scope: Scope
+    ): OperatorResolvedExpression =
+      writeBindings(
+        implementation.as(ValueReference(implementation)),
+        implementation.value,
+        Seq.empty,
+        scope
+      ).value
+
+    /** The term a **slot's** `with` binds (`program: {Console} Unit with recordingConsole`). Its clause-row bindings
+      * cannot be resolved here: the effects those clauses perform are supplied and discharged inside the *callee*,
+      * which is the whole point of a slot `with` — `transcriptOf`'s `runWriterToLog` covers the double's
+      * `{Writer[String]}`, and the caller writing the actual can neither see it nor name it. So they are written
+      * `Default`, "search at the ground arguments", which is what the callee's own body would have written for them.
+      */
+    private def slotImplementation(
+        implementation: Sourced[ValueFQN],
+        scope: Scope
+    ): OperatorResolvedExpression =
+      boundImplementation(
+        implementation,
+        scope.defaulting(bindingAbilities(implementation.value), implementation)
+      )
+
+    /** Every ability the implementation `marker` is parameterised by — its phantom binders' abilities. */
+    private def bindingAbilities(marker: ValueFQN): Seq[AbilityFQN] =
+      universe.lookup(marker).toSeq.flatMap(orv => phantoms(orv).map(_._2))
 
     /** The abilities a callee's parameter `index` declares, when that parameter is a row position at all. */
     private def rowSlot(orv: OperatorResolvedValue, index: Int): Option[Seq[AbilityFQN]] =

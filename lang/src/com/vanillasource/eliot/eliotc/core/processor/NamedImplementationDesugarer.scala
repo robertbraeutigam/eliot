@@ -5,6 +5,7 @@ import com.vanillasource.eliot.eliotc.ast.fact.{
   ArgumentDefinition,
   Expression,
   FunctionDefinition,
+  ImplementationRows,
   NamedImplementation,
   Visibility
 }
@@ -66,7 +67,13 @@ object NamedImplementationDesugarer {
       implementation.ability.as(QualifiedName(abilityName, qualifier)),
       implementation.genericParameters,
       implementation.pattern.zipWithIndex.map { case (p, i) => ArgumentDefinition(anchor.as(s"arg$i"), p) },
-      Expression.trueReference(implementation.ability),
+      // The clause row rides the guard slot, exactly as it does for the anonymous form: the row is erased from every
+      // type, so the unguarded `true` is untouched, and what the marker gains is the phantom-binder declaration
+      // `BindingWriter` reads back to write `recordingConsole[…]` at a `with` ([[ImplementationRows]]).
+      ImplementationRows.rowed(
+        ImplementationRows.union(implementation.functions),
+        Expression.trueReference(implementation.ability)
+      ),
       None
     )
 

@@ -29,12 +29,21 @@ object ImplementBlock {
           // `{` (`{` is not a type-atom start), giving the parse boundary of §2.1 for free. It rides the marker's
           // return-type slot below.
           guard               <- (keyword("where") *> sourced(Expression.typeRunParser)).optional()
-          (errors, functions) <-
-            (component[FunctionDefinition] or TypeAliasDefinition.typeAliasDefinition.parser)
+          // Tagged by branch: a `def` is a **clause** and carries the block's clause row, a `type` is an associated
+          // type and must not ([[ImplementationRows]]).
+          (errors, members)   <-
+            (component[FunctionDefinition].map(f => (f, true)) or
+              TypeAliasDefinition.typeAliasDefinition.parser.map(f => (f, false)))
               .recoveringAtLeastOnce(t => isKeyword(t) && (hasContent("def")(t) || hasContent("type")(t)))
               .between(symbol("{"), symbol("}"))
               .optional()
               .map(_.getOrElse(Seq.empty, Seq.empty))
+          // What the implementation itself performs: one phantom binder per entry on the marker and on every clause,
+          // so `with` can write the implementations those clauses run on (effects v6 §9.4 step 3).
+          clauseRow            = ImplementationRows.union(members.collect { case (f, true) => f })
+          functions            = members.map { case (f, isClause) =>
+                                   if (isClause) ImplementationRows.carrying(clauseRow, f) else f
+                                 }
           // The implementation's identity: a canonical, position-independent string of *what* it implements — the
           // surface form of its type-argument pattern plus its `where` guard. Two `implement` blocks are the same
           // instance iff this key matches (independent of file/position/order), which is what lets an instance be split
@@ -77,7 +86,10 @@ object ImplementBlock {
               ),
               genericParameters,
               pattern.zipWithIndex.map { case (p, i) => ArgumentDefinition(name.as(s"arg$i"), p) },
-              guard.getOrElse(Expression.trueReference(name)),
+              // The guard rides the marker's return slot, and the clause row rides it too: a row is erased from
+              // every type by `EffectSugarDesugarer`, so the guard reaches the discharge untouched while the marker
+              // gains the binder declaration a `with` and the pattern match read back.
+              ImplementationRows.rowed(clauseRow, guard.getOrElse(Expression.trueReference(name))),
               None
             )
         )

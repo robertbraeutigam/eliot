@@ -54,6 +54,21 @@ class NamedImplementationDesugarerTest extends ProcessorTest(new Tokenizer(), ne
       .asserting(_.find(_.name.value.name == "Console").get.typeDefinition.value.render shouldBe "eliot.lang.Bool::true")
   }
 
+  it should "give the marker the clause row so `with` can write what the implementation performs" in {
+    definitions("implement recordingConsole: Console {\n  def printLine(s: String): {Writer[String]} Unit = t\n}")
+      .asserting(_.find(_.name.value.name == "Console").get.typeDefinition.value.render shouldBe "{Writer[String]} eliot.lang.Bool::true")
+  }
+
+  it should "give every clause the union of the clauses' rows, so all of them declare one prefix" in {
+    definitions("implement recordingConsole: Console {\n  def printLine(s: String): {Writer[String]} Unit = t\n  def readLine: X = None\n}")
+      .asserting(_.filter(_.body.isDefined).map(_.typeDefinition.value.render) shouldBe Seq("{Writer[String]} Unit", "{Writer[String]} X"))
+  }
+
+  it should "leave an associated type out of the clause row" in {
+    definitions("implement recordingConsole: Console {\n  def printLine(s: String): {Writer[String]} Unit = t\n  type Buffer = X\n}")
+      .asserting(_.find(_.name.value.name == "Buffer").get.typeDefinition.value.render shouldBe "Type")
+  }
+
   private def definitions(source: String) =
     ast(source).map(_.namedImplementations.flatMap(NamedImplementationDesugarer.desugar))
 

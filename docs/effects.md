@@ -1370,16 +1370,14 @@ minting carriers and there is no green checkpoint until the primitives exist —
 work in reviewable pieces, each stating that the tree does not build, rather than hold weeks of it uncommitted. The
 gate is unchanged: §8's behavioural identity, read at the end.
 
-**Where it stands (2026-09-09).** F1, F4, F5 and F7 are landed. Effects, dischargers, per-instantiation frames and
-cells all run correctly — `EffectsTwoThrows`, `EffectsTwoDeps`, `EffectsState`, `EffectsAbort`, `EffectsThrow`,
-`Effects`, `TestSuite`, `HelloWorld`, `Concat`, `IntEquality`, `Intervals`, `AbilityDerive` — and the last full sweep
-(before the four fixes F5 carried) measured 39 of 45 examples behaving identically to `.v6/baseline.txt`. **One
-blocker remains**, and it blocks exactly the three `with` examples: a named implementation's clause-row bindings
-(below, F1). F2, F3, F6 and F9 are untouched; the 524 Scala tests currently failing are the v5 carrier, elaborator
-and mono suites, which F2 and F3 delete or rewrite.
+**Where it stands (2026-09-09).** F1, F4, F5 and F7 are landed, and **the tree has no known blocker left**: a full
+sweep is behaviourally identical to `.v6/baseline.txt` on every example the two trees share — same exit code, same
+stdout, all 44 jars — and the only module-level differences are the three F7 made on purpose (`EffectAbilitySet`
+deleted with the effect-set feature, `EffectsFakeCarrier` replaced by `EffectsNamedEffect`). Effects, dischargers,
+per-instantiation frames, cells and `with` all run. F2, F3, F6 and F9 are untouched; the Scala tests still failing
+are the v5 carrier, elaborator and mono suites, which F2 and F3 delete or rewrite.
 
-- **F1 — the desugar. DONE** (`590e79dd`, `c73a9144`, `0eb0e06e`, `1b6482aa`), in three parts, `except` the one
-  item below.
+- **F1 — the desugar. DONE** (`590e79dd`, `c73a9144`, `0eb0e06e`, `1b6482aa`, `HEAD`), in four parts.
   - *The `with` resolution path.* A named `implement` mints, beside its methods and its marker, a **name marker**
     `QualifiedName(name, Qualifier.Implementation(name))`, because `with h` has to be a keyed dictionary lookup —
     import scope and shadowing decide it, not `Map` order — and the real marker's qualified name cannot be built from
@@ -1398,11 +1396,30 @@ and mono suites, which F2 and F3 delete or rewrite.
     occurs in no parameter and no return type *and* is the first type argument of one of the definition's own
     constraints), and thunk/apply is **unconditional** — the two are inverse, so a pass-through is an η-expansion
     and no argument's shape or type is ever inspected.
-  - **Not done: clause-row bindings.** §9.4 step 3's second value form — "that FQN applied to its own clause-row
-    bindings", `greeting[recordingConsole[cellWriter]]` — is unbuilt. `BindingWriter` writes the bare marker, so an
-    implementation whose clauses declare a row leaves the effect's *ability* marker to reach codegen, where it fails
-    as "Function not implemented". This is the whole of what blocks `EffectsFakeConsole`, `EffectsNamedEffect` and
-    `EffectsTestFramework`, and nothing else is known to fail.
+  - *Clause-row bindings.* §9.4 step 3's second value form — "that FQN applied to its own clause-row bindings",
+    `greeting[recordingConsole[cellWriter]]`. An implementation whose clauses declare a row is parameterised by what
+    they perform, so the marker has to *declare* that parameter and the write has to fill it. Three rules settled it:
+    - **the binder is the union of the clauses' rows, declared by every value of the block** (`ImplementationRows`,
+      applied by both `implement` forms). It cannot be per-clause: `AbilityResolver` hands the marker's type
+      arguments to *every* method positionally, so there is one list and therefore one prefix. A clause that performs
+      nothing declares what its siblings perform — true of the implementation, bound at the same `with`, and free at
+      runtime since a phantom binder is erased. Nothing new mints: the union is written into the ordinary return-row
+      position and `EffectSugarDesugarer` mints it exactly as it mints any other row, which is what keeps marker and
+      methods in step by construction. The **marker** carries it on its guard slot — a row is erased from every type,
+      so the guard reaches the discharge untouched. An **associated type is excluded**: a `type` in an `implement`
+      block occupies a pattern slot, and a row there would change its arity at every use.
+    - **a body `with` resolves the marker's own bindings in the scope it stands in**, which is all transitivity
+      needs — the term is an ordinary written reference, so whatever the scope holds was itself written the same way.
+    - **a slot `with` writes them `Default`.** The effects an implementation's clauses perform are supplied and
+      discharged inside the *callee* (`transcriptOf`'s `runWriterToLog` covers the double's `{Writer[String]}`), and
+      the caller writing the actual can neither see that nor name it. `Default` is what the callee's own body would
+      have written. A caller-side binding would be the wrong frame, not a better one.
+
+    It also closed a defect the slot form depended on: a slot's `with` **wraps** its row in the signature
+    (`program: {Console} Unit with recordingConsole`), and `EffectSugarDesugarer`'s row readers matched on the
+    outside, so the slot was never recorded as a row position at all — the actual was then written in the caller's
+    scope and the very effects the `with` binds were reported undeclared there. Both readers now look through the
+    `with`, exactly as the thunking rule already did.
 - **F2 — deletions. NOT DONE.** Everything in §9.8's deleted list. `RowElaborationProcessor` keeps only the write
   and the scope check, and is renamed to say so; `RowChecker` keeps `Universe`, `checkable` and `peelBinders`, and
   its derivation half goes with `RowElaborator`.
@@ -1452,7 +1469,9 @@ and mono suites, which F2 and F3 delete or rewrite.
   saturation demands the value it names. `eliot-test` is not yet moved.
 - **F8 — the gate** (§8): behavioural identity on every example, tests green, the fake examples and
   integration classes with no minted carrier, the single-word `eliot-test` case, seam resolution, the size
-  and instruction-count difference stated in the commit. **The one measurement so far:** the synthesized entry
+  and instruction-count difference stated in the commit. **Behavioural identity is met** (see "where it stands"):
+  every example the two trees share exits the same and prints the same. What is left of the gate is the tests, the
+  `eliot-test` move, and stating the size difference. **The one size measurement so far:** the synthesized entry
   point is 7 instructions rather than 8, having lost its `runMain` call.
 - **F9 — the documents. NOT DONE.** Part I rewritten to the v6 design (this Part's §9 is its draft); the CLAUDE.md
   *Effects Are a Channel* cornerstone rewritten; the `eliot-code`, `eliot-layers` and `eliot-jvm-backend`

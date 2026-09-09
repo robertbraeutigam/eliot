@@ -177,13 +177,20 @@ object EffectSugarDesugarer {
   private def openRowEntries(expr: Sourced[Expression]): Seq[UnresolvedAbilityConstraint[Sourced[Expression]]] =
     topLevelRowEntries(expr).distinctBy(constraintKey)
 
+  /** A slot's `with` chain wraps its row (`program: {Console} Unit with recordingConsole`), so both readers look
+    * *through* it — exactly as [[thunked]] does. Reading the row off the outside instead would leave the slot
+    * unrecorded, and the `row` phase reads that record to decide a slot is a computation at all: the actual would then
+    * be written in the caller's scope, and the very effects the `with` binds would be reported undeclared there.
+    */
   private def topLevelRowEntries(expr: Sourced[Expression]): Seq[UnresolvedAbilityConstraint[Sourced[Expression]]] =
     expr.value match {
+      case WithBinding(subject, _)         => topLevelRowEntries(subject)
       case EffectfulType(effects, _, None) => effects
       case _                               => Seq.empty
     }
 
   private def isRow(expr: Sourced[Expression]): Boolean = expr.value match {
+    case WithBinding(subject, _)   => isRow(subject)
     case EffectfulType(_, _, None) => true
     case _                         => false
   }
@@ -298,7 +305,7 @@ object EffectSugarDesugarer {
   }
 
   private def constraintKey(ac: UnresolvedAbilityConstraint[Sourced[Expression]]): String =
-    ac.abilityName.value + "|" + ac.typeArgs.map(_.value.render).mkString(",")
+    UnresolvedAbilityConstraint.key(ac)
 
   private def typeKind(anchor: Sourced[?]): Sourced[Expression] = anchor.as(typeExpr(anchor.as("Type")))
 

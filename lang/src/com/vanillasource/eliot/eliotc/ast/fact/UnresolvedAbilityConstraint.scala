@@ -36,6 +36,14 @@ case class UnresolvedAbilityConstraint[E](
 }
 
 object UnresolvedAbilityConstraint {
+
+  /** The identity of a row entry: its ability and the rendered arguments. Two entries with this key are the same
+    * effect, so a row carries only one of them — the one place `{Console, Console} Unit` and the union of two clauses'
+    * rows ([[ImplementationRows]]) are made distinct.
+    */
+  def key(constraint: UnresolvedAbilityConstraint[Sourced[Expression]]): String =
+    constraint.abilityName.value + "|" + constraint.typeArgs.map(_.value.render).mkString(",")
+
   given ASTComponent[UnresolvedAbilityConstraint[Sourced[Expression]]] =
     new ASTComponent[UnresolvedAbilityConstraint[Sourced[Expression]]] {
       override def parser: Parser[Sourced[Token], UnresolvedAbilityConstraint[Sourced[Expression]]] =
