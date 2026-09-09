@@ -33,11 +33,11 @@ class EffectIntrinsicsIntegrationTest extends AsyncFlatSpec with AsyncIOSpec wit
 
   private val primitives = Map(
     "eliot/compiler/Escape" ->
-      """def escape[E, A](key: Type, body: Function[Unit, A]): Either[E, A]
+      """def escape[E, A](key: Type, body: {} A): Either[E, A]
         |def exit[E, A](key: Type, e: E): A
         |""".stripMargin,
     "eliot/compiler/Cell"   ->
-      """def withCell[S, A](key: Type, initial: S, body: Function[Unit, A]): Pair[A, S]
+      """def withCell[S, A](key: Type, initial: S, body: {} A): Pair[A, S]
         |def read[S](key: Type): S
         |def write[S](key: Type, s: S): Unit
         |""".stripMargin
@@ -67,7 +67,7 @@ class EffectIntrinsicsIntegrationTest extends AsyncFlatSpec with AsyncIOSpec wit
     runProject(
       program(
         """def accepted(s: String): Bool =
-          |   foldEither(_ -> false, b -> b, escape(String[], _ -> pick(s == "/api", Arm(_ -> true), Arm(_ -> exit(String[], "no")))))
+          |   foldEither(_ -> false, b -> b, escape(String[], pick(s == "/api", Arm(_ -> true), Arm(_ -> exit(String[], "no")))))
           |implement[S: String] Route[S] where accepted(S) { def handler: String = "hit" }
           |implement[S: String] Route[S] where !accepted(S) { def handler: String = "miss" }
           |def main: {Console} Unit = printLine(handler["/api"] ++ "/" ++ handler["/x"])
@@ -80,9 +80,9 @@ class EffectIntrinsicsIntegrationTest extends AsyncFlatSpec with AsyncIOSpec wit
     runProject(
       program(
         """def inner(s: String): Bool =
-          |   foldEither(_ -> false, b -> b, escape(Unit[], _ -> pick(s == "/api", Arm(_ -> exit(String[], "outer")), Arm(_ -> true))))
+          |   foldEither(_ -> false, b -> b, escape(Unit[], pick(s == "/api", Arm(_ -> exit(String[], "outer")), Arm(_ -> true))))
           |def accepted(s: String): Bool =
-          |   foldEither(e -> e == "outer", _ -> false, escape(String[], _ -> inner(s)))
+          |   foldEither(e -> e == "outer", _ -> false, escape(String[], inner(s)))
           |implement[S: String] Route[S] where accepted(S) { def handler: String = "outer" }
           |implement[S: String] Route[S] where !accepted(S) { def handler: String = "inner" }
           |def main: {Console} Unit = printLine(handler["/api"] ++ "/" ++ handler["/x"])
@@ -95,7 +95,7 @@ class EffectIntrinsicsIntegrationTest extends AsyncFlatSpec with AsyncIOSpec wit
     runProject(
       program(
         """def accepted(s: String): Bool =
-          |   foldPair(a -> b -> a && b, withCell(Bool[], false, _ -> keep(write(Bool[], s == "/api"), read(Bool[]))))
+          |   foldPair(a -> b -> a && b, withCell(Bool[], false, keep(write(Bool[], s == "/api"), read(Bool[]))))
           |implement[S: String] Route[S] where accepted(S) { def handler: String = "hit" }
           |implement[S: String] Route[S] where !accepted(S) { def handler: String = "miss" }
           |def main: {Console} Unit = printLine(handler["/api"] ++ "/" ++ handler["/x"])
