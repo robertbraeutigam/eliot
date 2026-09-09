@@ -1,7 +1,7 @@
 package com.vanillasource.eliot.eliotc.row.processor
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.module.fact.ValueFQN
+import com.vanillasource.eliot.eliotc.module.fact.{Qualifier, Role, ValueFQN}
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue
 import com.vanillasource.eliot.eliotc.platform.Platform
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
@@ -47,7 +47,7 @@ class RowElaborationProcessor(runBoundaryFunctions: Set[ValueFQN] = Set.empty)
       recursionChecked: RecursionCheckedValue
   ): CompilerIO[RowElaboratedValue] = {
     val value = recursionChecked.value
-    if (RowChecker.checkable(value)) {
+    if (writable(value)) {
       for {
         universe <- universeFor(value, key.platform)
         written   = BindingWriter.write(value, universe, runBoundaryFunctions.contains(value.vfqn))
@@ -57,6 +57,22 @@ class RowElaborationProcessor(runBoundaryFunctions: Set[ValueFQN] = Set.empty)
       RowElaboratedValue(value).pure[CompilerIO]
     }
   }
+
+  /** Whether this value's body is written. Everything with a runtime body except a type constructor: a **meta
+    * companion** is written too, unlike under v5's row derivation ([[RowChecker.checkable]] excludes it).
+    *
+    * A `^Meta` transfer brace or `^Where` predicate is ordinary compile-track code that calls ordinary abilities —
+    * `fold`'s brace joins two refinement metas with `join`, an `Int` transfer adds two `Interval`s with `+` — and
+    * every one of those references needs its binding written like any other. Skipping them left the binder unwritten,
+    * which the checker grounds to `Type`, and the dispatch then failed as "no implementation found for 'Numeric' with
+    * type arguments [Type, …]" — pointing at the ability the user did write, from a companion they never saw.
+    */
+  private def writable(value: OperatorResolvedValue): Boolean =
+    value.runtime.isDefined && value.vfqn.name.role == Role.Runtime &&
+      (value.vfqn.name.qualifier match {
+        case Qualifier.Type => false
+        case _              => true
+      })
 
   /** A binding the write could not answer aborts this value: nothing downstream runs for it, so the user gets one
     * located error in effect vocabulary rather than the machinery's downstream symptoms — and, crucially, no body is

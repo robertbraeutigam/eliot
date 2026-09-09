@@ -18,16 +18,16 @@ implement Abort {
  * Its frame is this module's own `escapeInternal`, so it can never be confused with a `Throw[Unit]` frame: the two are
  * different names and the backend keys a frame class on the name it was installed by.
  */
-def runAbort[A](obj: {Abort} A): Option[A] = foldEither(_ -> None, a -> Some(a), escapeInternal(obj))
+def runAbort[A](obj: {Abort} A): Option[A] = escapeInternal(obj, (nothing: Unit) -> None, a -> Some(a))
 
 /**
  * Install an escape frame carrying nothing, run `body` inside it, and answer `Right` of its result or `Left(unit)` if
  * it left. `eliot.effect.Throw`'s leaf of the same shape and purpose; per-module `private` means each module declares
  * its own, which is also what keeps the two frames apart. Implemented by the backend.
  */
-private def escapeInternal[A](body: {} A): Either[Unit, A]
+private def escapeInternal[K, A, R](body: {} A, onExit: K => {} R, onValue: A => {} R): R
 
 /**
  * Leave through the nearest enclosing `escapeInternal` frame of this module. Implemented by the backend.
  */
-private def exitInternal[A](nothing: Unit): A
+private def exitInternal[K, A](nothing: K): A

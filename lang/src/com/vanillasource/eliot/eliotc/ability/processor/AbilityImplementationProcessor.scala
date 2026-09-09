@@ -160,7 +160,7 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
                               case None    => decline
                               case Some(m) =>
                                 constraintsSatisfied(marker, m, platform).ifM(
-                                  dischargeGuard(vfqn, markerVfqn, markerSig, m),
+                                  dischargeGuard(vfqn, markerVfqn, markerSig, withPhantomDefaults(marker, m)),
                                   decline
                                 )
                             }
@@ -205,6 +205,42 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
         .forallM { case (binderName, constraint) => constraintSatisfied(binderName, constraint, bindings, platform) }
     }
 
+  /** Fill each of a matched candidate's **phantom binders** with the `Default` sentinel (effects v6, §9.4).
+    *
+    * A derived instance (`implement[A ~ Display[A]] Display[Box[A]]`) carries a binding binder of its own, and the
+    * pattern match cannot recover it: it occurs in no pattern argument, so there is nothing to trace it from and the
+    * lossy fallback leaves junk. What it *means* is "search at these arguments" — the impl's own constraint is
+    * discharged where the impl is instantiated — which is exactly `Default`. Without this the recorded resolution
+    * carries a junk first argument and the nested dispatch fails as "no implementation found", naming the ability the
+    * user did write.
+    */
+  private def withPhantomDefaults(marker: OperatorResolvedValue, matched: AbilityMatcher.Match): AbilityMatcher.Match = {
+    val view      = OperatorResolvedExpression.SignatureView.of(marker.signature)
+    val patternRefs = view.parameters.flatMap(p => referencedParameters(p.value)).toSet
+    val filled    = view.binders.map(_.name.value).zip(matched.groundArgs).map { case (binder, ground) =>
+      if (patternRefs.contains(binder)) ground else defaultBindingGround
+    }
+    matched.copy(groundArgs = filled)
+  }
+
+  /** The `Default` sentinel as a ground value — the same shape
+    * [[com.vanillasource.eliot.eliotc.monomorphize.check.ImplementationBinding.defaultGround]] reads back, built here
+    * because that reader lives downstream of this phase.
+    */
+  private val defaultBindingGround: GroundValue =
+    GroundValue.Structure(WellKnownTypes.defaultImplementationFQN, Seq.empty, GroundValue.Type)
+
+  /** Every type-parameter name a signature position mentions. */
+  private def referencedParameters(expr: OperatorResolvedExpression): Seq[String] = expr match {
+    case OperatorResolvedExpression.ParameterReference(name)       => Seq(name.value)
+    case OperatorResolvedExpression.FunctionApplication(t, a)      =>
+      referencedParameters(t.value) ++ referencedParameters(a.value)
+    case OperatorResolvedExpression.ValueReference(_, typeArgs)    => typeArgs.flatMap(ta => referencedParameters(ta.value))
+    case OperatorResolvedExpression.FunctionLiteral(_, pt, body)   =>
+      pt.toSeq.flatMap(p => referencedParameters(p.value)) ++ referencedParameters(body.value)
+    case _                                                         => Seq.empty
+  }
+
   /** One `~` constraint of a matched candidate: ground its ability arguments at the match's bindings, then ask whether
     * that ability is implemented there. Undecidable at any step ⤳ `true` (see [[constraintsSatisfied]]).
     */
@@ -224,12 +260,14 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
                 }
     } yield result
 
-  /** The constraint's full ability arguments as ground values, or [[None]] when they cannot be determined exactly.
+  /** The constraint's **pattern** arguments as ground values — what the two-site search is asked at — or [[None]] when
+    * they cannot be determined exactly.
     *
-    * A constraint spells only the arguments that are not the constrained binder itself: `F[_] ~ Suspend` carries `[F]`
-    * (the binder is supplied as the default when none is written), while `G[_] ~ State[S]` carries `[S]` and means
-    * `State[S, G]`. So the binder is appended exactly when the written arguments are one short of the ability's arity;
-    * any other count is a shape this cannot read, and declines to judge.
+    * Effects v6 gives every `~` constraint a leading **binding** argument (`A ~ Display[A]` is `Display[Impl, A]`,
+    * `docs/effects.md` §9.4), which is the implementation to use rather than part of the pattern to search by. It is a
+    * phantom binder, so it has no ground value at all — grounding it would produce junk and decline every derived
+    * instance. Dropping it leaves exactly the ability's pattern parameters, one fewer than its declared arity; any
+    * other count is a shape this cannot read, and declines to judge.
     */
   private def constraintArguments(
       binderName: String,
@@ -239,10 +277,8 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
   ): Option[Seq[GroundValue]] =
     for {
       abilityArity <- arity
-      declared     <- constraint.typeArgs.toList.traverse(groundArgument(_, bindings))
-      full         <- if (declared.size == abilityArity) Some(declared)
-                      else if (declared.size + 1 == abilityArity) bindings.get(binderName).map(declared :+ _)
-                      else None
+      declared     <- constraint.typeArgs.drop(1).toList.traverse(groundArgument(_, bindings))
+      full         <- Option.when(declared.size + 1 == abilityArity)(declared)
     } yield full
 
   /** Ground one constraint type-argument expression at the match's bindings: a reference to a bound type parameter is

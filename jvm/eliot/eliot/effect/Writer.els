@@ -17,7 +17,8 @@ implement[W ~ Combine[W]] Writer[W] {
  * Discharge `Writer[W]` by installing the cell `tell` appends to, starting from `empty`, and running the computation
  * inside it: the result paired with what was accumulated. The platform body of the base's body-less signature.
  */
-def runWriterToPair[W ~ Combine[W], A](p: {Writer[W]} A): Pair[A, W] = withCellInternal(empty, p)
+def runWriterToPair[W ~ Combine[W], A](p: {Writer[W]} A): Pair[A, W] =
+   withCellInternal(empty, p, a -> w -> Pair(a, w))
 
 /**
  * Install a cell for `W` holding `initial`, run `body` inside it, and answer the result paired with the cell's final
@@ -25,7 +26,7 @@ def runWriterToPair[W ~ Combine[W], A](p: {Writer[W]} A): Pair[A, W] = withCellI
  * its own — which is also what keeps a writer's cell and a state's cell apart at the same type. Implemented by the
  * backend.
  */
-private def withCellInternal[S, A](initial: S, body: {} A): Pair[A, S]
+private def withCellInternal[S, A, R](initial: S, body: {} A, combine: A => S => {} R): R
 
 /**
  * The content of the nearest enclosing cell for `S`. Implemented by the backend.

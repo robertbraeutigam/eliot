@@ -10,6 +10,9 @@ import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
 import org.objectweb.asm.{ClassWriter, Opcodes}
 
 class ClassGenerator(val moduleName: ModuleName, val internalName: String, private val classWriter: ClassWriter) {
+  /** The names [[createPrivateStaticFieldOnce]] has already declared on this class. */
+  private val declaredFields: scala.collection.mutable.Set[String] = scala.collection.mutable.Set.empty
+
 
   /** Generate the byte-code for the currently created class.
     */
@@ -121,6 +124,20 @@ class ClassGenerator(val moduleName: ModuleName, val internalName: String, priva
     classWriter
       .visitField(Opcodes.ACC_PRIVATE | Opcodes.ACC_STATIC, name.value, descriptor, null, null)
       .visitEnd()
+  }
+
+  /** As [[createPrivateStaticField]], but a no-op when this class already has a field of that name.
+    *
+    * The one need is a field **shared between natives**: effects v6's control-flow leaves
+    * ([[com.vanillasource.eliot.eliotc.jvm.classgen.processor.ControlNatives]]) come in groups that read and write one
+    * cell or one exit slot, each emitted independently and any subset of which may be reached, so no single one of
+    * them can own the declaration. Declaring it twice would emit a duplicate field and produce an invalid class.
+    */
+  def createPrivateStaticFieldOnce[F[_]: Sync](name: JvmIdentifier, descriptor: String): F[Unit] = Sync[F].delay {
+    if (declaredFields.add(name.value))
+      classWriter
+        .visitField(Opcodes.ACC_PRIVATE | Opcodes.ACC_STATIC, name.value, descriptor, null, null)
+        .visitEnd()
   }
 
   /** Create a public, mutable static field carrying a **raw JVM descriptor**.
@@ -304,6 +321,34 @@ class ClassGenerator(val moduleName: ModuleName, val internalName: String, priva
 
 object ClassGenerator {
 
+  /** A `ClassWriter` whose frame computation does not need the classes being generated to be *loadable*.
+    *
+    * `COMPUTE_FRAMES` asks `getCommonSuperClass` for the join of two stack types wherever control flow merges, and
+    * ASM answers by loading both classes with reflection. That works for `java.*` and for anything already on the
+    * classpath, and cannot work for a class this compiler is in the middle of emitting — a generated lambda or data
+    * class — which surfaces as `TypeNotPresentException` from deep inside `visitMaxs`.
+    *
+    * Merges only became reachable with effects v6: a row-typed slot is a thunk, so a branch now yields a lambda
+    * *instance* rather than a carrier value, and two arms of one `fold` are two different generated classes.
+    *
+    * The fallback is deliberately narrow. Two generated lambdas join at `java/util/function/Function`, which every one
+    * of them implements ([[com.vanillasource.eliot.eliotc.jvm.classgen.processor.LambdaGenerator]]) and which is
+    * precise enough for the `INVOKEINTERFACE apply` that follows. Anything else joins at `Object`, which is sound
+    * because this backend casts wherever a reference is used at a narrower type.
+    */
+  private class GeneratingClassWriter extends ClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS) {
+    override protected def getCommonSuperClass(type1: String, type2: String): String =
+      try super.getCommonSuperClass(type1, type2)
+      catch {
+        case _: TypeNotPresentException | _: ClassNotFoundException | _: NoClassDefFoundError =>
+          if (isGeneratedFunction(type1) && isGeneratedFunction(type2)) "java/util/function/Function"
+          else "java/lang/Object"
+      }
+
+    private def isGeneratedFunction(internalName: String): Boolean =
+      internalName.matches(".*\\$lambda\\$\\d+")
+  }
+
   /** Generates an empty class for the given module. Each module has exactly one class generated for it.
     */
   def createClassGenerator[F[_]: Sync](name: ModuleName, interfaces: Seq[String] = Seq.empty): F[ClassGenerator] =
@@ -316,7 +361,7 @@ object ClassGenerator {
       interfaces: Seq[String]
   ): F[ClassGenerator] =
     Sync[F].delay {
-      val classWriter = new ClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS)
+      val classWriter = GeneratingClassWriter()
 
       classWriter.visit(
         Opcodes.V17,
@@ -338,7 +383,7 @@ object ClassGenerator {
 
   private def createInterfaceGenerator[F[_]: Sync](name: ModuleName, className: String): F[ClassGenerator] =
     Sync[F].delay {
-      val classWriter = new ClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS)
+      val classWriter = GeneratingClassWriter()
 
       classWriter.visit(
         Opcodes.V17,

@@ -10,7 +10,7 @@ import com.vanillasource.eliot.eliotc.ast.fact.{
 }
 import com.vanillasource.eliot.eliotc.ast.fact.Expression
 import com.vanillasource.eliot.eliotc.ast.fact.Expression.*
-import com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes
+import com.vanillasource.eliot.eliotc.module.fact.{Qualifier, WellKnownTypes}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 /** Desugars the effect-row sugar `{ E1, E2, … } A` ([[Expression.EffectfulType]]) — effects v6, `docs/effects.md` §9.4
@@ -26,11 +26,14 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   *   - **the return row vanishes.** `def greeting(name: String): {Console} Unit` becomes `def greeting[Impl](name:
   *     String): Unit`, with `Impl` carrying the constraint `Console[Impl]` — exactly the shape the carrier binder had,
   *     at kind `Type` instead of `Type -> Type`.
-  *   - **a `~` constraint grows a binder.** `def sort[T ~ Ord[T]](xs: List[T])` becomes `def sort[Impl, T ~ Ord[T,
-  *     Impl]](xs: List[T])`. The constraint stays on the binder it was written on — that is what
-  *     `resolveParamConstraints` and the superability closure read — and only gains the binding as its last type
-  *     argument, which is the contract
-  *     [[com.vanillasource.eliot.eliotc.monomorphize.check.ImplementationBinding]] reads back.
+  *   - **a `~` constraint grows a binder.** `def sort[T ~ Ord[T]](xs: List[T])` becomes `def sort[Impl, T ~ Ord[Impl,
+  *     T]](xs: List[T])`. The constraint stays on the binder it was written on — that is what
+  *     `resolveParamConstraints` and the superability closure read — and only gains the binding as its **first** type
+  *     argument, which is where the ability's marker declares it
+  *     ([[com.vanillasource.eliot.eliotc.ast.fact.AbilityMembers]]) and where
+  *     [[com.vanillasource.eliot.eliotc.monomorphize.check.ImplementationBinding]] reads it back. Constraint and
+  *     marker must agree on the position: a reference's ability-level arguments are matched against the marker's
+  *     parameters, so appending here while the marker prepends made every dispatch query the wrong shape.
   *   - **a top-level row in a parameter or a `data` field thunks.** `computation: {Throw[E]} A` becomes `computation:
   *     Unit => A`: a slot that must not run its argument says so by being a function, since there is no carrier left
   *     to hold an unrun computation. Only a *top-level* row thunks; a row in an arrow codomain (`onError: E => {} A`)
@@ -78,7 +81,7 @@ object EffectSugarDesugarer {
         GenericParameter(
           binder,
           typeKind(anchor),
-          Seq(UnresolvedAbilityConstraint(entry.abilityName, entry.typeArgs.map(bare) :+ binder.as(typeExpr(binder)))),
+          Seq(UnresolvedAbilityConstraint(entry.abilityName, binder.as(typeExpr(binder)) +: entry.typeArgs.map(bare))),
           inferable = true
         )
       }
@@ -95,7 +98,7 @@ object EffectSugarDesugarer {
             val binder = anchor.as(names.fresh(binderPrefix))
             (
               mintedHere :+ GenericParameter(binder, typeKind(anchor), Seq.empty, inferable = true),
-              kept :+ constraint.copy(typeArgs = constraint.typeArgs.map(bare) :+ binder.as(typeExpr(binder)))
+              kept :+ constraint.copy(typeArgs = binder.as(typeExpr(binder)) +: constraint.typeArgs.map(bare))
             )
           }
         }
@@ -106,7 +109,7 @@ object EffectSugarDesugarer {
 
       function.copy(
         genericParameters = before ++ rowBinders ++ constraintBinders ++ after,
-        args = function.args.map(arg => arg.copy(typeExpression = thunked(arg.typeExpression))),
+        args = function.args.map(arg => arg.copy(typeExpression = parameterType(function)(arg.typeExpression))),
         typeDefinition = bare(function.typeDefinition),
         body = function.body.map(bare),
         // An ability member arrives with the row its membership implies already recorded
@@ -129,13 +132,13 @@ object EffectSugarDesugarer {
   ): Seq[UnresolvedAbilityConstraint[Sourced[Expression]]] =
     function.genericParameters.flatMap(_.abilityConstraints).filterNot(isProcessed(_, function))
 
-  /** Whether a constraint already carries its phantom binder: its last type argument is a bare reference to one of this
+  /** Whether a constraint already carries its phantom binder: its **first** type argument is a bare reference to one of this
     * definition's *inferable* binders, which is the one shape [[desugar]] writes and no source can.
     */
   private def isProcessed(
       constraint: UnresolvedAbilityConstraint[Sourced[Expression]],
       function: FunctionDefinition
-  ): Boolean = constraint.typeArgs.lastOption.exists(_.value match {
+  ): Boolean = constraint.typeArgs.headOption.exists(_.value match {
     case FunctionApplication(None, name, None, Seq()) =>
       function.genericParameters.exists(gp => gp.name.value === name.value && gp.inferable)
     case _                                            => false
@@ -159,10 +162,15 @@ object EffectSugarDesugarer {
   ): EffectRow[UnresolvedAbilityConstraint[Sourced[Expression]]] =
     EffectRow(
       openRowEntries(function.typeDefinition),
-      function.args.zipWithIndex.collect {
-        case (arg, index) if isRow(arg.typeExpression) =>
-          EffectRow.ParameterEffects(index, topLevelRowEntries(arg.typeExpression))
-      }
+      // A meta companion's parameters are not thunked ([[parameterType]]), so they must not be recorded as row
+      // positions either: the row record is what tells the `row` phase to wrap an actual and to run a reference, and
+      // doing that against a bare parameter is exactly the mismatch it would cause.
+      if (isMetaCompanion(function)) Seq.empty
+      else
+        function.args.zipWithIndex.collect {
+          case (arg, index) if isRow(arg.typeExpression) =>
+            EffectRow.ParameterEffects(index, topLevelRowEntries(arg.typeExpression))
+        }
     )
 
   /** The distinct entries of a signature position that *is* an open row at top level. */
@@ -179,6 +187,22 @@ object EffectSugarDesugarer {
     case EffectfulType(_, _, None) => true
     case _                         => false
   }
+
+  /** How a definition's parameter types are rewritten: [[thunked]] ordinarily, and [[bare]] for a **meta companion**.
+    *
+    * A `^Meta` transfer brace or `^Where` predicate is compiler-track code about a value's *payload* — `def fold[A](…,
+    * whenTrue: {} A, whenFalse: {} A): A { join(whenTrue, whenFalse) }` joins the two arms' refinement metas, not two
+    * thunks. Thunking there would hand `join` a `Unit -> A` and the brace would stop type-checking; the row says
+    * nothing about a refinement, so erasing it is what the companion means.
+    */
+  private def parameterType(function: FunctionDefinition): Sourced[Expression] => Sourced[Expression] =
+    if (isMetaCompanion(function)) bare else thunked
+
+  private def isMetaCompanion(function: FunctionDefinition): Boolean =
+    function.name.value.qualifier match {
+      case _: Qualifier.Meta => true
+      case _                 => false
+    }
 
   /** A parameter or field position: a top-level row becomes the thunk `Unit => A`; everything else is [[bare]].
     *

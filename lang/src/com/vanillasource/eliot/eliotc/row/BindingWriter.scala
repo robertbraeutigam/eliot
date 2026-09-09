@@ -116,7 +116,7 @@ object BindingWriter {
     *   - an **ability member** (`Qualifier.Ability`) carries its block's binding slot at index 0
     *     ([[com.vanillasource.eliot.eliotc.ast.fact.AbilityMembers]]), for the ability whose module it lives in;
     *   - any other definition's minted binders are its leading binders that occur in **no parameter and no return
-    *     type** — which is what "in no type" means — *and* are the last type argument of one of its own ability
+    *     type** — which is what "in no type" means — *and* are the **first** type argument of one of its own ability
     *     constraints. Requiring the second half is what keeps a merely unused type parameter from being taken for a
     *     binding.
     *
@@ -141,7 +141,7 @@ object BindingWriter {
     view.binders.zipWithIndex.flatMap { case (binder, index) =>
       Option
         .when(!mentioned.contains(binder.name.value))(binder.name.value)
-        .flatMap(name => constraintEndingIn(orv, name))
+        .flatMap(name => constraintStartingWith(orv, name))
         .map(index -> _)
     }
   }
@@ -169,10 +169,12 @@ object BindingWriter {
         )
     }
 
-  /** The ability of the definition's own constraint whose last type argument is exactly this binder. */
-  private def constraintEndingIn(orv: OperatorResolvedValue, binderName: String): Option[AbilityFQN] =
+  /** The ability of the definition's own constraint whose **first** type argument is exactly this binder — where the
+    * desugar writes a phantom binder, and where an ability's marker declares its binding slot.
+    */
+  private def constraintStartingWith(orv: OperatorResolvedValue, binderName: String): Option[AbilityFQN] =
     orv.paramConstraints.values.flatten
-      .find(_.typeArgs.lastOption.exists {
+      .find(_.typeArgs.headOption.exists {
         case ParameterReference(name) => name.value === binderName
         case _                        => false
       })

@@ -655,18 +655,36 @@ object ExpressionCodeGenerator {
                         }
         trueClasses  <- createExpressionCodeUnconverted(moduleName, outerClassGenerator, methodGenerator, arguments(1))
         _            <- methodGenerator.runNative[CompilationTypesIO] { mv =>
+                          runThunk(mv)
                           if (isIntegerRep(trueRep) && isIntegerRep(mergeRep)) convertRepresentation(trueRep, mergeRep)(mv)
                           mv.visitJumpInsn(Opcodes.GOTO, endLabel)
                           mv.visitLabel(elseLabel)
                         }
         falseClasses <- createExpressionCodeUnconverted(moduleName, outerClassGenerator, methodGenerator, arguments(2))
         _            <- methodGenerator.runNative[CompilationTypesIO] { mv =>
+                          runThunk(mv)
                           if (isIntegerRep(falseRep) && isIntegerRep(mergeRep)) convertRepresentation(falseRep, mergeRep)(mv)
                           mv.visitLabel(endLabel)
                         }
         _            <- methodGenerator.addCastTo[CompilationTypesIO](castTargetFqn(expectedResultType, expectedResultMeta))
       } yield condClasses ++ trueClasses ++ falseClasses
     }
+
+  /** Run the arm a `fold` selected. Effects v6 lowers a row-typed slot to a thunk (`whenTrue: {} A` is `Unit -> A`,
+    * `docs/effects.md` §9.4), so the arm on the stack is the *computation*, not its value — selecting it and leaving it
+    * there would hand `fold`'s caller a lambda. Under v5 the arm was a carrier value the caller ran, which is why this
+    * had nothing to do.
+    */
+  private def runThunk(mv: MethodVisitor): Unit = {
+    mv.visitInsn(Opcodes.ACONST_NULL)
+    mv.visitMethodInsn(
+      Opcodes.INVOKEINTERFACE,
+      "java/util/function/Function",
+      "apply",
+      "(Ljava/lang/Object;)Ljava/lang/Object;",
+      true
+    )
+  }
 
   private def unboxBool(mv: MethodVisitor): Unit =
     mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/Boolean", "booleanValue", "()Z", false)

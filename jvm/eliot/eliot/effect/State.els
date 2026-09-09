@@ -21,7 +21,8 @@ implement[S] State[S] {
  * Nesting is the user's: `runStateToPair(s, runThrow(c))` keeps the state across a `raise`, `runThrow(runStateToPair(s, c))`
  * does not, because the cell is gone when the frame it sat inside is exited.
  */
-def runStateToPair[S, A](initial: S, p: {State[S]} A): Pair[A, S] = withCellInternal(initial, p)
+def runStateToPair[S, A](initial: S, p: {State[S]} A): Pair[A, S] =
+   withCellInternal(initial, p, a -> s -> Pair(a, s))
 
 /**
  * Install a cell for `S` holding `initial`, run `body` inside it, and answer the result paired with the cell's final
@@ -33,7 +34,7 @@ def runStateToPair[S, A](initial: S, p: {State[S]} A): Pair[A, S] = withCellInte
  * that reads the cell is a loop — and the recursion gate (`termination/PurityGuardTest`) exists to keep that out.
  * Implemented by the backend.
  */
-private def withCellInternal[S, A](initial: S, body: {} A): Pair[A, S]
+private def withCellInternal[S, A, R](initial: S, body: {} A, combine: A => S => {} R): R
 
 /**
  * The content of the nearest enclosing cell for `S`. Implemented by the backend.

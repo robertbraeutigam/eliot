@@ -4,6 +4,7 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.ability.util.ImplementationMarkerUtils
 import com.vanillasource.eliot.eliotc.compiler.cache.UpToDate
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, QualifiedName, Qualifier, ValueFQN}
+import com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes
 import com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes.{bigIntFQN, boolFQN}
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue
 import com.vanillasource.eliot.eliotc.monomorphize.domain.SemValue.*
@@ -295,11 +296,21 @@ class StdlibNativesProcessor extends SingleFactProcessor[ContributedBinding.Key]
   private def boolFoldNative: SemValue =
     VNative(boolType, cond => VNative(VType, whenTrue => VNative(VType, whenFalse => foldResult(cond, whenTrue, whenFalse))))
 
+  /** `fold(cond, whenTrue, whenFalse)` at compile time: select an arm and **run** it.
+    *
+    * Effects v6 lowers a row-typed slot to a thunk (`whenTrue: {} A` is `Unit -> A`, `docs/effects.md` §9.4), so an arm
+    * is the computation rather than its value and the selection has to apply it — otherwise a type-level `fold` reduces
+    * to a lambda and the type it was computing never appears. The argument is ignored by construction (the thunk's
+    * parameter is the `Unit` the desugar synthesises and its body never names it), so it is the unit value itself.
+    */
   private def foldResult(cond: SemValue, whenTrue: SemValue, whenFalse: SemValue): SemValue = cond match {
-    case VConst(GroundValue.Direct(Literal.BooleanValue(true), _))  => whenTrue
-    case VConst(GroundValue.Direct(Literal.BooleanValue(false), _)) => whenFalse
-    case _                                    => stuck(boolFoldFQN, cond, whenTrue, whenFalse)
+    case VConst(GroundValue.Direct(Literal.BooleanValue(true), _))  => Evaluator.applyValue(whenTrue, unitValue)
+    case VConst(GroundValue.Direct(Literal.BooleanValue(false), _)) => Evaluator.applyValue(whenFalse, unitValue)
+    case _                                                          => stuck(boolFoldFQN, cond, whenTrue, whenFalse)
   }
+
+  /** The `eliot.lang.Unit::unit` a thunk is applied to. */
+  private val unitValue: SemValue = VTopDef(WellKnownTypes.unitValueFQN, None, Spine.SNil)
 
 }
 

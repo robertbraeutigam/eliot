@@ -261,6 +261,41 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
       vfqn: ValueFQN,
       stats: UsageStats
   ): CompilerIO[Seq[ClassFile]] =
+    ControlNatives.perInstantiation.get(vfqn) match {
+      case Some(make) => generatePerInstantiationNative(mainClassGenerator, vfqn, stats, make)
+      case None       => createErasedModuleMethod(mainClassGenerator, vfqn, stats)
+    }
+
+  /** A native emitted **once per instantiation**, under the mangled name its call sites resolve to and with its ground
+    * type arguments in hand — effects v6's control-flow leaves ([[ControlNatives]]), whose frame identity *is* the
+    * instantiation. The shape mirrors [[generateAbilityImplNative]]; what differs is that the maker needs the type
+    * arguments, not only the name.
+    */
+  private def generatePerInstantiationNative(
+      mainClassGenerator: ClassGenerator,
+      vfqn: ValueFQN,
+      stats: UsageStats,
+      make: (JvmIdentifier, Seq[GroundValue]) => NativeImplementation
+  ): CompilerIO[Seq[ClassFile]] =
+    stats.monomorphicTypeParameters.distinct
+      .traverse_ { typeArgs =>
+        ControlNatives.unsupportedInstantiation(vfqn, typeArgs) match {
+          case Some(message) =>
+            getFactOrAbort(UnifiedModuleValue.Key(vfqn)).flatMap(umv =>
+              compilerAbort[Unit](umv.namedValue.qualifiedName.as(message))
+            )
+          case None          =>
+            val native = make(JvmIdentifier.encode(mangledMethodName(vfqn, typeArgs)), typeArgs)
+            verifyNativeVisibility(vfqn, native) >> native.generateMethod(mainClassGenerator)
+        }
+      }
+      .as(Seq.empty)
+
+  private def createErasedModuleMethod(
+      mainClassGenerator: ClassGenerator,
+      vfqn: ValueFQN,
+      stats: UsageStats
+  ): CompilerIO[Seq[ClassFile]] =
     implementations.get(vfqn) match {
       case Some(nativeImplementation) =>
         // The native itself is emitted at its declared arity; a native used *under*-applied also needs the
