@@ -61,6 +61,10 @@ abstract class ProcessorTest(val processors: CompilerProcessor*) extends AsyncFl
     // The ability-constraint combinator `&` is an ordinary prelude declaration the resolver looks up by name
     // (`docs/effects-syntax-userspace.md` §4 stage 1), so every snippet writing `A ~ X & Y` needs it in scope.
     SystemImport("Ability", "infix left type &[A, B]"),
+    // The `Default` binding sentinel. Effects v6 writes it as an ordinary type argument at every reference whose
+    // implementation nothing names, and saturation then demands the value it names — so a snippet calling *any*
+    // ability method needs this module present, exactly as the real `stdlib/eliot/eliot/lang/Implementation.els` is.
+    SystemImport("Implementation", "type Default"),
     SystemImport("Bool", ProcessorTest.boolImportContent),
     SystemImport("Numeric", ProcessorTest.numericStubContent),
     SystemImport("Compare", ProcessorTest.compareAbilityStubContent),
