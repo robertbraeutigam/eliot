@@ -1514,6 +1514,16 @@ and do not land a narrowed version (standing rule 2).
 - **A4 — D4 dissolves** (any effect is storable and suppliable); Part I's limitation 5 dissolves with D5
   (§9.4).
 - **A5 — retire the post-mono accounting verifier** under the §8 method (D7).
+- **A7 — a `data` field cannot store a computation.** §9.5 says a row-typed field is a thunk bound at construction,
+  and it is — in the *type*. What is missing is the metadata: `EffectSugarDesugarer.desugar(DataDefinition)` thunks
+  the field before `DataDefinitionDesugarer` splits the `data`, so the constructor's slot is never recorded as a row.
+  The actual is therefore neither thunked nor supplied, and its effect is charged to whoever builds the value
+  (`Box(failing)` ⤳ "performs the effect 'Throw' but does not declare it"). Splitting first and letting each minted
+  function be desugared as a function fixes that half and exposes the other: a field read back at a rowed slot
+  (`runThrow(body(b))`) is wrapped a *second* time, because wrap-and-apply only cancel for a reference to a thunk
+  *parameter*. Both halves are the write's, and both are needed together. Measured 2026-09-09; `eliot-test` does not
+  depend on it (D13 closed: a `TestCase` carries no body).
+
 - **A6 — the write must fill a supplied row entry's own arguments.** A parameter row lowers to a thunk, which erases
   the entry's arguments from the type, so `catch[E, A](computation: {Throw[E]} A, onError: E => {} A)` leaves `E` to
   the handler — and a handler that ignores its error determines nothing. Until this lands the argument is written at

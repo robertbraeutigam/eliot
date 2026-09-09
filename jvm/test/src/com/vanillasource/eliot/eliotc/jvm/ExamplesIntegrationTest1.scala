@@ -205,18 +205,18 @@ def main: {Console} Unit = printLine("Hello World!")""")
 
   // The `Log` effect mirrors `Console` (a fine effect riding the `Suspend` base): `log` writes a tagged line. A `{Log}`
   // business function pinned to `IO` at the call site runs through the JVM `Log` instance.
-  "log effect" should "emit a tagged diagnostic line through the Log -> Suspend -> IO layering" in {
+  "log effect" should "emit a tagged diagnostic line" in {
     compileAndRun(
       """import eliot.effect.Log
         |def announce: {Log} Unit = log("starting up")
         |
-        |def main: {Console} Unit = announce""".stripMargin
+        |def main: {Log} Unit = announce""".stripMargin
     ).asserting(_ shouldBe "[LOG] starting up")
   }
 
   // Multiple effects in one signature, carrier-unified across callees: `log` (Log) and `readLine` (Console) share the
   // one carrier `F`, auto-lifted into a single `flatMap` chain.
-  "multiple effects in one signature" should "carrier-unify Log and Console in a direct-style body" in {
+  "multiple effects in one signature" should "run both in a direct-style body" in {
     compileAndRun(
       """import eliot.effect.Console
         |import eliot.effect.Log
@@ -224,7 +224,7 @@ def main: {Console} Unit = printLine("Hello World!")""")
         |
         |def echoLog: {Log, Console} Unit = log(orEmpty(readLine))
         |
-        |def main: {Console} Unit = echoLog""".stripMargin,
+        |def main: {Log, Console} Unit = echoLog""".stripMargin,
       stdin = "from stdin\n"
     ).asserting(_ shouldBe "[LOG] from stdin")
   }
@@ -259,7 +259,7 @@ def main: {Console} Unit = printLine("Hello World!")""")
         |
         |def andThen(first: Unit, second: Unit): Unit = second
         |
-        |def main: {Console} Unit = run.provide(Database("jdbc://app-db"))""".stripMargin,
+        |def main: {Log, Console} Unit = provide(Database("jdbc://app-db"), run)""".stripMargin,
       stdin = "echoed\n"
     ).asserting(_ shouldBe "[LOG] jdbc://app-db\nechoed")
   }
@@ -298,19 +298,20 @@ def main: {Console} Unit = printLine("Hello World!")""")
     ).asserting(_ shouldBe "the-logger")
   }
 
-  // --- Testing strategy: a fake effect implementation supplied by the test, with production code untouched ---
+  // --- Testing strategy: a fake implementation supplied by the test, with production code untouched ---
 
-  /** The substitution mechanism of `docs/testing-effects.md` §2: `greet` is ordinary carrier-generic production code
-    * declaring `{Terminal}` and nothing else, and the test supplies both the carrier (`Session`, a pure
-    * input/transcript pair with no `Suspend` instance, so it cannot perform real I/O) and the `Terminal[Session]`
-    * instance that interprets the ability into it.
-    *
-    * Declarations only: each program below prepends the imports it needs, since an Eliot file's imports lead it.
+  /** The substitution mechanism (`docs/effects.md` §9.3, `examples/src/EffectsNamedEffect.els`): `greet` is ordinary
+    * production code declaring `{Terminal}` and nothing else, and the test binds a **named implementation** to it with
+    * `with`. Under v5 the same claim needed a fake *carrier* — a `Session` data type, an `Effect[Session]` instance and
+    * a `Terminal[Session]` one — because what a test substituted was the thing the effects ran in. Under v6 it
+    * substitutes a name, and the double reaches nothing it does not declare: a user module declares no natives, so
+    * `session` can only reach the world through effects its own clauses declare, which the binding site is charged for.
     */
-  private val fakeCarrierDeclarations =
-    """ability Terminal[F[_]] {
-      |   def write(line: String): {Terminal} Unit
-      |   def read: {Terminal} String
+  private val namedImplementation =
+    """effect Terminal {
+      |   def write(line: String): Unit
+      |
+      |   def read: String
       |}
       |
       |def greet: {Terminal} Unit = {
@@ -318,54 +319,33 @@ def main: {Console} Unit = printLine("Hello World!")""")
       |   write("Hello, " ++ name ++ "!")
       |}
       |
-      |data Session[A](runSession: Function[Pair[String, String], Pair[A, Pair[String, String]]])
+      |implement session: Terminal {
+      |   def write(line: String): {Writer[String]} Unit = tell(line ++ ";")
       |
-      |implement Effect[Session] {
-      |   def pure[A](a: A): Session[A] = Session(w -> Pair(a, w))
-      |   def flatMap[A, B](f: Function[A, Session[B]], fa: Session[A]): Session[B] =
-      |      Session(w -> foldPair(a -> w2 -> runSession(f(a))(w2), runSession(fa)(w)))
-      |   def map[A, B](f: Function[A, B], fa: Session[A]): Session[B] =
-      |      Session(w -> foldPair(a -> w2 -> Pair(f(a), w2), runSession(fa)(w)))
-      |}
-      |
-      |implement Terminal[Session] {
-      |   def write(line: String): Session[Unit] =
-      |      Session(w -> Pair(unit, Pair(first(w), second(w) ++ line ++ ";")))
-      |   def read: Session[String] = Session(w -> Pair(first(w), w))
+      |   def read: String = "Bob"
       |}
       |""".stripMargin
 
-  private val fakeCarrierImports =
-    """import eliot.effect.Console
-      |
-      |""".stripMargin
-
-  // Unification instantiates `greet`'s minted carrier to `Session` at `runSession`'s slot, and monomorphization
-  // resolves the fake. The harness returns a bare `String`: a contribution a slot fixes to a foreign concrete carrier is
-  // deferred to the post-mono channel (§3, L2), so the harness's return shape no longer decides whether it compiles.
-  // The one shape still forced is that the run sits in its own carrier-free definition (L3) — inside a carrier region
-  // `greet` would be written at *that* carrier rather than at `Session`.
-  "a fake effect carrier" should "let a test interpret an ability without changing the production code" in {
+  "a named implementation" should "let a test interpret an effect without changing the production code" in {
     compileAndRun(
-      fakeCarrierImports + fakeCarrierDeclarations +
+      namedImplementation +
         """
-          |def greetTranscript: String = second(second(runSession(greet)(Pair("Bob", ""))))
+          |def greetTranscript: String = runWriterToLog(greet with session)
           |
           |def main: {Console} Unit = printLine(greetTranscript)""".stripMargin
     ).asserting(_ shouldBe "Hello, Bob!;")
   }
 
-  // The L2 shape the pre-mono row verifier used to reject: a runner taking the program at its own concrete-carrier slot
-  // (`program: Session[Unit]`, a written parameter rather than a generated field accessor) and a test returning a
-  // *nullary* `data TestResult`. Neither is special now — the effect performed inside the fake is simply not charged to
-  // the harness (`docs/testing-effects.md` L2, `examples/src/EffectsTestFramework.els`).
-  it should "let a harness take a program and return a nullary data type" in {
+  // A harness taking the program at a slot and returning a nullary `data TestResult`. The `with` on the *slot's type*
+  // is the only way a callee binds calls it cannot see, and the effects the double's clauses perform are supplied and
+  // discharged inside the callee — `runWriterToLog` here — which is why the caller writes nothing but the program.
+  it should "let a harness take a program at a with-bound slot and return a nullary data type" in {
     compileAndRun(
-      fakeCarrierImports + fakeCarrierDeclarations +
+      namedImplementation +
         """
           |data TestResult(label: String, failure: Option[String])
           |
-          |def transcriptOf(program: Session[Unit]): String = second(second(runSession(program)(Pair("Bob", ""))))
+          |def transcriptOf(program: {Terminal} Unit with session): String = runWriterToLog(program)
           |
           |def expect(label: String, expected: String, actual: String): TestResult =
           |   if(expected == actual, TestResult(label, None))
@@ -378,46 +358,45 @@ def main: {Console} Unit = printLine("Hello World!")""")
     ).asserting(_ shouldBe "PASS greet")
   }
 
-  // The same fake carrier consumed by a test framework of the `docs/effect-row-tails.md` shape: a `TestCase` whose body
-  // is a pinned `{Throw[AssertionError] | Id} Unit`. A pinned slot is a captured slot, so the framework needs no
-  // parameter-capture mechanism of its own (`docs/testing-effects.md` §3, L3) — the fake run just has to sit in its own
-  // carrier-free definition (`greetTranscript`), because inside the pinned body the ambient carrier is the pinned stack
-  // and `greet` would be written there instead of at `Session`.
-  private val fakeCarrierFramework =
-    """import eliot.effect.Console
-      |import eliot.effect.Throw
+  // The same double consumed by a test framework. Under v5 a `TestCase` carried the assertion as a **pinned-row
+  // field** and the framework ran it later; v6's `eliot.test` carries no body at all (D13) — `in` runs the case in
+  // place and discharges what it declares — so the framework shape here is the assertion run where it is written and
+  // its `Throw` discharged around it.
+  //
+  // Storing a computation in a `data` field is *not* what replaced it, and deliberately is not tested here: a field
+  // row thunks in the type but the constructor's slot is not recorded as a row, so the actual is neither thunked nor
+  // charged to the right definition, and a field read back at a rowed slot is wrapped a second time. That is a real
+  // gap in the write (`docs/effects.md` A7), not a shape to pin.
+  private val namedImplementationFramework =
+    """import eliot.effect.Throw
       |
-      |""".stripMargin + fakeCarrierDeclarations +
+      |""".stripMargin + namedImplementation +
       """
       |data AssertionError(reason: String)
-      |
-      |data TestCase(name: String, body: {Throw[AssertionError] | Id} Unit)
       |
       |def assertEquals(expected: String, actual: String): {Throw[AssertionError]} Unit =
       |   if(expected == actual, unit) else raise(AssertionError("expected '" ++ expected ++ "' but was '" ++ actual ++ "'"))
       |
-      |def runCase(tc: TestCase): String =
-      |   foldEither(e -> "FAIL " ++ name(tc) ++ ": " ++ reason(e), u -> "PASS " ++ name(tc), runId(runThrow(body(tc))))
+      |def greetTranscript: String = runWriterToLog(greet with session)
       |
-      |def greetTranscript: String = second(second(runSession(greet)(Pair("Bob", ""))))
+      |def runCase(name: String, assertion: {Throw[AssertionError]} Unit): String =
+      |   foldEither(e -> "FAIL " ++ name ++ ": " ++ reason(e), u -> "PASS " ++ name, runThrow(assertion))
       |
-      |def main: {Console} Unit = printLine(runCase(greetTest))""".stripMargin
+      |""".stripMargin
 
-  it should "carry a fake-carrier result into a pinned test-framework body" in {
+  it should "carry the double's transcript into a test-framework assertion" in {
     compileAndRun(
-      fakeCarrierFramework +
-        """
-          |
-          |def greetTest: TestCase = TestCase("greet", assertEquals("Hello, Bob!;", greetTranscript))""".stripMargin
+      namedImplementationFramework +
+        """def main: {Console} Unit =
+          |   printLine(runCase("greet", assertEquals("Hello, Bob!;", greetTranscript)))""".stripMargin
     ).asserting(_ shouldBe "PASS greet")
   }
 
-  it should "report a failed assertion against the fake carrier's transcript" in {
+  it should "report a failed assertion against the double's transcript" in {
     compileAndRun(
-      fakeCarrierFramework +
-        """
-          |
-          |def greetTest: TestCase = TestCase("greet", assertEquals("Hello, Alice!;", greetTranscript))""".stripMargin
+      namedImplementationFramework +
+        """def main: {Console} Unit =
+          |   printLine(runCase("greet", assertEquals("Hello, Alice!;", greetTranscript)))""".stripMargin
     ).asserting(_ shouldBe "FAIL greet: expected 'Hello, Alice!;' but was 'Hello, Bob!;'")
   }
 }
