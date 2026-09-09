@@ -19,8 +19,7 @@ class MonomorphicTypeCheckTest
     extends ProcessorTest(
       (LangProcessors(
         systemModules = ProcessorTest.coreAmbientModules,
-        extraNativeBindingLabels = Seq(StdlibNativesProcessor.stdlibLabel),
-        runBoundaryFunctions = Set(MonomorphicTypeCheckTest.stubRunMainVfqn)
+        extraNativeBindingLabels = Seq(StdlibNativesProcessor.stdlibLabel)
       ) :+ StdlibNativesProcessor())*
     ) {
 
@@ -894,150 +893,19 @@ class MonomorphicTypeCheckTest
       .asserting(_ shouldBe Seq("boom" at "foo"))
   }
 
-  // --- The effect elaboration (docs/effects-as-rows.md §3) ---
+  // --- The scope check: an effect performed but not declared ---
 
-  // Rewrite-shape assertions read off the *monomorphic body*: direct-style code is elaborated into explicit monadic
-  // core by the `RowElaborator` desugar before the checker sees it, so the sequenced `Effect.flatMap`/`pure` shape
-  // materialises in the monomorphic output (here at the stub `IO` carrier, resolved against the stub instances in
-  // `effectLiftImports` — the real-impl behaviour is pinned end-to-end in the jvm `ExamplesIntegrationTest`).
-  //
-  // Two rules explain every shape below, and both are read off **declarations alone** — the desugar never consults a
-  // type. **Strict at every plain slot** (§1 rule 1): an effectful argument at a slot that does not declare a row
-  // runs at the call site and its result is bound, so nesting effectful calls nests binds. A plain *generic* slot
-  // (`choose`'s `A`, `.`'s `a: A`) is such a slot — §1 rule 4: an effect passes through a position iff that position
-  // declares it, so a rowless generic is a payload, always, whatever the call instantiates it at. **One bind
-  // combinator**: a pure continuation is `pure`-wrapped under `flatMap` rather than selecting `map`, since the
-  // desugar cannot see the continuation's inferred type (the two are behaviourally identical).
-  //
-  // Several shapes below were written against the earlier A.8.6 spelling, where a generic-headed slot was *deferred*
-  // — the desugar wrote nothing and the checker's obligations/resolver finished the node from the solved
-  // instantiation. That mechanism is gone (A.11.7-T, A.11.8-1); the assertions are the rule-4 spellings, and the
-  // case names are kept where the *shape* is still the interesting one.
+  // Effects v6 has no elaboration to observe here. The rewrite-shape group that used to sit in this place read the
+  // `RowElaborator`'s output — the inserted `Effect.flatMap`/`pure` spine — off the monomorphic body; there is no
+  // carrier, so nothing is inserted, and what the `row` phase writes now (an implementation per phantom binder) is
+  // pinned by the `jvm` suites end to end. What survives is the one diagnostic that phase owns.
 
-  "the effect elaboration" should "sequence a direct-style printLine(readLine) with Effect.flatMap" in {
-    liftedBody("import eliot.effect.Console\ndef echo: {Console} Unit = printLine(readLine)")
-      .asserting(_ should contain("flatMap"))
-  }
-
-  it should "leave already-monadic flatMap code unchanged (no double bind)" in {
-    liftedBody(
-      "import eliot.effect.Console\ndef echo: {Console} Unit = flatMap(s -> printLine(s), readLine)"
-    ).asserting(_.count(_ == "flatMap") shouldBe 1)
-  }
-
-  // §1 rule 1's canonical example, and what §1 rule 4 settles: `choose`'s `x: A` and `y: A` are plain generics, hence
-  // payload slots, so both reads *run here*, leftmost outermost, and the chosen payload is `pure`-wrapped as the
-  // chain's innermost continuation. (This asserted the empty A.8.6 spelling — the slots deferred and the branches
-  // instantiating `A` at the carrier — which is the violation rule 4 removes.)
-  it should "run both branches of a payload-slot eliminator, then lift the chosen payload" in {
-    liftedBody(
-      "import eliot.effect.Console\ndef echo: {Console} String = choose(readLine, readLine)\ndef choose[A](x: A, y: A): A = x"
-    ).asserting(_.filter(Set("flatMap", "map", "pure")) shouldBe Seq("flatMap", "flatMap", "pure"))
-  }
-
-  it should "bind the carried result of an effectful `val`, so the body sees the plain value" in {
-    liftedBody(
-      "import eliot.effect.Console\ndef echo: {Console} Unit = {\n  val line = readLine\n  printLine(line)\n}"
-    ).asserting(_ should contain("flatMap"))
-  }
-
-  it should "thread effects through a block, lifting the pure tail statement" in {
-    liftedBody(
-      "import eliot.effect.State\ndef echo(next: String): {State[String]} String = {\n  val old = state\n  putState(next)\n  old\n}"
-    ).asserting(_.filter(Set("flatMap", "map")).sorted shouldBe Seq("flatMap", "flatMap"))
-  }
-
-  it should "bind an effectful subject dotted into a function-typed parameter (the dot-inline regression)" in {
-    // `readLine.f` — `.`'s `a: A` is a rowless generic, hence a payload (§1 rule 4), and the desugar has no dot rule
-    // of any kind: the read is hoisted inside the argument (`flatMap` over a `pure`-wrapped dot core) and the
-    // carrier-headed result binds again into printLine's `String` slot.
-    liftedBody(
-      "import eliot.effect.Console\ndef call(f: Function[String, String]): {Console} Unit = printLine(readLine.f)",
-      name = "call"
-    ).asserting(_.filter(Set("flatMap", "map")).sorted shouldBe Seq("flatMap", "flatMap"))
-  }
-
-  it should "wrap a pure body under a carrier return with Effect.pure" in {
-    liftedBody("import eliot.effect.Console\ndef echo: {Console} String = \"quiet\"")
-      .asserting(_ should contain("pure"))
-  }
-
-  // --- The extended regression matrix (Step 5) ---
-
-  it should "hoist an effectful argument at a plain-generic slot beside a pure sibling" in {
-    // `pick`'s `A` is a rowless generic at both slots, so `readLine` runs here regardless of what the `"x"` sibling
-    // instantiates `A` at — the one-bind-combinator spelling (`flatMap` over a `pure`-wrapped core). Under the
-    // earlier deferral this shape only lifted *because* the sibling had already rigidified the domain.
-    liftedBody(
-      "import eliot.effect.Console\ndef pick[A](x: A, y: A): A = x\ndef echo: {Console} String = pick(readLine, \"x\")"
-    ).asserting(_.filter(Set("flatMap", "map")) shouldBe Seq("flatMap"))
-  }
-
-  it should "hoist an effectful argument at one plain-generic slot of a multi-argument eliminator" in {
-    // The eliminator's first slot takes a plain value: the original spelling passed the body-less `none`, whose `A`
-    // nothing determined, so the value never checked and every assertion held vacuously on an empty body. `ifNone`'s
-    // `B` declares no row, so the read hoists there (the desugar's `flatMap`+`pure` spelling) — the `s -> s` lambda's
-    // rigidifying of `B` is no longer what decides it.
-    liftedBody(
-      "import eliot.effect.Console\ndef foldOr[A, B](o: A, ifNone: B, ifSome: Function[A, B]): B = ifNone\ndef echo: {Console} String = foldOr(\"k\", readLine, s -> s)"
-    ).asserting(_.filter(Set("flatMap", "map", "pure")) shouldBe Seq("flatMap", "pure"))
-  }
-
-  it should "bind nested effectful arguments innermost-first (bind of a bind)" in {
-    liftedBody(
-      "import eliot.effect.Console\ndef url(s: String): String = s\ndef echo: {Console} Unit = printLine(url(readLine))"
-    ).asserting(_.filter(Set("flatMap", "map")).sorted shouldBe Seq("flatMap", "flatMap"))
-  }
-
-  it should "hoist inside a plain-generic argument, then bind again at the enclosing strict slot" in {
-    // `identity`'s `a: A` is a rowless generic ⇒ payload, so the read hoists inside the argument
-    // (`flatMap($row -> pure(identity($row)), readLine)`) and the carrier-headed result binds again at `printLine`'s
-    // declared-concrete slot. (v2 adopted mid-spine instead — pass-through, one bind at the parent — behaviourally
-    // identical: readLine runs exactly once, before printLine.)
-    liftedBody(
-      "import eliot.effect.Console\ndef identity[A](a: A): A = a\ndef echo: {Console} Unit = printLine(identity(readLine))"
-    ).asserting(_.filter(Set("flatMap", "map")) shouldBe Seq("flatMap", "flatMap"))
-  }
-
-  it should "bind an effectful argument nested under a second strict slot (the updateState shape)" in {
-    // The counterpart of the `identity` case above, and what lets `updateState(f) = putState(f(state))` type-check:
-    // `state` runs and binds at `keep`'s strict slot, and the resulting computation binds again into `putState`'s.
-    // Nothing about `putState[S, F](s: S): F[Unit]`'s `S` needs solving first — the desugar is type-free.
-    liftedBody(
-      "import eliot.effect.State\ndef keep(s: String): String = s\ndef upd: {State[String]} Unit = putState(keep(state))",
-      name = "upd"
-    ).asserting(_.filter(Set("flatMap", "map")).sorted shouldBe Seq("flatMap", "flatMap"))
-  }
-
-  it should "leave a carrier-typed storage slot unbound (the discharge-helper shape)" in {
-    liftedBody(
-      "type Carrier[G[_], A]\ndef discharge[G[_], A](p: Carrier[G, A]): G[A]\ndef run[G[_], A](p: Carrier[G, A]): G[A] = discharge(p)",
-      name = "run",
-      typeArgs = Seq(ioCarrier, stringType)
-    ).asserting(_.filter(Set("flatMap", "map", "pure")) shouldBe Seq.empty)
-  }
-
-  it should "store an annotated carrier-typed let binder instead of binding it" in {
-    liftedBody(
-      "import eliot.effect.Console\ndef echo: {Console} Unit = {\n  val stored: IO[String] = readLine\n  flatMap(s -> printLine(s), stored)\n}"
-    ).asserting(_.filter(Set("flatMap", "map", "pure")) shouldBe Seq("flatMap"))
-  }
-
-  // Fail-safes: a non-carrier constructor never lifts; the friendly residual-check diagnostics stay; a return boundary
-  // never strips a carrier. (The `Inf` subset rejection is pinned end-to-end in the jvm `TerminationIntegrationTest`.)
-
-  it should "reject a non-carrier constructor argument with a plain mismatch (no lift)" in {
-    // The mismatch anchors at the argument's application node, spanning the whole `box("x")` construction.
-    liftedErrors(
-      "import eliot.effect.Console\ntype Box[A]\ndef box[A](value: A): Box[A]\ndef echo: {Console} Unit = printLine(box(\"x\"))"
-    ).asserting(_ should contain("Type mismatch." at "box(\"x\")"))
-  }
-
-  it should "report an effectful body under a pure return as an undeclared effect, at the definition" in {
-    // `echo` has no carrier binder and a `String` return, which cannot host one — so the pre-mono row verification
-    // decides it from declarations and names the effect (A.11.6). The post-mono `DeclaredPureChecker` that used to
-    // voice this after a failed monomorphization is gone: this value never reaches the checker at all.
-    liftedErrors("import eliot.effect.Console\ndef echo: String = printLine(readLine)", typeArgs = Seq.empty)
+  "the scope check" should "report an effectful body under a pure return as an undeclared effect, at the definition" in {
+    runGenerator(
+      "import eliot.effect.Console\ndef echo: String = printLine(readLine)",
+      MonomorphicValue.Key(ValueFQN(testModuleName, default("echo")), Seq.empty),
+      systemImports
+    ).map(result => toTestErrors(result._1))
       .asserting(
         _ should contain(
           "This value performs the effect 'Console' but does not declare it; add it to its { ... } effect set." at "echo"
@@ -1045,113 +913,6 @@ class MonomorphicTypeCheckTest
       )
   }
 
-  it should "reject an effectful lambda body under a rigid pure codomain (no strip at return boundaries)" in {
-    // The mismatch anchors at the body's application node, spanning the whole `printLine(s)` construction.
-    liftedErrors(
-      "import eliot.effect.Console\ndef twice(f: Function[String, String]): String = f(f(\"x\"))\ndef echo: {Console} String = twice(s -> printLine(s))"
-    ).asserting(_ should contain("Type mismatch." at "printLine(s)"))
-  }
-
-  private val ioFQN            =
-    ValueFQN(ModuleName(Seq("eliot", "jvm"), "IO"), QualifiedName("IO", Qualifier.Type))
-  private val ioCarrier: GroundValue = GroundValue.Structure(ioFQN, Seq.empty, GroundValue.Type)
-
-  // The `Effect`/`Console` stubs carry trivial `implement … [IO]` instances (bodies delegating to an abstract
-  // helper): the values are checked *at the ground stub `IO` carrier*, and a ground ability demand with no applicable
-  // instance is a use-site error by design (the ability machinery records `NoImplementation` and the checker's
-  // `AbilityResolver` reports the failed demand at the reference). The instances keep the demands resolvable; the
-  // emitted refs carry the same local names (`flatMap`/`pure`/`printLine`), so the shape assertions read unchanged.
-  private val effectLiftImports: Seq[SystemImport] = ambientStubsWith(
-    // The stub run boundary, mirroring the jvm layer's `eliot.jvm.IO::runMain`: it is what makes `IO` a *carrier*
-    // head by declaration (carrier-recognition source (ii), `RunBoundaryFunctions`) rather than by its name, for the
-    // row elaboration's captures and stored-computation annotations.
-    "IO"       -> "type IO[A]\ndef runMain[A](io: IO[A]): A",
-    "Option"   -> "type Option[A]\ndef some[A](value: A): Option[A]\ndef none[A]: Option[A]",
-    // The ambient stub plus a `.` operator, for the dotted-subject case. Deliberately the *rowless* spelling, while the
-    // real `stdlib/.../Function.els` declares `f: A => {Effect} B` since §1 rule 4. Copying the real signature in was
-    // tried and measured (A.11.9): with `import eliot.carrier.Effect` added to this module the name `.` itself stops
-    // resolving in the snippets ("Name not defined." at `readLine.f`) for a reason that is about this stub universe,
-    // not the language — the real declaration compiles everywhere. What the case here pins is the subject slot
-    // `a: A` — a rowless generic, hence a payload — which the real declaration keeps exactly as it is; the rowed
-    // function slot is covered end-to-end by the jvm suites and the `DotOperator` example.
-    "Function" ->
-      "type Function[A, B]\ndef apply[A, B](f: Function[A, B], a: A): B\ninfix left below apply def .[A, B](a: A, f: Function[A, B]): B = f(a)",
-    "Console"  ->
-      ("ability Console[F[_]] {\ndef printLine(s: String): {Console} Unit\ndef readLine: {Console} String\n}\n" +
-        "def stubConsoleIO[A]: IO[A]\n" +
-        "implement Console[IO] {\ndef printLine(s: String): IO[Unit] = stubConsoleIO\ndef readLine: IO[String] = stubConsoleIO\n}"),
-    // Overrides the canonical ambient `State` stub (same module, richer content) — appending a second `State`
-    // SystemImport would double-register the module path.
-    "State"    ->
-      ("ability State[S, F[_]] {\ndef state: {State[S]} S\ndef putState(s: S): {State[S]} Unit\n}\n" +
-        "def stubStateIO[A]: IO[A]\n" +
-        "implement[S] State[S, IO] {\ndef state: IO[S] = stubStateIO\ndef putState(s: S): IO[Unit] = stubStateIO\n}")
-  ) ++ Seq(
-    SystemImport(
-      "Effect",
-      // The instances below are declared at the stub `IO`, which lives in `eliot.jvm` and is not ambient — so this
-      // module has to import it like any other file. It went unnoticed while nothing demanded this module.
-      "ability Effect[F[_]] {\ndef flatMap[A, B](f: Function[A, F[B]], fa: F[A]): F[B]\ndef pure[A](a: A): F[A]\ndef map[A, B](f: Function[A, B], fa: F[A]): F[B]\n}\n" +
-        "def stubEffectIO[A]: IO[A]\n" +
-        "implement Effect[IO] {\ndef flatMap[A, B](f: Function[A, IO[B]], fa: IO[A]): IO[B] = stubEffectIO\ndef pure[A](a: A): IO[A] = stubEffectIO\ndef map[A, B](f: Function[A, B], fa: IO[A]): IO[B] = stubEffectIO\n}",
-      ModuleName.carrierPackage
-    )
-  )
-
-  /** The names of every value referenced in the named value's monomorphic body, checked at the stub `IO` carrier. The
-    * body is **Id-normalized** first, exactly as `WovenValueProcessor` does before codegen (docs/effects-as-channel.md
-    * §6): the uniform-carrier checker wraps a pure passthrough in `pure@Id`/`runId` machinery that carries no effect and
-    * is erased before codegen, so the *real* lift combinators the assertions probe are those surviving normalization (a
-    * `pure@Id` around a discharge-helper passthrough is not a lift). A no-op on the legacy path.
-    */
-  private def liftedBody(
-      source: String,
-      name: String = "echo",
-      typeArgs: Seq[GroundValue] = Seq(ioCarrier)
-  ): IO[Seq[String]] =
-    runGenerator(
-      source,
-      MonomorphicValue.Key(ValueFQN(testModuleName, default(name)), typeArgs),
-      effectLiftImports
-    ).map { case (errors, facts) =>
-      facts.values
-        .collectFirst { case mv: MonomorphicValue if mv.vfqn.name.name == name => mv }
-        .flatMap(mv => mv.runtime.map(body => referencedNames(idNormalized(mv, body))))
-        // A value that failed to check has no body, and an empty name list would silently satisfy every
-        // "no lift machinery" assertion in this group — so the absence is a failure, not a result.
-        .getOrElse(fail(s"'$name' produced no monomorphic body: ${toTestErrors(errors).mkString(", ")}"))
-    }
-
-  /** Id-normalize a monomorphic value's runtime body as `WovenValueProcessor` does before codegen (see [[liftedBody]]). */
-  private def idNormalized(mv: MonomorphicValue, body: Sourced[MonomorphicExpression.Expression]): MonomorphicExpression.Expression =
-    body.value
-
-  /** The build errors of checking the named value at the stub `IO` carrier. */
-  private def liftedErrors(
-      source: String,
-      name: String = "echo",
-      typeArgs: Seq[GroundValue] = Seq(ioCarrier)
-  ): IO[Seq[TestError]] =
-    runGenerator(
-      source,
-      MonomorphicValue.Key(ValueFQN(testModuleName, default(name)), typeArgs),
-      effectLiftImports
-    ).map(result => toTestErrors(result._1))
-
-  private def referencedNames(expr: MonomorphicExpression.Expression): Seq[String] = expr match {
-    case MonomorphicExpression.MonomorphicValueReference(fqn, _) => Seq(fqn.value.name.name)
-    case MonomorphicExpression.FunctionApplication(target, arg)  =>
-      referencedNames(target.value.expression) ++ referencedNames(arg.value.expression)
-    case MonomorphicExpression.FunctionLiteral(_, _, body)       => referencedNames(body.value.expression)
-    case _                                                       => Seq.empty
-  }
 }
 
-object MonomorphicTypeCheckTest {
 
-  /** The stub counterpart of the jvm layer's `eliot.jvm.IO::runMain`, registered as this suite's run boundary so the
-    * stub `IO` is a declared carrier head exactly as it is in a real build.
-    */
-  val stubRunMainVfqn: ValueFQN =
-    ValueFQN(ModuleName(Seq("eliot", "jvm"), "IO"), QualifiedName("runMain", Qualifier.Default))
-}
