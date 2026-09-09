@@ -1377,7 +1377,7 @@ deleted with the effect-set feature, `EffectsFakeCarrier` replaced by `EffectsNa
 per-instantiation frames, cells and `with` all run. F2, F3, F6 and F9 are untouched; the Scala tests still failing
 are the v5 carrier, elaborator and mono suites, which F2 and F3 delete or rewrite.
 
-- **F1 — the desugar. DONE** (`590e79dd`, `c73a9144`, `0eb0e06e`, `1b6482aa`, `HEAD`), in four parts.
+- **F1 — the desugar. DONE** (`590e79dd`, `c73a9144`, `0eb0e06e`, `1b6482aa`, `c5c0485d`), in four parts.
   - *The `with` resolution path.* A named `implement` mints, beside its methods and its marker, a **name marker**
     `QualifiedName(name, Qualifier.Implementation(name))`, because `with h` has to be a keyed dictionary lookup —
     import scope and shadowing decide it, not `Map` order — and the real marker's qualified name cannot be built from
