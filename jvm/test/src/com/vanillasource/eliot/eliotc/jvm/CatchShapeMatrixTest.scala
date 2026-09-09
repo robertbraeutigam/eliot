@@ -99,31 +99,37 @@ class CatchShapeMatrixTest extends FullIntegrationTest {
   }
 
   // ============================================================================================================
-  // Group B — non-identity handler (err -> "fallback"): does NOT pin E := A. The finding-7 / U4-f corner.
+  // Group B — non-identity handler (err -> "fallback"): does NOT pin E := A.
+  //
+  // Under effects v6 the error type has to be **written at the call**. `catch[E, A](computation: {Throw[E]} A,
+  // onError: E => {} A)` — a parameter row lowers to a thunk, which erases `E` from the type, so a handler that
+  // ignores its error leaves nothing to determine it. It used to default and crash at runtime on a frame-key
+  // mismatch; it is rejected now (`docs/effects.md` A6), and the spelling is the prefix call with its arguments.
+  // These six cases are therefore the *annotated* form of the corner, not a different corner.
   // ============================================================================================================
 
   "non-identity handler, single statement, pure Id carrier" should "recover to the fallback" in {
     compileAndRun(throwPrelude + """
-      |def r: String = bad catch (err -> "fallback")
+      |def r: String = catch[String, String](bad, err -> "fallback")
       |def main: {Console} Unit = printLine(r)""".stripMargin).asserting(_ shouldBe "fallback")
   }
 
   "non-identity handler, single statement, ambient Console carrier" should "recover to the fallback" in {
     compileAndRun(throwPrelude + """
-      |def show: {Console} Unit = printLine(bad catch (err -> "fallback"))
+      |def show: {Console} Unit = printLine(catch[String, String](bad, err -> "fallback"))
       |def main: {Console} Unit = show""".stripMargin).asserting(_ shouldBe "fallback")
   }
 
   "non-identity handler, single statement, concrete IO carrier" should "recover to the fallback" in {
     compileAndRun(throwPrelude + """
-      |def main: {Console} Unit = printLine(bad catch (err -> "fallback"))""".stripMargin).asserting(_ shouldBe "fallback")
+      |def main: {Console} Unit = printLine(catch[String, String](bad, err -> "fallback"))""".stripMargin).asserting(_ shouldBe "fallback")
   }
 
   "non-identity handler, block, pure Id carrier" should "recover to the fallback" in {
     compileAndRun(throwPrelude + """
       |def r: String = {
       |   val note = "unused"
-      |   bad catch (err -> "fallback")
+      |   catch[String, String](bad, err -> "fallback")
       |}
       |def main: {Console} Unit = printLine(r)""".stripMargin).asserting(_ shouldBe "fallback")
   }
@@ -132,7 +138,7 @@ class CatchShapeMatrixTest extends FullIntegrationTest {
     compileAndRun(throwPrelude + """
       |def show: {Console} Unit = {
       |   printLine("pre")
-      |   printLine(bad catch (err -> "fallback"))
+      |   printLine(catch[String, String](bad, err -> "fallback"))
       |}
       |def main: {Console} Unit = show""".stripMargin).asserting(_ shouldBe "pre\nfallback")
   }
@@ -141,7 +147,7 @@ class CatchShapeMatrixTest extends FullIntegrationTest {
     compileAndRun(throwPrelude + """
       |def main: {Console} Unit = {
       |   printLine("pre")
-      |   printLine(bad catch (err -> "fallback"))
+      |   printLine(catch[String, String](bad, err -> "fallback"))
       |}""".stripMargin).asserting(_ shouldBe "pre\nfallback")
   }
 
@@ -210,30 +216,32 @@ class CatchShapeMatrixTest extends FullIntegrationTest {
   }
 
   // ============================================================================================================
-  // Group F — the **val-bound** discharge, which used to be a documented limitation ("a discharger must receive the
-  // effectful call as an expression, never a `val`-bound binder"). It works since the elaborator writes the carrier
-  // (A.11.4-R): a call needing more than the ambient declares carries its own discharge stack, so the `val` binds the
-  // reified computation as data instead of sequencing it onto the ambient, and the discharger reaches it through the
-  // binder. Asserted on OUTPUT, both branches, so a regression to "sequenced then never discharged" is loud.
+  // Group F — a `val` **runs** its computation.
+  //
+  // Under v5 a `val` bound the *reified* computation as data, so a discharger could reach it through the binder, and
+  // that was recorded as a capability. Effects v6 reverses it: effects run where they are written, a `val` is an
+  // ordinary binding of a value, and a discharger takes the call. The row therefore belongs to the *enclosing*
+  // definition, which is what these two now pin — one where the binding's effect is declared and discharged around
+  // the whole block, one where each call is discharged in place.
   // ============================================================================================================
 
-  "a val-bound Throw computation" should "be discharged through its binder" in {
+  "a val-bound Throw computation" should "run where it is bound, its effect declared by the enclosing definition" in {
     compileAndRun(throwPrelude + """
-      |def show: {Console} Unit = {
+      |def show: {Throw[String]} String = {
       |   val outcome = bad
-      |   printLine(outcome catch (err -> err))
+      |   outcome
       |}
-      |def main: {Console} Unit = show""".stripMargin).asserting(_ shouldBe "boom")
+      |def main: {Console} Unit = printLine(show catch (err -> err))""".stripMargin).asserting(_ shouldBe "boom")
   }
 
-  "a val-bound Abort computation" should "take the fallback when it aborts and its value when it does not" in {
+  "a val discharged in place" should "take the fallback when it aborts and its value when it does not" in {
     compileAndRun("""def setting(key: String): {Abort} String = if(key == "host", "example.org") else abort
       |
       |def main: {Console} Unit = {
-      |   val host = setting("host")
-      |   val port = setting("port")
-      |   printLine(host else "localhost")
-      |   printLine(port else "8080")
+      |   val host = setting("host") else "localhost"
+      |   val port = setting("port") else "8080"
+      |   printLine(host)
+      |   printLine(port)
       |}""".stripMargin).asserting(_ shouldBe "example.org\n8080")
   }
 

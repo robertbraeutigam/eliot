@@ -1420,12 +1420,17 @@ are the v5 carrier, elaborator and mono suites, which F2 and F3 delete or rewrit
     outside, so the slot was never recorded as a row position at all — the actual was then written in the caller's
     scope and the very effects the `with` binds were reported undeclared there. Both readers now look through the
     `with`, exactly as the thunking rule already did.
-- **F2 — deletions. NOT DONE.** Everything in §9.8's deleted list. `RowElaborationProcessor` keeps only the write
-  and the scope check, and is renamed to say so; `RowChecker` keeps `Universe`, `checkable` and `peelBinders`, and
-  its derivation half goes with `RowElaborator`.
-- **F3 — the checker. NOT DONE.** No rigid carrier to lift into, so `tryPureWrap` goes; an unsolved phantom is an
-  error rather than a junk `Type`. Rendering: an effect prints as the name the user wrote — no inverter, and a
-  phantom binder is never rendered.
+- **F2 — deletions. DONE** (2026-09-09). Everything in §9.8's deleted list: `RowElaborator` and `RowChecker`'s
+  derivation half (which keeps `Universe`, `checkable` and `peelBinders`), `IdNormalizer` with `assertNoIdResidue` —
+  so the `WovenValue` seam now *rewrites nothing* and is only where the three codegen preconditions are checked —
+  `EffectRowRendering`/`EffectCarrierNaming` with the renderer and printer arms that inverted a carrier stack back
+  into a pinned row, `AbilityResolver.sideEffectOnPureCarrier`, and the `Id`/`Effect`-combinator well-known types.
+  `RowElaborationProcessor` is not renamed: it kept its name and gained a job (it writes signatures too).
+- **F3 — the checker. DONE** (2026-09-09). `EffectLifter` and the ladder's two pure-wrap arms are gone (no rigid
+  carrier to lift into), and with them the **deferred slot** — `SlotOutcome`/`SlotRecord`/`rebuildChain` and the whole
+  two-phase spine — `Track.Compiler.pinCarriers`, and `TypeStackLoop`'s C2 carrier fence. `typeImmediateLambda` is an
+  ordinary `let`. Rendering: an effect prints as the name the user wrote. *Not* done as stated: an unsolved phantom is
+  still not an error of its own; what catches the one shape that mattered is A6's rejection at the call.
 - **F4 — the run boundary. DONE** (`1b6482aa`). There is no carrier to instantiate: the synthesized entry is
   `def main: Unit = <user main>`, and `RunBoundaryFunctions` is repurposed from "values whose parameter 0 hosts a
   computation" to **the values where every effect's chain ends** — the jvm plugin registers the synthesized
@@ -1472,8 +1477,13 @@ are the v5 carrier, elaborator and mono suites, which F2 and F3 delete or rewrit
   must drop the leading binding rather than ground it; and **meta companions must be written too** — a `^Meta`
   brace calls ordinary abilities, its parameters are *not* thunked, and its row record must therefore be empty to
   match.
-- **F6 — accounting. NOT DONE.** `EffectAccountingProcessor` reads received bindings instead of carriers and stays
-  the codegen precondition; the "declared pure but performs effects" diagnostic stays in the pre-mono scope check.
+- **F6 — accounting. DONE** (2026-09-09). `EffectAccountingProcessor` reads **received bindings**: an instantiation
+  receives one implementation per phantom binder of its own signature (its mono key's arguments at those indices), and
+  a reference *forwards* one when the binding written at its own phantom slot is that same implementation and the
+  callee declares that ability as a row entry. `MonomorphicValue.ambientCarriers` went with the ride test — it was a
+  copy-only projection of the mono key — and so did `CheckState.ambientCarriers`. Every non-empty derivation is
+  **logged**, which is D7's trace. The "declared pure but performs effects" diagnostic stays in the pre-mono scope
+  check, and the processor gained A6's rejection.
 - **F7 — the tree. DONE** (`1b6482aa`, with F5's five discharger bodies). The `.v6/` overlay applied over stdlib,
   jvm, lang and examples, with the manifest's deletions. Two staging gaps found: the compile-track `Either` still
   carried `implement Effect[Either[String]]` and `implement Throw[String, Either[String]]`, which cannot survive a
@@ -1504,6 +1514,13 @@ and do not land a narrowed version (standing rule 2).
 - **A4 — D4 dissolves** (any effect is storable and suppliable); Part I's limitation 5 dissolves with D5
   (§9.4).
 - **A5 — retire the post-mono accounting verifier** under the §8 method (D7).
+- **A6 — the write must fill a supplied row entry's own arguments.** A parameter row lowers to a thunk, which erases
+  the entry's arguments from the type, so `catch[E, A](computation: {Throw[E]} A, onError: E => {} A)` leaves `E` to
+  the handler — and a handler that ignores its error determines nothing. Until this lands the argument is written at
+  the call (`catch[String, String](…)`), and a defaulted one is **rejected** by `EffectAccountingProcessor` rather
+  than allowed to miscompile (2026-09-09; it used to compile and crash on a frame-key mismatch). The fix is the rule
+  §3.1 already states for a supplying slot — instantiate the entry's arguments from the *actual's* own declared row —
+  and it is inside §3.2's whitelist, so it is a gap in the write and not a new mechanism.
 
 ## 11. Open decisions
 
