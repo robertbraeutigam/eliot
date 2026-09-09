@@ -11,24 +11,16 @@ package com.vanillasource.eliot.eliotc.jvm
   */
 object EffectCorpus {
 
-  /** One combined program covering the design's worked shapes: direct-style Console blocks, discharge-to-pure (`catch`
-    * + `runStateToPair` under pure returns), an effectful catch handler, a carrier-polymorphic Abort program under a
-    * local pure Id carrier (with a hand-written `Effect` instance), the State effect at a concrete IO carrier, and a
-    * run-carrier-headed `main` sequencing them all (so demand-driven compilation reaches every definition).
+  /** One combined program covering the design's worked shapes: direct-style Console blocks, discharge under a pure
+    * return (`catch` and `runStateToPair`), an effectful catch handler, an `Abort` program discharged to an `Option`,
+    * the `State` effect in direct style, and a `main` sequencing them all (so demand-driven compilation reaches every
+    * definition).
     */
   val combinedProgram: String =
     """import eliot.effect.Console
       |import eliot.effect.Throw
       |import eliot.effect.State
       |import eliot.effect.Abort
-      |
-      |data Id[A](runId: A)
-      |
-      |implement Effect[Id] {
-      |   def pure[A](a: A): Id[A] = Id(a)
-      |   def flatMap[A, B](f: Function[A, Id[B]], fa: Id[A]): Id[B] = f(runId(fa))
-      |   def map[A, B](f: Function[A, B], fa: Id[A]): Id[B] = Id(f(runId(fa)))
-      |}
       |
       |def shout(s: String): {Console} Unit = printLine(s)
       |
@@ -50,13 +42,16 @@ object EffectCorpus {
       |def allowed: {Abort} String = "granted"
       |def denied: {Abort} String = abort
       |
-      |def testAllowed: Option[String] = runId(runAbort(allowed))
-      |def testDenied: Option[String] = runId(runAbort(denied))
+      |def testAllowed: Option[String] = runAbort(allowed)
+      |def testDenied: Option[String] = runAbort(denied)
       |
-      |def swap(next: String): {State[String]} String =
-      |   flatMap(old -> flatMap(ignored -> pure(old), putState(next)), state)
+      |def swap(next: String): {State[String]} String = {
+      |   val old = state
+      |   putState(next)
+      |   old
+      |}
       |
-      |def prog: IO[Pair[String, String]] = runStateToPair("before", swap("after"))
+      |def prog: Pair[String, String] = runStateToPair("before", swap("after"))
       |
       |def main: {Console} Unit = {
       |   greet
@@ -65,7 +60,7 @@ object EffectCorpus {
       |   caught
       |   printLine(foldOption("DENIED", s -> s, testAllowed))
       |   printLine(foldOption("DENIED", s -> s, testDenied))
-      |   flatMap(pair -> printLine(pair.first), prog)
+      |   printLine(prog.first)
       |}""".stripMargin
 
   /** An effect performed while **building** an argument that a carrier-codomain slot receives — §1 rule 1, where the
@@ -115,7 +110,7 @@ object EffectCorpus {
   val effectfulLambdaProgram: String =
     """import eliot.effect.Abort
       |
-      |def applyTo[A, B](a: A, f: A => {Effect} B): {Effect} B = f(a)
+      |def applyTo[A, B](a: A, f: A => {} B): B = f(a)
       |
       |def labelOf(s: String): {Abort} String = applyTo(s, x -> take(indexOf("=", s), x))
       |
@@ -135,15 +130,15 @@ object EffectCorpus {
     * shape (`map`, `filter`, `groupBy`, any combinator taking a user function) was unwritable. See
     * `RowChecker.rowDeclaringParameters`.
     *
-    * Both instantiations of ρ are exercised, and they check opposite halves: `announce` makes ρ := `{Console}`, where
-    * the "visiting" lines must appear once per element and *before* the mapped results (the bind belongs to
-    * `eachInto`'s traversal, not to the caller's later `foreach`); the pure lambda makes ρ := `{}`, where the bind the
-    * elaborator now always writes is `Id`'s and must erase — nothing of it may reach the output, or the runtime.
+    * Both kinds of callback are exercised, and they check opposite halves: `announce` performs `{Console}`, where the
+    * "visiting" lines must appear once per element and *before* the mapped results (the callback runs inside
+    * `eachInto`'s traversal, not at the caller's later `foreach`); the pure lambda performs nothing, and must run
+    * identically — the slot's `{}` says the callback's effects are the caller's, whatever they turn out to be.
     */
   val rowPolymorphicCallbackProgram: String =
     """import eliot.collection.List
       |
-      |def eachInto[A, B](f: A => {Effect} B, list: List[A]): {Effect} List[B] =
+      |def eachInto[A, B](f: A => {} B, list: List[A]): List[B] =
       |   list.foldLeft(empty, e -> acc -> append(acc, f(e)))
       |
       |def three: List[String] = append(append(append(empty, "a"), "b"), "c")

@@ -33,6 +33,7 @@ class JvmClassGeneratorProcessorTest extends AsyncFlatSpec with AsyncIOSpec with
       Seq(
         ModuleName.systemFunctionModuleName,
         ModuleName(ModuleName.defaultSystemPackage, "Unit"),
+        ModuleName(ModuleName.defaultSystemPackage, "Implementation"),
         ModuleName(ModuleName.defaultSystemPackage, "PatternMatch"),
         ModuleName(ModuleName.defaultSystemPackage, "TypeMatch")
       )
@@ -57,6 +58,10 @@ class JvmClassGeneratorProcessorTest extends AsyncFlatSpec with AsyncIOSpec with
                      // A synthesized `implement`/`data` marker's default `true` guard resolves to `eliot.lang.Bool::true`
                      // (ability-guards §2.3), so Bool must be loadable — as it always is in a real layer.
                      ModuleName(ModuleName.defaultSystemPackage, "Bool")     -> "type Bool\ndef true: Bool\ndef false: Bool",
+                     // Effects v6: the `row` phase writes the `Default` sentinel as an ordinary type argument at every
+                     // ability reference, so saturation demands the value it names. Without it a snippet calling an
+                     // ability method silently loses its monomorphization — no fact, and no error either.
+                     ModuleName(ModuleName.defaultSystemPackage, "Implementation") -> "type Default",
                      ModuleName(ModuleName.defaultSystemPackage, "PatternMatch") -> "ability PatternMatch[T] {\ntype Cases[R]\ndef handleCases[R](value: T, cases: Cases[R]): R\n}",
                      ModuleName(ModuleName.defaultSystemPackage, "TypeMatch")    -> "ability TypeMatch[T] {\ntype Fields[R]\ndef typeMatch[R](value: Type, matched: Fields[R], notMatched: Function[Unit, R]): R\n}"
                    ).traverse { (moduleName, content) =>
@@ -94,7 +99,10 @@ class JvmClassGeneratorProcessorTest extends AsyncFlatSpec with AsyncIOSpec with
               signature: String,
               exceptions: Array[String]
           ): MethodVisitor =
-            if (name == "f$MyStr")
+            // Effects v6: `f[A ~ Show[A]]` mints a phantom binder for the constraint, so its mono key — and with it
+            // the mangled name — carries the written implementation ahead of `MyStr` (`f$Default$MyStr`). Matched by
+            // shape rather than spelled out, so the name stays about the instantiation and not about the encoding.
+            if (name.startsWith("f$") && name.endsWith("MyStr"))
               new MethodVisitor(Opcodes.ASM9) {
                 override def visitMethodInsn(
                     opcode: Int,
@@ -139,7 +147,10 @@ class JvmClassGeneratorProcessorTest extends AsyncFlatSpec with AsyncIOSpec with
               signature: String,
               exceptions: Array[String]
           ): MethodVisitor = {
-            if (name == "f$MyStr") fDescriptor = Some(descriptor)
+            // Effects v6: `f[A ~ Show[A]]` mints a phantom binder for the constraint, so its mono key — and with it
+            // the mangled name — carries the written implementation ahead of `MyStr` (`f$Default$MyStr`). Matched by
+            // shape rather than spelled out, so the name stays about the instantiation and not about the encoding.
+            if (name.startsWith("f$") && name.endsWith("MyStr")) fDescriptor = Some(descriptor)
             null
           }
         },

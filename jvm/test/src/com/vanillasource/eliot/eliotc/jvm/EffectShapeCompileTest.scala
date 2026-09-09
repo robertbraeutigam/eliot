@@ -79,33 +79,28 @@ class EffectShapeCompileTest extends AsyncFlatSpec with AsyncIOSpec with Matcher
       |def main: {Console} Unit = printLine(parseOk catch (err -> err))
       |""".stripMargin
 
-  // Exercises the doomed under-applied BIND case (U4-a(ii)): a fully-polymorphic effectful actual (`abort : {Abort} ?A`
-  // = `?F[?A]`, bare-flex payload) into `printLine`'s nullary `String` domain. The payload does not fit (bare flex) and
-  // the whole-type unify is *doomed* (`?F[?A] ~ String` has no injective solution), so the effect must bind-lift: `?A :=
-  // String`, the Abort sequences at the call site. `runAbort` discharges it.
-  private val doomedBindSource =
+  // A fully-polymorphic aborting actual (`abort` stands in for a value of any type) delivered into `printLine`'s
+  // `String` domain, with the `Abort` it performs discharged at the caller. Under v5 this was the "doomed under-applied
+  // bind" case, named for a whole-type unify (`?F[?A] ~ String`) with no injective solution; there is no carrier to
+  // unify now, so what is left is the shape itself — which still has to compile, and whose `runAbort` still has to
+  // reach the frame `abort` exits to.
+  private val abortingActualSource =
     """import eliot.effect.Console
       |import eliot.effect.Abort
       |
       |def demo: {Abort, Console} Unit = printLine(abort)
       |
-      |def main: {Console} Unit = flatMap(o -> printLine(foldOption("done", s -> "got", o)), runAbort(demo))
+      |def main: {Console} Unit = printLine(foldOption("done", s -> "got", runAbort(demo)))
       |""".stripMargin
 
-  // A rich effect-transformer-stack program (the `EffectsState` example, inlined): a `{State[String]}` computation in
-  // direct style (`val old = state; putState(next); old`), discharged under the pure `Id` carrier via `runStateToPair` +
-  // `runId`. Exercises the uniform carrier-slot / bind / discharge surface over a real transformer stack — the shape the
-  // hand-written programs above do not deeply cover.
+  // A rich stateful program (the `EffectsState` example, inlined): a `{State[String]}` computation in direct style
+  // (`val old = state; putState(next); old`), discharged by `runStateToPair`. Under v5 this needed a hand-written `Id`
+  // carrier and an `eliot.carrier.Effect` instance to discharge *into*; a discharge is a runtime frame now, so the
+  // program is what a user would actually write and the shape it covers — several statements sequencing one control
+  // effect, read back as data — is the same.
   private val stateSource =
-    """import eliot.carrier.Effect
-      |
-      |data Id[A](runId: A)
-      |
-      |implement Effect[Id] {
-      |   def pure[A](a: A): Id[A] = Id(a)
-      |   def flatMap[A, B](f: Function[A, Id[B]], fa: Id[A]): Id[B] = f(runId(fa))
-      |   def map[A, B](f: Function[A, B], fa: Id[A]): Id[B] = Id(f(runId(fa)))
-      |}
+    """import eliot.effect.Console
+      |import eliot.effect.State
       |
       |def swap(next: String): {State[String]} String = {
       |   val old = state
@@ -113,7 +108,7 @@ class EffectShapeCompileTest extends AsyncFlatSpec with AsyncIOSpec with Matcher
       |   old
       |}
       |
-      |def demo: Pair[String, String] = runId(runStateToPair("first", swap("second")))
+      |def demo: Pair[String, String] = runStateToPair("first", swap("second"))
       |
       |def main: {Console} Unit = {
       |   printLine(demo.first)
@@ -169,11 +164,11 @@ class EffectShapeCompileTest extends AsyncFlatSpec with AsyncIOSpec with Matcher
     compileClasses(captureSource).asserting(_ should not be empty)
   }
 
-  it should "compile the doomed under-applied bind case (fully-polymorphic effectful actual)" in {
-    compileClasses(doomedBindSource).asserting(_ should not be empty)
+  it should "compile a fully-polymorphic aborting actual at a payload slot" in {
+    compileClasses(abortingActualSource).asserting(_ should not be empty)
   }
 
-  it should "compile a State transformer-stack program (direct-style, discharged under Id)" in {
+  it should "compile a direct-style State program discharged at its caller" in {
     compileClasses(stateSource).asserting(_ should not be empty)
   }
 

@@ -14,7 +14,7 @@ class EffectCorpusIntegrationTest extends FullIntegrationTest {
 
   // In order: the `{Console}` block (`a`/`b`), the identity-handler `catch` under a pure return (`unparseable`), the
   // `runStateToPair` discharge under a pure return (`initial`), the effectful handler (`boom`), the two `runAbort`
-  // discharges through the program's own `Id` carrier (`granted`/`DENIED`), and the State program at `IO` (`before`).
+  // discharges (`granted`/`DENIED`), and the direct-style State program (`before`).
   "the combined effect corpus" should "run every worked shape and print their results in order" in {
     compileAndRun(EffectCorpus.combinedProgram).asserting(
       _ shouldBe
@@ -53,9 +53,9 @@ class EffectCorpusIntegrationTest extends FullIntegrationTest {
     )
   }
 
-  // The three "visiting" lines coming *first*, in order, is the assertion: the bind belongs to `eachInto`'s traversal,
-  // so the whole list is built (and announced) before the caller prints any of it. The last line is the pure
-  // instantiation of the same definition — ρ := {}, where the written `Id` bind must erase without a trace.
+  // The three "visiting" lines coming *first*, in order, is the assertion: the callback runs inside `eachInto`'s
+  // traversal, so the whole list is built (and announced) before the caller prints any of it. The last line is the
+  // *pure* instantiation of the same definition, which must run identically and leave no trace of the effectful one.
   "a row-polymorphic callback consumed strictly" should "run at its call site, at every instantiation of its row" in {
     compileAndRun(EffectCorpus.rowPolymorphicCallbackProgram).asserting(
       _ shouldBe
