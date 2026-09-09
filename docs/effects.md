@@ -1589,19 +1589,34 @@ and do not land a narrowed version (standing rule 2).
   at the call rather than crashing on a frame-key mismatch. `CatchShapeMatrixTest`'s Group B is back to the spelling a
   user writes.
 
-- **A7 — a `data` field cannot store a computation.** §9.5 says a row-typed field is a thunk bound at construction,
-  and it is — in the *type*. What is missing is the metadata: `EffectSugarDesugarer.desugar(DataDefinition)` thunks
-  the field before `DataDefinitionDesugarer` splits the `data`, so the constructor's slot is never recorded as a row.
-  The actual is therefore neither thunked nor supplied, and its effect is charged to whoever builds the value
-  (`Box(failing)` ⤳ "performs the effect 'Throw' but does not declare it"). Splitting first and letting each minted
-  function be desugared as a function fixes that half and exposes the other: a field read back at a rowed slot
-  (`runThrow(body(b))`) is wrapped a *second* time, because wrap-and-apply only cancel for a reference to a thunk
-  *parameter*. Both halves are the write's, and both are needed together. Measured 2026-09-09; `eliot-test` does not
-  depend on it (D13 closed: a `TestCase` carries no body).
+- **A7 — a `data` field stores a computation. DONE 2026-09-09.** §9.5 says a row-typed field is a thunk bound at
+  construction, and it was — in the *type* only. Both halves landed together, as the earlier measurement said they had
+  to:
+  - **The split comes first.** `EffectSugarDesugarer.desugar(DataDefinition)` thunked the field before
+    `DataDefinitionDesugarer` split the `data`, so the value constructor's slot was never recorded as a row: the actual
+    was neither thunked nor supplied and its effect was charged to whoever *built* the value (`Box(failing)` ⤳
+    "performs the effect 'Throw' but does not declare it"). The `data` is now split first and the constructor reaches
+    `desugar(FunctionDefinition)` with an ordinary parameter row, which thunks and records it like any other. That
+    method is gone; what is left of it is `storedFieldType`, applied at the two places where a field's type is used
+    **as a type** — the accessor's return, and the Church-encoded handler `handleCases` takes.
+  - **A read runs it.** The accessor's return is the field *as stored*, which is deliberately not a return row: a
+    return row would mint a phantom binder and claim the accessor performs those effects. It is recorded as
+    `EffectRow.returnThunkEffects` instead, and the write applies a **saturated** call to such a callee — the exact
+    mirror of a row-typed parameter reference, which is what makes wrap and apply cancel for a field read back at a
+    rowed slot: `runThrow(step(t))` comes out as the η-expansion, not the double wrap the type rejects. Running it
+    performs what the field's row declares, so the entries are **charged** at the read (there is no binding to write —
+    it was written at construction), and an undeclared read is the ordinary "performs but does not declare" error at
+    the read.
 
-  A6 and A7 are **one family**: a row-typed slot lowers to a thunk, and the thunk carries neither the entry's own
-  arguments nor the fact that it *is* a slot. Both are the write's to restore from declarations it already reads, and
-  neither needs a mechanism the whitelist does not already allow.
+  One thing a signature cannot say came up on the way: its arrow chain runs straight through a returned function, so
+  an accessor handing back a thunk reads as taking two parameters. Saturation is read off the body's own leading
+  lambdas past the generic binders instead.
+
+  A6 and A7 were **one family**: a row-typed slot lowers to a thunk, and the thunk carried neither the entry's own
+  arguments nor the fact that it *is* a slot. Both were the write's to restore from declarations it already reads, and
+  neither needed a mechanism the whitelist does not already allow. Covered by
+  `jvm/…/StoredComputationIntegrationTest`; all 45 example jars stay byte-identical, since a `data` that stores no
+  computation lowers exactly as before.
 
 - **A8 — a guarded return cannot carry its author's message**, because the compile-track `Throw` went with the
   carrier (the reversal recorded at F5). Accepted 2026-09-09 rather than fixed; the route back is keying `Throw`'s

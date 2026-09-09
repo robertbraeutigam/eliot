@@ -57,16 +57,26 @@ object EffectSugarDesugarer {
   /** The binder name minted for a row entry or a `~` constraint. Nothing reads it: it is written positionally. */
   private val binderPrefix = "Impl"
 
-  /** Rewrite a `data` definition's constructor field rows: a top-level field row is a stored computation and thunks,
-    * exactly as a parameter row does. Unlike v5 this introduces no generic parameter — a thunk is an ordinary type — so
-    * the `data`'s own parameters are untouched and a stored row needs no pin.
+  /** How a stored (`data`-field) row appears where the field's type is used **as a type** — an accessor's return, and
+    * the Church-encoded handler `handleCases` takes: as the thunk `Unit => A`, exactly as a parameter row does.
+    *
+    * A `data` is **split before this is applied** ([[DataDefinitionDesugarer]]), and that ordering is the whole of A7.
+    * Thunking the field on the `data` itself came first and erased the row before the split could see it, so the value
+    * constructor's slot was never recorded as a row position: the actual at `Box(failing)` was neither thunked nor
+    * supplied, and its effect was charged to whoever *built* the value. Splitting first hands the constructor an
+    * ordinary parameter row, which [[desugar(FunctionDefinition)]] then thunks and records like any other; what still
+    * has to be spelled out here are the two positions where the field's type is a type rather than a parameter.
+    *
+    * A field with no row is returned untouched, so a `data` that stores no computation lowers byte-for-byte as before.
     */
-  def desugar(data: DataDefinition): DataDefinition =
-    if (data.constructors.toSeq.flatten.flatMap(_.fields.map(_.typeExpression)).flatMap(collectRows).isEmpty) data
-    else
-      data.copy(constructors = data.constructors.map(_.map { ctor =>
-        ctor.copy(fields = ctor.fields.map(field => field.copy(typeExpression = thunked(field.typeExpression))))
-      }))
+  def storedFieldType(field: Sourced[Expression]): Sourced[Expression] =
+    if (isRow(field)) thunked(field) else field
+
+  /** The entries of a stored field's row — what an accessor returning it records as
+    * [[com.vanillasource.eliot.eliotc.ast.fact.EffectRow.returnThunkEffects]].
+    */
+  def storedFieldEntries(field: Sourced[Expression]): Seq[UnresolvedAbilityConstraint[Sourced[Expression]]] =
+    topLevelRowEntries(field)
 
   /** Rewrite one function definition — see the object comment. */
   def desugar(function: FunctionDefinition): FunctionDefinition =
@@ -114,7 +124,12 @@ object EffectSugarDesugarer {
         body = function.body.map(bare),
         // An ability member arrives with the row its membership implies already recorded
         // ([[com.vanillasource.eliot.eliotc.ast.fact.AbilityMembers]]); its own row is added to that, never over it.
-        effectRow = declared.copy(returnEffects = function.effectRow.returnEffects ++ declared.returnEffects)
+        effectRow = declared.copy(
+          returnEffects = function.effectRow.returnEffects ++ declared.returnEffects,
+          // A stored row is recorded by whoever minted the definition ([[DataDefinitionDesugarer]]'s accessor) and is
+          // never derived from a signature, so it is carried through rather than recomputed.
+          returnThunkEffects = function.effectRow.returnThunkEffects
+        )
       )
     }
 

@@ -143,6 +143,20 @@ object BindingWriter {
     }
   }
 
+  /** How many **value** parameters a definition takes, which its signature alone cannot say: a signature's arrow chain
+    * runs straight through a returned function, so a field accessor handing back a thunk (`Box -> Unit -> String`)
+    * reads as two parameters. The body's own leading lambdas past the generic binders are what actually say it.
+    */
+  private def valueParameterCount(orv: OperatorResolvedValue): Int = {
+    val view = SignatureView.of(orv.signature)
+    orv.runtime match {
+      case Some(body) =>
+        val binderNames = view.binders.map(_.name.value).toSet
+        RowChecker.peelBinders(body.value)._1.dropWhile(binderNames.contains).size
+      case None       => view.parameters.size
+    }
+  }
+
   /** The names of this definition's row-typed value parameters: a reference to one runs it. */
   private def thunkParameters(orv: OperatorResolvedValue): Set[String] = {
     val view            = SignatureView.of(orv.signature)
@@ -296,11 +310,40 @@ object BindingWriter {
             case ValueReference(callee, existing) =>
               val written  = writeBindings(expr.as(head), callee.value, existing, scope, args)
               val adjusted = args.zipWithIndex.map { case (arg, index) => walkArgument(arg, callee.value, index, scope) }
-              expr.as(applyChain(written, adjusted))
+              runStored(expr.as(applyChain(written, adjusted)), callee.value, args.size, scope)
             case _                                =>
               expr.as(applyChain(walk(expr.as(head), scope), args.map(walk(_, scope))))
           }
       }
+
+    /** A saturated call to a value whose declared return is a **stored computation** — a `data` field accessor (A7,
+      * `docs/effects.md` §9.5 "Storage") — runs it: the value it hands back is the thunk the field holds, and running a
+      * thunk is applying it. This is the exact mirror of a reference to a row-typed *parameter*, and it is what makes
+      * wrap and apply cancel for a field read back at a rowed slot: `runThrow(body(b))` comes out as the η-expansion
+      * `$unit -> body(b)(unit)` rather than the double wrap `$unit -> body(b)` the type would reject.
+      *
+      * Running it **performs** what the field's row declares, so the entries are charged here exactly as a call to a
+      * declaring callee is charged — the binding itself was written where the value was *constructed*, so there is
+      * nothing to write, only a declaration to require. An *under*-applied accessor is left alone: it is a function
+      * being passed on, not a read.
+      */
+    private def runStored(
+        call: Sourced[OperatorResolvedExpression],
+        callee: ValueFQN,
+        argumentCount: Int,
+        scope: Scope
+    ): Sourced[OperatorResolvedExpression] =
+      universe.lookup(callee) match {
+        case Some(orv)
+            if orv.effectRow.returnThunkEffects.nonEmpty && argumentCount === valueParameterCount(orv) =>
+          orv.effectRow.returnThunkEffects.foreach(entry => chargeStored(entry.abilityFQN, call, scope))
+          call.as(FunctionApplication(call, unitValue(call)))
+        case _ => call
+      }
+
+    /** Require a covering declaration for an effect this reference performs but writes no binding for. */
+    private def chargeStored(ability: AbilityFQN, at: Sourced[?], scope: Scope): Unit =
+      if (scope.lookup(ability).isEmpty) reportUncovered(ability, at, scope)
 
     /** One actual, at the callee's parameter `index`. A row-typed slot is a thunk, so the actual is wrapped — and the
       * entries that slot *supplies* are bound inside it, which is resolution-order step 3.
@@ -483,7 +526,11 @@ object BindingWriter {
         arg: Sourced[OperatorResolvedExpression]
     ): Seq[AbilityConstraint[OperatorResolvedExpression]] =
       spine(arg.value)._1 match {
-        case ValueReference(name, _) => universe.lookup(name.value).toSeq.flatMap(_.effectRow.returnEffects)
+        case ValueReference(name, _) =>
+          universe
+            .lookup(name.value)
+            .toSeq
+            .flatMap(orv => orv.effectRow.returnEffects ++ orv.effectRow.returnThunkEffects)
         case _                       => Seq.empty
       }
 
@@ -508,18 +555,21 @@ object BindingWriter {
         scope: Scope
     ): OperatorResolvedExpression =
       scope.lookup(ability) match {
-        case Some(term)                              => term
-        case None if isEffect && !scope.uncoveredDefaults =>
-          violations += Violation(
-            at.as(
-              s"This value performs the effect '${ability.abilityName}' but does not declare it; " +
-                "add it to its { ... } effect set."
-            ),
-            Seq(s"Or bind an implementation for it here with `with`.")
-          )
+        case Some(term) => term
+        case None       =>
+          if (isEffect) reportUncovered(ability, at, scope)
           defaultBinding(at)
-        case None                                    => defaultBinding(at)
       }
+
+    private def reportUncovered(ability: AbilityFQN, at: Sourced[?], scope: Scope): Unit =
+      if (!scope.uncoveredDefaults)
+        violations += Violation(
+          at.as(
+            s"This value performs the effect '${ability.abilityName}' but does not declare it; " +
+              "add it to its { ... } effect set."
+          ),
+          Seq(s"Or bind an implementation for it here with `with`.")
+        )
 
     private def nameOf(reference: Sourced[OperatorResolvedExpression]): Sourced[ValueFQN] =
       reference.value match {

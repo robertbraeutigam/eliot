@@ -38,6 +38,16 @@ import cats.syntax.all.*
   *   machinery entry `Effect` here (see [[core.processor.EffectSugarDesugarer.rowEntries]]), so the position is tagged
   *   exactly as the older `{Effect}` spelling tagged it — the tag is what tells a row position from a carrier-typed
   *   one, and an entry-less tag would silently turn every migrated slot into the latter.
+  * @param returnThunkEffects
+  *   The entries of a **stored computation** returned unrun — a `data` field accessor, whose declared return *is* the
+  *   field's row (`data Box(body: {Throw[E]} String)` ⤳ `def body(obj: Box): Unit => String`). It is not
+  *   [[returnEffects]] and must never be confused with it: a return row says "this definition performs these", mints a
+  *   phantom binder and is bound by the caller, whereas a stored row says "this definition hands back a computation
+  *   that performs these", mints nothing, and was bound where the value was *constructed* (`docs/effects.md` §9.5,
+  *   "Storage"). What it tells the write is that a saturated call here yields a thunk, so running it is applying it —
+  *   the exact mirror of a row-typed *parameter* reference, and what makes wrap and apply cancel for a field read back
+  *   at a rowed slot (`runThrow(body(b))`). The entries are what the read *performs*, so the scope check charges them
+  *   at the call.
   * @param returnPinnedEffects
   *   The **return** position's pinned-row entries, in declared (leftmost-outermost = discharge) order, when the return
   *   type is itself a *pinned* row (`def counter: {State[S] | Id} A`). Empty otherwise. Deliberately not deduplicated:
@@ -63,6 +73,7 @@ import cats.syntax.all.*
 case class EffectRow[C](
     returnEffects: Seq[C] = Seq.empty[C],
     parameterEffects: Seq[EffectRow.ParameterEffects[C]] = Seq.empty[EffectRow.ParameterEffects[C]],
+    returnThunkEffects: Seq[C] = Seq.empty[C],
     returnPinnedEffects: Seq[C] = Seq.empty[C],
     pinnedParameterEffects: Seq[EffectRow.ParameterEffects[C]] = Seq.empty[EffectRow.ParameterEffects[C]],
     aliasPinnedEffects: Seq[C] = Seq.empty[C]
@@ -84,6 +95,7 @@ case class EffectRow[C](
     EffectRow(
       returnEffects.map(f),
       parameterEffects.map(_.map(f)),
+      returnThunkEffects.map(f),
       returnPinnedEffects.map(f),
       pinnedParameterEffects.map(_.map(f)),
       aliasPinnedEffects.map(f)
@@ -96,6 +108,7 @@ case class EffectRow[C](
     (
       returnEffects.traverse(f),
       parameterEffects.traverse(_.traverse(f)),
+      returnThunkEffects.traverse(f),
       returnPinnedEffects.traverse(f),
       pinnedParameterEffects.traverse(_.traverse(f)),
       aliasPinnedEffects.traverse(f)
