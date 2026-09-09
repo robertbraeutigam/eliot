@@ -170,24 +170,33 @@ object BindingWriter {
     * Two shapes, each keyed on something the compiler owns:
     *
     *   - an **ability member** (`Qualifier.Ability`) carries its block's binding slot at index 0
-    *     ([[com.vanillasource.eliot.eliotc.ast.fact.AbilityMembers]]), for the ability whose module it lives in;
+    *     ([[com.vanillasource.eliot.eliotc.ast.fact.AbilityMembers]]), for the ability whose module it lives in, and
+    *     then whatever its **own row** mints — because "a member's row lists what it performs beyond the ability it
+    *     belongs to" (§9.3), which is exactly how `effect FileSystem { def readFile(p: Path): {Throw[IoError]} String }`
+    *     says that reading a file can fail;
     *   - any other definition's minted binders are its leading binders that occur in **no parameter and no return
     *     type** — which is what "in no type" means — *and* are the **first** type argument of one of its own ability
     *     constraints. Requiring the second half is what keeps a merely unused type parameter from being taken for a
     *     binding.
     *
     * The result is always a contiguous prefix from index 0, because a type-argument list applies positionally and the
-    * write is a prefix write; [[nonPrefixPhantom]] reports the one declaration shape that would break that.
+    * write is a prefix write; [[nonPrefixPhantom]] reports the declaration shapes that would break that.
     *
     * Public because it is also the reading the post-mono effect accounting needs: a mono key's arguments at these
     * indices are the implementations that instantiation *received*
     * ([[com.vanillasource.eliot.eliotc.monomorphize.channel.EffectAccountingProcessor]]). One definition of where a
     * binding sits, read by the writer and by the verifier.
     */
-  def phantoms(orv: OperatorResolvedValue): Seq[(Int, AbilityFQN)] =
+  def phantoms(orv: OperatorResolvedValue): Seq[(Int, AbilityFQN)] = prefixOf(allPhantoms(orv))
+
+  /** Every binding this definition takes, in index order and before the prefix cut: an ability member's own binding
+    * slot at index 0, then whatever the declaration mints.
+    */
+  private def allPhantoms(orv: OperatorResolvedValue): Seq[(Int, AbilityFQN)] =
     orv.name.value.qualifier match {
-      case ResolveQualifier.Ability(name) => Seq(0 -> AbilityFQN(orv.vfqn.moduleName, name))
-      case _                              => prefixOf(mintedPhantoms(orv))
+      case ResolveQualifier.Ability(name) =>
+        (0 -> AbilityFQN(orv.vfqn.moduleName, name)) +: mintedPhantoms(orv)
+      case _                              => mintedPhantoms(orv)
     }
 
   /** The leading run whose indices are 0, 1, 2, … — all of them for anything the desugar produced, since it mints at
@@ -207,28 +216,32 @@ object BindingWriter {
     }
   }
 
-  /** An ability member whose *own* row mints a binder past the ability-level prefix: the write would have to spell the
-    * ability's pattern arguments to reach it, and no declaration determines those. Reported rather than mis-written.
+  /** A binding sitting behind a binder no declaration determines, so a positional prefix write cannot reach it.
+    *
+    * The one shape that hits this is a member of a **parameterised** ability declaring effects of its own
+    * (`ability Show[T] { def show(t: T): {Log} String }`): the block's `T` sits between the binding and the member's
+    * own, and `T` is inferred from the argument at every call, not written. A **nullary** effect's members are
+    * unaffected — the binding is the whole ability-level prefix, so `{Throw[IoError]}` on a `FileSystem` member lands
+    * at index 1 and is written like any other. Reported rather than mis-written.
     */
-  private def nonPrefixPhantom(orv: OperatorResolvedValue): Option[Sourced[String]] =
-    orv.name.value.qualifier match {
-      case ResolveQualifier.Ability(_) if mintedPhantoms(orv).nonEmpty =>
-        Some(
+  private def nonPrefixPhantom(orv: OperatorResolvedValue): Option[Sourced[String]] = {
+    val all = allPhantoms(orv)
+    Option.when(prefixOf(all).size =!= all.size)(
+      orv.name.value.qualifier match {
+        case ResolveQualifier.Ability(_) =>
           orv.name.as(
-            s"The member '${orv.vfqn.name.name}' declares effects of its own beyond the ability it belongs to, " +
-              "which is not supported: move it out of the block and give it its own row."
+            s"The member '${orv.vfqn.name.name}' declares effects of its own, which an ability with type parameters " +
+              "does not support: its parameters are inferred at each call and stand between the two bindings. Move " +
+              "it out of the block and give it its own row."
           )
-        )
-      case ResolveQualifier.Ability(_)                                 => None
-      case _                                                           =>
-        val minted = mintedPhantoms(orv)
-        Option.when(prefixOf(minted).size =!= minted.size)(
+        case _                           =>
           orv.name.as(
             s"Cannot write the implementations of '${orv.vfqn.name.name}': one of its binders is behind a type " +
               "parameter no declaration determines."
           )
-        )
-    }
+      }
+    )
+  }
 
   /** The ability of the definition's own constraint whose **first** type argument is exactly this binder — where the
     * desugar writes a phantom binder, and where an ability's marker declares its binding slot.

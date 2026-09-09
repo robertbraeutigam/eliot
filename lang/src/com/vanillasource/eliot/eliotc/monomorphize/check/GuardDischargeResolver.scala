@@ -67,6 +67,36 @@ class GuardDischargeResolver(
       case _                     => pure(false)
     }
 
+  /** Whether a signature's return leaf is an **undischarged guard** rather than an ordinary return type — the question
+    * [[dischargeGuardedSignature]]'s deferral arm asks, and a strictly narrower one than [[isGuardCarrier]].
+    *
+    * The two are not interchangeable, and treating them as one was a real defect. [[isGuardCarrier]] is asked about an
+    * *inferred kind*: "this return expression's type came out `Bool`/`Either`, so it is a value in a type position".
+    * Here the leaf is the return **type itself**, and `Bool` or `Either[String, String]` is then simply what the
+    * definition returns — `==`, `isEmpty`, `first`, every `FileSystem` predicate. Deferring those to a fresh
+    * metavariable happened to be harmless whenever the body's own type pinned it, and broke outright whenever it did
+    * not: `def exists(path: Path): {Throw[IoError]} Bool = { … resultValue(r) }` reads its result through a generic
+    * leaf, so nothing solved the meta and the definition was rejected as "the body leaves it unconstrained" — with an
+    * explicit return type written right there.
+    *
+    * What tells a guard apart is the **payload**: the guard channel carries a *type*, since a guarded return computes
+    * one (`fold(COND, Right(String[]), Left("empty"))` ⤳ `Either[String, Type]` while it is stuck on an abstract
+    * `COND`), whereas an ordinary `Either` return carries a value type. A bare `Bool` has no payload and so cannot be
+    * an undischarged guard here at all: an ability `where` verdict rides a **marker**, which is body-less, and the
+    * deferral only ever applies to a definition with a body.
+    */
+  private def isUndischargedGuard(leaf: SemValue): CheckIO[Boolean] =
+    force(leaf).flatMap {
+      case VTopDef(fqn, _, spine, _) if fqn === WellKnownTypes.eitherFQN =>
+        GuardChannel.payload(spine.toList).traverse(force).map(_.exists {
+          case VType => true
+          case _     => false
+        })
+      // An *inline* guard whose carrier is still an unsolved higher-kinded meta — see [[isGuardCarrier]].
+      case VMeta(id, _)                                                  => inspect(_.unifier.isHigherKindedMeta(id.value))
+      case _                                                             => pure(false)
+    }
+
   /** Discharge a *single* return value on the compile-time `Throw[String]` carrier — the W2b handler. The return
     * computation has been forced to a ground `Either[String, Type]`:
     *   - `Right(t)` ⟹ `Some(t)`: the resolved return type is the payload `t`.
@@ -139,7 +169,7 @@ class GuardDischargeResolver(
           dischargeGuardedReturn(leaf, at).flatMap {
             case Some(payload) => pure((rebuild(domains, payload), None))
             case None          =>
-              isGuardCarrier(leaf).flatMap {
+              isUndischargedGuard(leaf).flatMap {
                 case true if hasBody => freshMeta.map(m => (rebuild(domains, m), Some(m)))
                 case _               => pure((sig, None))
               }
