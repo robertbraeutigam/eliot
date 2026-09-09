@@ -47,6 +47,25 @@ class NativePartialApplicationIntegrationTest extends FullIntegrationTest {
     ).asserting(_ shouldBe "abc")
   }
 
+  "an ability-implementation native missing its argument" should "be usable as a function value" in {
+    compileAndRun(
+      """import eliot.file.Path
+        |
+        |def shown: Path => String = show
+        |
+        |def main: {Console} Unit = printLine(shown(path("/tmp/one")))""".stripMargin
+    ).asserting(_ shouldBe "/tmp/one")
+  }
+
+  "an ability-implementation native handed to a combinator" should "link to an emitted method" in {
+    compileAndRun(
+      """import eliot.collection.List
+        |import eliot.file.Path
+        |
+        |def main: {Console} Unit = printLine(singleton(path("/tmp/one")).map(show).joined(","))""".stripMargin
+    ).asserting(_ shouldBe "/tmp/one")
+  }
+
   "a dot chain whose argument performs" should "reach the native through the hoisted chain" in {
     compileAndRun(
       """import eliot.effect.Abort

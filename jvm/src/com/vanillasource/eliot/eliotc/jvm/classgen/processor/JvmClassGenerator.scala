@@ -356,6 +356,11 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
     * to (`equals$Eq$impl$…`), not the native's own local name. The bytecode is identical across instantiations, and the
     * impl method has no generic params, so this is normally the single empty-type-argument name; deduped by name so two
     * ranges lowering to one name generate the method once.
+    *
+    * It needs [[NativePartialApplication]] for exactly the reason a module-level native does: the method is emitted at
+    * the declared arity alone, while a call site emits at the spine's arity, so `paths.map(show)` linked to a
+    * `show$Show$impl$…()` that was never emitted and died at runtime with `NoSuchMethodError`. The levels are named off
+    * the same mangled name, so the two branches share one generator.
     */
   private def generateAbilityImplNative(
       mainClassGenerator: ClassGenerator,
@@ -373,8 +378,7 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
       .traverse_ { name =>
         val native = makeNative(JvmIdentifier.encode(name))
         verifyNativeVisibility(vfqn, native) >> native.generateMethod(mainClassGenerator)
-      }
-      .as(Seq.empty)
+      } >> NativePartialApplication.generate(mainClassGenerator, vfqn, stats)
   }
 
   private def createModuleMethodBody(
