@@ -60,9 +60,13 @@ class EffectAccountingProcessor
     * type, so the exit unwinds past every frame and reaches the runtime as a bare exception.
     *
     * That is a program that compiles and crashes, which nothing may be. So a defaulted argument at a supplied row
-    * entry is **rejected here**, at the call, before any bytecode is emitted. The fix in the user's hands is to write
-    * the argument (`catch[String](…)`); the fix in the compiler's is for the write to take it from the actual's own
-    * declared row, which is a real gap and not this check's job to hide.
+    * entry is **rejected here**, at the call, before any bytecode is emitted.
+    *
+    * The ordinary case is gone: the write now takes the entry's arguments from the actual's own declared row (A6,
+    * [[com.vanillasource.eliot.eliotc.row.BindingWriter.suppliedDetermination]]), so `bad catch (err -> "fallback")`
+    * comes out with `E := String` written. What is left for this check is what no declaration answers — chiefly an
+    * *over-discharge*, a second `catch` over a computation the first already discharged, where the actual declares no
+    * row at all. That is a meaningless program rather than a gap, and it is rejected at the call naming the fix.
     */
   private def verifySuppliedRowArguments(mv: MonomorphicValue): CompilerIO[Unit] =
     mv.runtime.fold(().pure[CompilerIO]) { body =>

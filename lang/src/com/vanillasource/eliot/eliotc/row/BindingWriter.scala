@@ -4,7 +4,7 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.module.fact.{Qualifier, Role, ValueFQN, WellKnownTypes}
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.*
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
-import com.vanillasource.eliot.eliotc.resolve.fact.{AbilityFQN, Qualifier as ResolveQualifier}
+import com.vanillasource.eliot.eliotc.resolve.fact.{AbilityConstraint, AbilityFQN, Qualifier as ResolveQualifier}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
 import scala.collection.mutable
@@ -294,7 +294,7 @@ object BindingWriter {
           val (head, args) = spine(expr.value)
           head match {
             case ValueReference(callee, existing) =>
-              val written  = writeBindings(expr.as(head), callee.value, existing, scope)
+              val written  = writeBindings(expr.as(head), callee.value, existing, scope, args)
               val adjusted = args.zipWithIndex.map { case (arg, index) => walkArgument(arg, callee.value, index, scope) }
               expr.as(applyChain(written, adjusted))
             case _                                =>
@@ -359,7 +359,8 @@ object BindingWriter {
         implementation.as(ValueReference(implementation)),
         implementation.value,
         Seq.empty,
-        scope
+        scope,
+        Seq.empty
       ).value
 
     /** The term a **slot's** `with` binds (`program: {Console} Unit with recordingConsole`). Its clause-row bindings
@@ -385,26 +386,116 @@ object BindingWriter {
     private def rowSlot(orv: OperatorResolvedValue, index: Int): Option[Seq[AbilityFQN]] =
       orv.effectRow.parameterEffects.find(_.parameterIndex === index).map(_.effects.map(_.abilityFQN))
 
-    /** Write the callee's phantom binders as a leading positional prefix. */
+    /** Write the callee's type arguments this call determines, as a leading positional prefix: first its **phantom
+      * binders** — one implementation each — and then the ordinary binders a **supplied row slot** settles (A6).
+      */
     private def writeBindings(
         reference: Sourced[OperatorResolvedExpression],
         callee: ValueFQN,
         existing: Seq[Sourced[OperatorResolvedExpression]],
-        scope: Scope
+        scope: Scope,
+        args: Seq[Sourced[OperatorResolvedExpression]]
     ): Sourced[OperatorResolvedExpression] =
       universe.lookup(callee) match {
         case None      => reference
         case Some(orv) =>
           nonPrefixPhantom(orv).foreach(message => violations += Violation(message))
-          phantoms(orv) match {
-            case Seq()      => reference
-            case theirs     =>
-              val effects = orv.effectRow.returnEffects.map(_.abilityFQN).toSet
-              val prefix  = theirs.map { case (_, ability) =>
-                reference.as(bindingFor(ability, effects.contains(ability), reference, scope))
-              }
-              reference.as(ValueReference(nameOf(reference), prefix ++ existing))
+          val effects    = orv.effectRow.returnEffects.map(_.abilityFQN).toSet
+          val theirs     = phantoms(orv)
+          val prefix     = theirs.map { case (_, ability) =>
+            reference.as(bindingFor(ability, effects.contains(ability), reference, scope))
           }
+          val determined =
+            if (existing.isEmpty) suppliedArguments(orv, args, theirs.size) else Seq.empty
+          if (prefix.isEmpty && determined.isEmpty) reference
+          else reference.as(ValueReference(nameOf(reference), prefix ++ determined ++ existing))
+      }
+
+    /** The leading run of the callee's *ordinary* binders — those past its phantom prefix — that this call's
+      * **declarations** determine, written explicitly so the checker never mints a metavariable where a declaration
+      * already says what belongs there (A6, `docs/effects.md` §3.1's second determination source).
+      *
+      * A parameter row lowers to a thunk (`{Throw[E]} A` ⤳ `Unit => A`), which **erases the entry's own arguments from
+      * the type**. So `catch[E, A](computation: {Throw[E]} A, onError: E => {} A)` leaves `E` to the handler alone, and
+      * a handler that ignores its error — `bad catch (err -> "fallback")` — determines nothing: `E` grounded to the
+      * defaulted universe and the per-instantiation frames disagreed (`escapeInternal$Any` against
+      * `exitInternal$String`). The entry's arguments are read back here from the **actual's own declared row**, which
+      * is where they were all along: `bad : {Throw[String]} String` against the slot's `Throw[E]` gives `E := String`.
+      *
+      * Writing stops at the first binder nothing determines, because `typeArgs` applies positionally — a prefix is all
+      * that can be written, and a binder left open is left inferred, which is always the fail-safe direction. And a
+      * call that already spells its own arguments is left alone, so the explicit form stays the escape hatch.
+      */
+    private def suppliedArguments(
+        orv: OperatorResolvedValue,
+        args: Seq[Sourced[OperatorResolvedExpression]],
+        phantomCount: Int
+    ): Seq[Sourced[OperatorResolvedExpression]] =
+      SignatureView
+        .of(orv.signature)
+        .binders
+        .drop(phantomCount)
+        .map(binder => suppliedDetermination(orv, args, binder.name.value))
+        .takeWhile(_.isDefined)
+        .flatten
+
+    /** What a **supplied row slot** determines about one of the callee's binders: the actual delivered there declares
+      * its own row, and matching it entry-by-entry against the slot's row reads the entry's arguments straight off a
+      * declaration.
+      *
+      * Only a *call* answers — its callee's declaration states the row. A parameter reference, a block or a lambda
+      * declares nothing, and the prefix stops. And an entry whose argument is still one of the *actual callee's* own
+      * binders determines nothing either: `state` declares `{State[S]}` in its own `S`, so reading `S` off it would be
+      * a rename rather than a determination, and one that grounds to junk instead of letting the checker read `S`
+      * off the discharger's other argument.
+      */
+    private def suppliedDetermination(
+        orv: OperatorResolvedValue,
+        args: Seq[Sourced[OperatorResolvedExpression]],
+        binderName: String
+    ): Option[Sourced[OperatorResolvedExpression]] =
+      orv.effectRow.parameterEffects.view
+        .flatMap { slot =>
+          args.lift(slot.parameterIndex).toSeq.flatMap { arg =>
+            val supplied  = argumentRow(arg)
+            val argCallee = spine(arg.value)._1 match {
+              case ValueReference(name, _) => Some(name.value)
+              case _                       => Option.empty[ValueFQN]
+            }
+            slot.effects.flatMap { declared =>
+              supplied
+                .filter(_.abilityFQN == declared.abilityFQN)
+                .flatMap(entry => declared.typeArgs.zip(entry.typeArgs))
+                .collect {
+                  case (ParameterReference(name), determined)
+                      if name.value === binderName && !argCallee.exists(hasFreeCalleeBinder(_, determined)) =>
+                    arg.as(determined)
+                }
+            }
+          }
+        }
+        .headOption
+
+    /** The declared row of an argument expression — available exactly when the argument is a call, whose callee's
+      * declaration states it.
+      */
+    private def argumentRow(
+        arg: Sourced[OperatorResolvedExpression]
+    ): Seq[AbilityConstraint[OperatorResolvedExpression]] =
+      spine(arg.value)._1 match {
+        case ValueReference(name, _) => universe.lookup(name.value).toSeq.flatMap(_.effectRow.returnEffects)
+        case _                       => Seq.empty
+      }
+
+    /** Whether a determined type argument still mentions one of the argument callee's own binders — in which case it
+      * says nothing about *this* call.
+      */
+    private def hasFreeCalleeBinder(callee: ValueFQN, typeArg: OperatorResolvedExpression): Boolean =
+      universe.lookup(callee).exists { orv =>
+        SignatureView
+          .of(orv.signature)
+          .binders
+          .exists(binder => OperatorResolvedExpression.containsVar(typeArg, binder.name.value))
       }
 
     /** One binder's value. An **ability** with nothing in scope defaults to the two-site search; an **effect** with

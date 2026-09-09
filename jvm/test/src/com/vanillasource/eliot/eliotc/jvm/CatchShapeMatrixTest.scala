@@ -101,35 +101,34 @@ class CatchShapeMatrixTest extends FullIntegrationTest {
   // ============================================================================================================
   // Group B — non-identity handler (err -> "fallback"): does NOT pin E := A.
   //
-  // Under effects v6 the error type has to be **written at the call**. `catch[E, A](computation: {Throw[E]} A,
-  // onError: E => {} A)` — a parameter row lowers to a thunk, which erases `E` from the type, so a handler that
-  // ignores its error leaves nothing to determine it. It used to default and crash at runtime on a frame-key
-  // mismatch; it is rejected now (`docs/effects.md` A6), and the spelling is the prefix call with its arguments.
-  // These six cases are therefore the *annotated* form of the corner, not a different corner.
+  // Under effects v6 a parameter row lowers to a thunk, which erases the entry's own arguments from the type, so
+  // `catch[E, A](computation: {Throw[E]} A, onError: E => {} A)` leaves `E` to the handler alone — and a handler
+  // that ignores its error determines nothing. The write fills it from the actual's own declared row instead
+  // (A6, `docs/effects.md` §3.1), which is what keeps this corner spelled the way a user writes it.
   // ============================================================================================================
 
   "non-identity handler, single statement, pure Id carrier" should "recover to the fallback" in {
     compileAndRun(throwPrelude + """
-      |def r: String = catch[String, String](bad, err -> "fallback")
+      |def r: String = bad catch (err -> "fallback")
       |def main: {Console} Unit = printLine(r)""".stripMargin).asserting(_ shouldBe "fallback")
   }
 
   "non-identity handler, single statement, ambient Console carrier" should "recover to the fallback" in {
     compileAndRun(throwPrelude + """
-      |def show: {Console} Unit = printLine(catch[String, String](bad, err -> "fallback"))
+      |def show: {Console} Unit = printLine(bad catch (err -> "fallback"))
       |def main: {Console} Unit = show""".stripMargin).asserting(_ shouldBe "fallback")
   }
 
   "non-identity handler, single statement, concrete IO carrier" should "recover to the fallback" in {
     compileAndRun(throwPrelude + """
-      |def main: {Console} Unit = printLine(catch[String, String](bad, err -> "fallback"))""".stripMargin).asserting(_ shouldBe "fallback")
+      |def main: {Console} Unit = printLine(bad catch (err -> "fallback"))""".stripMargin).asserting(_ shouldBe "fallback")
   }
 
   "non-identity handler, block, pure Id carrier" should "recover to the fallback" in {
     compileAndRun(throwPrelude + """
       |def r: String = {
       |   val note = "unused"
-      |   catch[String, String](bad, err -> "fallback")
+      |   bad catch (err -> "fallback")
       |}
       |def main: {Console} Unit = printLine(r)""".stripMargin).asserting(_ shouldBe "fallback")
   }
@@ -138,7 +137,7 @@ class CatchShapeMatrixTest extends FullIntegrationTest {
     compileAndRun(throwPrelude + """
       |def show: {Console} Unit = {
       |   printLine("pre")
-      |   printLine(catch[String, String](bad, err -> "fallback"))
+      |   printLine(bad catch (err -> "fallback"))
       |}
       |def main: {Console} Unit = show""".stripMargin).asserting(_ shouldBe "pre\nfallback")
   }
@@ -147,7 +146,7 @@ class CatchShapeMatrixTest extends FullIntegrationTest {
     compileAndRun(throwPrelude + """
       |def main: {Console} Unit = {
       |   printLine("pre")
-      |   printLine(catch[String, String](bad, err -> "fallback"))
+      |   printLine(bad catch (err -> "fallback"))
       |}""".stripMargin).asserting(_ shouldBe "pre\nfallback")
   }
 

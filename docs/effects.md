@@ -1572,13 +1572,22 @@ and do not land a narrowed version (standing rule 2).
 - **A4 — D4 dissolves** (any effect is storable and suppliable); Part I's limitation 5 dissolves with D5
   (§9.4).
 - **A5 — retire the post-mono accounting verifier** under the §8 method (D7).
-- **A6 — the write must fill a supplied row entry's own arguments.** A parameter row lowers to a thunk, which erases
-  the entry's arguments from the type, so `catch[E, A](computation: {Throw[E]} A, onError: E => {} A)` leaves `E` to
-  the handler — and a handler that ignores its error determines nothing. Until this lands the argument is written at
-  the call (`catch[String, String](…)`), and a defaulted one is **rejected** by `EffectAccountingProcessor` rather
-  than allowed to miscompile (2026-09-09; it used to compile and crash on a frame-key mismatch). The fix is the rule
-  §3.1 already states for a supplying slot — instantiate the entry's arguments from the *actual's* own declared row —
-  and it is inside §3.2's whitelist, so it is a gap in the write and not a new mechanism.
+- **A6 — the write fills a supplied row entry's own arguments. DONE 2026-09-09.** A parameter row lowers to a thunk,
+  which erases the entry's arguments from the type, so `catch[E, A](computation: {Throw[E]} A, onError: E => {} A)`
+  leaves `E` to the handler — and a handler that ignores its error determines nothing. It was written at the call
+  (`catch[String, String](…)`) and a defaulted one was **rejected** by `EffectAccountingProcessor` rather than allowed
+  to miscompile. The fix is the rule §3.1 already states for a supplying slot, and it needed no new mechanism:
+  `BindingWriter.suppliedDetermination` matches the slot's declared row entry-by-entry against the **actual's own
+  declared row** (`bad : {Throw[String]} String` against `Throw[E]` gives `E := String`) and writes the result as a
+  leading positional prefix after the phantom binders, stopping at the first binder nothing determines. It reads only
+  declarations, so it is inside §3.2's whitelist; it is skipped entirely when the call already spells its own
+  arguments, so the explicit form stays the escape hatch; and the v5 free-binder guard came with it — an entry whose
+  argument is still one of the *actual callee's* binders (`state`'s own `S`) is a rename, not a determination.
+
+  The accounting rejection **stays**, now as the net for what no declaration answers: an *over-discharge* — a second
+  `catch` over a computation the first already discharged — leaves an actual declaring no row at all, and is rejected
+  at the call rather than crashing on a frame-key mismatch. `CatchShapeMatrixTest`'s Group B is back to the spelling a
+  user writes.
 
 - **A7 — a `data` field cannot store a computation.** §9.5 says a row-typed field is a thunk bound at construction,
   and it is — in the *type*. What is missing is the metadata: `EffectSugarDesugarer.desugar(DataDefinition)` thunks
