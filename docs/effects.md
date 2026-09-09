@@ -738,6 +738,10 @@ and its bytecode instruction count — over every class, and over the module's o
 commit states the difference. Since specialisation is the mechanism (§9.7) and not a follow-up, the
 expectation is no regression; a regression is a finding to explain, not a cost to accept.
 
+**The flag day did not land as one change** (§10.2): the tree stops building the moment the desugar stops minting
+carriers, and there is no green checkpoint until the primitives exist, so it is landing as five commits — each
+stating that the tree does not build. The gate itself is unchanged and is read at the end, not per commit.
+
 **The method, when the question is "is this still load-bearing?"** — reuse it rather than re-inventing it:
 
 - **Arm-liveness tracing, not inspection.** A temporary env-gated tracer with a `fire(arm, sample)` call on
@@ -1245,8 +1249,13 @@ that boundary.
    `monomorphize/check/ImplementationBinding`: a binding is the sentinel or a structure headed by an
    implementation's **marker** (an associated type shares the namespace but never the ability's own local name)
    applied to that implementation's own type arguments in declaration order, and
-   **the contract with F1 is positional** — the binding is the **last ability-level type argument** (the marker
-   declares its pattern parameters, then the phantom), so `AbilityResolver`'s existing arity slice ends with it.
+   **the contract with F1 is positional** — the binding is the **first ability-level type argument** (the marker
+   declares the phantom, then its pattern parameters), so `AbilityResolver`'s existing arity slice begins with it.
+   *That was fixed at F1, where the original "last" proved unwritable:* a type-argument list applies positionally, so
+   writing an argument at index `k` means writing every argument before it, and the pattern arguments of an ordinary
+   ability call (`show(x)`, `a ++ b`, `sort(xs)`) are exactly what no declaration determines — the write would have to
+   infer them, which rule 3 prohibits. First, the write is a one-element prefix and everything after it is inferred
+   exactly as before. The reversal is an encoding detail; nothing in §9 depends on which end it sits at.
    The arm: an implementation is recorded directly as its method of the reference's name at the binding's
    arguments, with no search, no `where` and no coherence question; `Default` and no binding at all run the
    two-site search at the pattern arguments; the resolution key keeps the binding, so one span under two bindings
@@ -1354,35 +1363,98 @@ that boundary.
    - **A report is compared with its header stripped.** Everything non-reproducible (the commit, the module
      count) is a `#` line, and the compare is `diff <(grep -v '^#' before) <(grep -v '^#' after)`.
 
-### 10.2 The flag day (one change, behavioural gate)
+### 10.2 The flag day
 
-- **F1 — the desugar.** `EffectSugarDesugarer` becomes §9.4's: `effect` and `ability` produce the marker and
-  method defs with no carrier binder; a two-site `implement` produces a default, a named one an addressable
-  implementation; each row entry and constraint mints a phantom binder; a row on a parameter or a `data`
-  field thunks; the write at every reference follows §9.4's resolution order, with `with` in either position
-  as the explicit argument. Delete carrier minting, pinning, supplying and the carrier-reuse rule.
-- **F2 — deletions.** Everything in §9.8's deleted list. `RowElaborationProcessor` keeps only `verifyRow`,
-  rewritten as the scope check, and is renamed to say so.
-- **F3 — the checker.** No rigid carrier to lift into, so `tryPureWrap` goes; an operation call is a call to
-  the bound method; `AbilityResolver` reads the argument; an unsolved phantom is an error. Rendering: an
-  effect prints as the name the user wrote — no inverter, and a phantom binder is never rendered.
-- **F4 — the run boundary.** `SyntheticMainSourceProcessor` reads `main`'s row and binds the two-site
-  default per entry, installing a frame for a control effect, erroring on a miss; the jvm plugin contributes
-  nothing but its `implement` blocks and its three leaves.
-- **F5 — the primitives.** The three jvm leaves, private; the platform bodies of the dischargers and the
-  control effects' single implementations over them; the compile-track overlay bodies over the step-7
-  intrinsics.
-- **F6 — accounting.** `EffectAccountingProcessor` reads received bindings instead of carriers and stays the
-  codegen precondition; the "declared pure but performs effects" diagnostic stays in the pre-mono scope
-  check.
-- **F7 — the tree.** Land the branch from step 8: `Throw`/`Abort`/`State`/`Writer`/`Dep`/`Console`/`Log`/
-  `Inf` as `effect`s; the dischargers abstract in the base and bodied in jvm and the compile-track overlay;
-  the jvm default `implement`s; delete `eliot.carrier`, `Id.els`, `AbortCarrier`, every `*Carrier`;
-  examples and `eliot-test` in named form.
+It was planned as one change. It is landing as five, because the tree stops building the moment the desugar stops
+minting carriers and there is no green checkpoint until the primitives exist — so the honest thing was to commit the
+work in reviewable pieces, each stating that the tree does not build, rather than hold weeks of it uncommitted. The
+gate is unchanged: §8's behavioural identity, read at the end.
+
+**Where it stands (2026-09-09).** F1, F4, F5 and F7 are landed. Effects, dischargers, per-instantiation frames and
+cells all run correctly — `EffectsTwoThrows`, `EffectsTwoDeps`, `EffectsState`, `EffectsAbort`, `EffectsThrow`,
+`Effects`, `TestSuite`, `HelloWorld`, `Concat`, `IntEquality`, `Intervals`, `AbilityDerive` — and the last full sweep
+(before the four fixes F5 carried) measured 39 of 45 examples behaving identically to `.v6/baseline.txt`. **One
+blocker remains**, and it blocks exactly the three `with` examples: a named implementation's clause-row bindings
+(below, F1). F2, F3, F6 and F9 are untouched; the 524 Scala tests currently failing are the v5 carrier, elaborator
+and mono suites, which F2 and F3 delete or rewrite.
+
+- **F1 — the desugar. DONE** (`590e79dd`, `c73a9144`, `0eb0e06e`, `1b6482aa`), in three parts, `except` the one
+  item below.
+  - *The `with` resolution path.* A named `implement` mints, beside its methods and its marker, a **name marker**
+    `QualifiedName(name, Qualifier.Implementation(name))`, because `with h` has to be a keyed dictionary lookup —
+    import scope and shadowing decide it, not `Map` order — and the real marker's qualified name cannot be built from
+    the surface name alone (it also needs the ability name and the pattern key). So resolution is two keyed steps
+    (`ImplementationNameResolver`), and only the real marker flows onward.
+  - *The phantom-binder desugar.* §9.4 step 2 read literally: the return row vanishes onto a `Type`-kinded binder
+    carrying the ability constraint; a `~` constraint keeps its subject binder and gains the binding as its **first**
+    type argument; a top-level parameter or `data`-field row thunks to `Unit => A`. `ability` and `effect` lower
+    identically (`AbilityMembers`) and differ in one thing: an `effect`'s members are given `{X}` as their declared
+    row, which is the **only** place effect-ness is written down — §9.5's "the families are a description, not a bit
+    in the language" holds literally, and a constructor class stays expressible.
+  - *The write.* `row/BindingWriter` replaces `RowElaborator`: three jobs in one walk — write each callee's phantom
+    binders as a leading positional prefix, thunk actuals at row slots and apply references to row-typed parameters,
+    erase `with` from bodies and from slot types. The scope check falls out of the same walk rather than being a
+    second pass. Two rules worth keeping: phantom-binder discovery needs **no new metadata** (a binder is one iff it
+    occurs in no parameter and no return type *and* is the first type argument of one of the definition's own
+    constraints), and thunk/apply is **unconditional** — the two are inverse, so a pass-through is an η-expansion
+    and no argument's shape or type is ever inspected.
+  - **Not done: clause-row bindings.** §9.4 step 3's second value form — "that FQN applied to its own clause-row
+    bindings", `greeting[recordingConsole[cellWriter]]` — is unbuilt. `BindingWriter` writes the bare marker, so an
+    implementation whose clauses declare a row leaves the effect's *ability* marker to reach codegen, where it fails
+    as "Function not implemented". This is the whole of what blocks `EffectsFakeConsole`, `EffectsNamedEffect` and
+    `EffectsTestFramework`, and nothing else is known to fail.
+- **F2 — deletions. NOT DONE.** Everything in §9.8's deleted list. `RowElaborationProcessor` keeps only the write
+  and the scope check, and is renamed to say so; `RowChecker` keeps `Universe`, `checkable` and `peelBinders`, and
+  its derivation half goes with `RowElaborator`.
+- **F3 — the checker. NOT DONE.** No rigid carrier to lift into, so `tryPureWrap` goes; an unsolved phantom is an
+  error rather than a junk `Type`. Rendering: an effect prints as the name the user wrote — no inverter, and a
+  phantom binder is never rendered.
+- **F4 — the run boundary. DONE** (`1b6482aa`). There is no carrier to instantiate: the synthesized entry is
+  `def main: Unit = <user main>`, and `RunBoundaryFunctions` is repurposed from "values whose parameter 0 hosts a
+  computation" to **the values where every effect's chain ends** — the jvm plugin registers the synthesized
+  `main::main`, and the write binds `Default` there rather than reporting the row undeclared. `eliot.jvm.IO` and
+  `runMain` are gone. *Known gap:* an undischarged control effect reaching `main` now resolves to the platform's
+  single implementation and crashes at runtime on a frameless exit, where §9.5 asks for an error at the boundary.
+  Telling a control effect from an interpretation one needs a bit the language deliberately does not have, so the
+  honest fix is elsewhere — an A-item, not a silent hole (the failure is loud).
+- **F5 — the primitives. DONE** (`1c175d66`), and the escape/cell are emitted **once per instantiation**, which is
+  what makes a `raise` of a `NetError` pass through a `runThrow` installed for a `ParseError`. It needed no new
+  mechanism: `generateAbilityImplNative` already iterated the monomorphic type parameters, so `ControlNatives` is a
+  second registry whose makers take the ground type arguments too. The **first** type argument is the frame key;
+  frames separate per effect (the leaves are `private` per module) and per instantiation (the key). Three decisions:
+  the exit is a pre-allocated shared exception plus a tag rather than a generated class per instantiation (same
+  unwinding semantics, no class generation to interleave with per-instantiation naming, no stack-trace cost for a
+  value carrying no diagnostic); the leaves are **continuation-passing**, so no native constructs an Eliot `data` —
+  the `Either`/`Pair` is built by the discharger's own body and the bytecode only applies a `Function`, which is the
+  manifest's "only the five discharger bodies change"; and a primitive-represented key or payload (`{State[Int]}`)
+  is a build error at the definition rather than mis-emitted bytecode.
+
+  The **compile-track `Throw` is deleted**. Its `exit(E[], err)` needs a generic binder as a type value — the `.v6`
+  manifest's open `E[]` question — and that does not work. The compile track keeps `Abort` alone: it keys on its own
+  nullary `Aborted` marker and is what makes an `if..else` guard reduce, and a compile-time reduction that reaches
+  the unbodied `runThrow` is *stuck*, which is loud rather than wrong.
+
+  Four debts the examples surfaced, each a real gap rather than a slip: **`fold`'s arms are thunks now**, so the
+  backend intrinsic *and* the compile-time reduction have to run the selected arm; **`ClassWriter.getCommonSuperClass`
+  cannot load a class being generated**, and merges only became reachable once a branch yields a lambda instance
+  instead of a carrier value; **a derived instance's own binding binder is unsolvable by the pattern match** (it
+  occurs in no pattern argument) so it is filled with `Default`, which is what it means, and `constraintArguments`
+  must drop the leading binding rather than ground it; and **meta companions must be written too** — a `^Meta`
+  brace calls ordinary abilities, its parameters are *not* thunked, and its row record must therefore be empty to
+  match.
+- **F6 — accounting. NOT DONE.** `EffectAccountingProcessor` reads received bindings instead of carriers and stays
+  the codegen precondition; the "declared pure but performs effects" diagnostic stays in the pre-mono scope check.
+- **F7 — the tree. DONE** (`1b6482aa`, with F5's five discharger bodies). The `.v6/` overlay applied over stdlib,
+  jvm, lang and examples, with the manifest's deletions. Two staging gaps found: the compile-track `Either` still
+  carried `implement Effect[Either[String]]` and `implement Throw[String, Either[String]]`, which cannot survive a
+  tree with no `eliot.carrier`; and the `Default` sentinel **does** need a declaration after all
+  (`stdlib/eliot/eliot/lang/Implementation.els`), because a written binding is an ordinary type argument and
+  saturation demands the value it names. `eliot-test` is not yet moved.
 - **F8 — the gate** (§8): behavioural identity on every example, tests green, the fake examples and
   integration classes with no minted carrier, the single-word `eliot-test` case, seam resolution, the size
-  and instruction-count difference stated in the commit.
-- **F9 — the documents.** Part I rewritten to the v6 design (this Part's §9 is its draft); the CLAUDE.md
+  and instruction-count difference stated in the commit. **The one measurement so far:** the synthesized entry
+  point is 7 instructions rather than 8, having lost its `runMain` call.
+- **F9 — the documents. NOT DONE.** Part I rewritten to the v6 design (this Part's §9 is its draft); the CLAUDE.md
   *Effects Are a Channel* cornerstone rewritten; the `eliot-code`, `eliot-layers` and `eliot-jvm-backend`
   skills' effect sections; the `TODO.md` pointer.
 

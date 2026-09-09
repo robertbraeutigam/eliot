@@ -130,9 +130,21 @@ grow a key parameter and only the five discharger bodies change.
   and `dependency` are nullary and the evaluator memoises a nullary binding, so they would answer their first read
   forever (step 7's third finding). Nothing is lost meanwhile — a compile-time reduction that reaches an unbodied
   discharger is *stuck*, which is loud, not wrong.
-- **`E[]` in value position.** The compile-track dischargers pass a *generic binder* as the key (`escape(E[], obj)`).
-  Step 7's tests only ever passed a concrete type (`String[]`). If a binder cannot be written as a type value,
-  F5 changes those five bodies and nothing else.
+- **`E[]` in value position — ANSWERED at F5: it does not work.** The compile-track dischargers passed a *generic
+  binder* as the key (`escape(E[], obj)`), and a binder has no value form: "Value depends on a compile-time parameter
+  but does not reduce to a constant." So the compile-track `Throw` is **deleted** rather than rewritten. `Abort`
+  stays, keying on its own nullary `Aborted` marker — it is what makes an `if..else` guard reduce, which is the
+  control effect the checker actually meets — and a compile-time reduction reaching the now-unbodied `runThrow` is
+  *stuck*, which is loud rather than wrong.
+
+- **The jvm leaves grew no key, but they did change shape.** F5 emits them **once per instantiation** instead of once
+  erased, so the frame key is the instantiation itself and no key parameter was needed. They did become
+  continuation-passing (`escapeInternal(body, onExit, onValue)`, `withCellInternal(initial, body, combine)`) so that
+  no native constructs an Eliot `data` — which is the "only the five discharger bodies change" this file predicted,
+  arrived at from the other direction.
+- **`eliot-test` is not yet moved.** F7 applied everything but the sibling repository; the framework rewrite here
+  still waits on it.
+
 - **`eliot.test.pure` has no v6 spelling, and is deleted.** `pure { … }` forbade *all* effects in a test body by
   pinning it to `Id`, which has no `Suspend`. Under v6 a slot's row does not close: §9.4's resolution order says
   an entry the slot does not supply continues the walk into the caller's scope, so a slot cannot say "and
