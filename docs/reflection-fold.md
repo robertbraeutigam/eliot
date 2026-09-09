@@ -1,6 +1,8 @@
 # Reflection Reifies Code, Not Data: `foldNamedValues`
 
-Status: **implemented**. `namedValues` stays, as the `List` sugar over the fold.
+Status: **implemented**, and **carried onto effects v6 (2026-09-09)**. `namedValues` stays, as the `List` sugar
+over the fold. The conclusion is unchanged and so is §2's first rule; what changed is the *second* half of the
+reason, which was written in carrier vocabulary — see the marked paragraphs.
 
 ## 1. The question
 
@@ -13,40 +15,34 @@ a computation.
 
 ## 2. Why the `List` cannot work
 
-Two rules of *Effects Are a Channel* meet, and neither is negotiable:
-
-- **§1 rule 3** — open rows never appear in types; only a *pinned* row puts a computation in a type. So the element
-  type `V` of a `List[V]` must be a concrete, storable type.
-- **§1 rule 4** — `append`/`prepend`'s element slot is a **plain generic**, which is a payload, always. A rowless
-  slot may not receive a computation.
-
-So a gathered computation lands in a payload slot whatever `V` is claimed, and the two ways out close on each
-other. With the collecting definition declaring nothing, the effect is charged where it is gathered:
+The load-bearing rule is **§1 rule 4**: `append`/`prepend`'s element slot is a **plain generic**, and a plain
+generic is a payload, always. So a gathered computation handed to a list constructor *runs where it is written*
+(rule 1), whatever `V` is claimed, and the effect is charged to whoever gathers:
 
 ```eliot
 def allTranscripts: String =
-   namedValues[Recorded[Unit]]("check").foldLeft("", e -> acc -> acc ++ transcriptOf(e))
+   namedValues[…]("check").foldLeft("", e -> acc -> acc ++ transcriptOf(e))
 ```
 ```
 error: This value performs the effect 'Console' but does not declare it
 ```
 
-`RowChecker.fixesCarrier` reads *declarations*, and `prepend`'s slot is declared `A`, so the fake-carrier deferral
-(`docs/effects.md` §3.3) cannot see the concrete `[Recorded[Unit]]` written at the call. Declare the effect
-to satisfy it, and the definition acquires an ambient carrier — at which point the elaborator writes every
-carrier-generic callee at *that* carrier, the gathered values included:
+Declaring the effect does not help: it makes the *gathering* definition perform it, which is the opposite of what
+a registry wants. A list holds what the enumeration already produced, and the point of a test suite is that it has
+not run yet.
 
-```
-error: Type mismatch. Expected: IO[Recorded[Unit]] / Actual: IO[Unit]
-```
+> **Restated for effects v6 (2026-09-09).** The paragraph this replaced argued the second half from carriers —
+> "a stored row must be pinned, and a pinned row fixes the carrier at the point of storage" — and from an
+> elaborator writing every carrier-generic callee at the ambient carrier. Neither exists now. The conclusion
+> survives in the new vocabulary and is if anything sharper: a stored computation is a **thunk whose operations
+> were bound where it was constructed** (`docs/effects.md` §1 rule 3). So putting a test in a list still fixes its
+> interpretation at the point of storage, which is exactly the freedom a test needs to keep — it is the *runner*
+> that should decide what interprets a test. Rule 4's first bullet is unchanged and still does the work; only its
+> old second bullet ("a rowless slot may not receive a computation") has no subject, because such an argument
+> simply runs there.
 
-That is not a gap to close; it is the design working. A list is data, a stored row must be pinned, and a pinned row
-fixes the carrier **at the point of storage** — which is exactly the freedom a test needs to keep, since it is the
-*runner* that should decide what interprets a test.
-
-What the `List` therefore reaches is real but narrow: values pinned to a concrete stack over `Id`
-(`data TestCase(name: String, body: {Throw[E] | Id} Unit)`), i.e. pure tests with pure control effects. No
-`{Console}`, no `{File}`, no test run on a carrier chosen by the runner.
+What a `List` therefore reaches is real but narrow: values whose interpretation is fixed where they are built. No
+test run on an implementation chosen by the runner.
 
 ## 3. The answer: hand back a call, not a value
 
@@ -59,21 +55,20 @@ foldNamedValues(name, initial, combine)  ⤳  combine("Mod::v₁", v₁, combine
 Each gathered value is an ordinary **argument**, so it lands in whatever slot `combine` *declares*, and the
 ordinary elaboration machinery answers for it with no new mechanism:
 
-- an **open row** (`test: {Effect} Unit`) runs it on the caller's carrier;
-- a **supplied row** (`test: {Throw[E]} Unit`, pinned to the algebra's own carrier by the desugar) lets the
-  algebra discharge it —
-  the derived discharge stack `stack(callee.declaredRow ∖ ambient.declaredRow) over ambient` is exactly what the
-  call site needs;
-- a **concrete carrier** (`program: Recorded[Unit]`) fixes it to a test double, and `fixesCarrier` now sees a
-  declared slot, which is what it was built to read.
+- an **empty row** (`test: {} Unit`) supplies nothing, so the gathered value's operations are bound by whatever
+  the *caller* declares;
+- a **supplied row** (`test: {Throw[E]} Unit`) lets the algebra discharge that entry itself, since an entry the
+  algebra's own row does not name is supplied by the slot;
+- a **slot with a `with`** (`program: {Console} Unit with recordingConsole`) fixes it to a test double, decided by
+  the algebra's signature with nothing written at the call.
 
 Each element is elaborated and monomorphized independently, so gathered values may differ in **row** *and* in
 **type** — `combine[V ~ Show](name, v, acc)` gathers heterogeneous values sharing an ability, which one `List[V]`
 cannot hold. This is the Use-Site Verification cornerstone applied to reflection: every splice is a use site.
 
 Nothing about effects enters the rewrite. It runs where it always did — after `operator`, before `termination` and
-`row` — and emits ordinary code the elaborator reads through its §3.2 whitelist. There is no new phase, no carrier
-inference, and no compiler-side knowledge of what a test is.
+`row` — and emits ordinary code the write reads from declarations alone (`docs/effects.md` §3.2). There is no new
+phase, no inference of any binding, and no compiler-side knowledge of what a test is.
 
 ## 4. What it generalises
 
@@ -91,11 +86,10 @@ monoid. Generalising removes a hard-coded algebra rather than adding machinery.
 - **Right fold.** `combine(v₁, combine(v₂, initial))` puts the *rest of the fold* in the slot the algebra may
   declare as a row, which is what buys skipping and fail-fast. A left fold would put the already-accumulated prefix
   there instead.
-- **`combine` must be a declared value, not a lambda.** The row elaborator decides capture-vs-run from a *callee's
-  declaration* (`EffectRow.parameterEffects` / `pinnedParameterIndices`, aligned to a signature's parameters); a
-  lambda has none, so its parameters are rowless payloads and every gathered computation would run eagerly at the
-  fold. This is a hard error, for the same reason the literal-name rule is one: reflection is a syntactic rewrite,
-  not a value.
+- **`combine` must be a declared value, not a lambda.** The `row` phase decides run-vs-hand-over from a *callee's
+  declaration* (`EffectRow.parameterEffects`, aligned to a signature's parameters); a lambda has none, so its
+  parameters are rowless payloads and every gathered computation would run eagerly at the fold. This is a hard
+  error, for the same reason the literal-name rule is one: reflection is a syntactic rewrite, not a value.
 
 ## 6. What it costs
 
@@ -106,29 +100,29 @@ monoid. Generalising removes a hard-coded algebra rather than adding machinery.
   distinguished from another there. The algebra's own declaration is where such a mismatch is read.
 - The expansion nests once per gathered value, so a very large suite grows monomorphization work — the same
   property the `append` chain always had.
-- A runner must declare the union of the rows its tests perform, unless the algebra pins and discharges them. That
-  is rule 4 doing its job: the fold call site is the user's own code, so the declaration belongs there.
+- A runner must declare the union of the rows its tests perform, unless the algebra supplies and discharges them.
+  That is rule 4 doing its job: the fold call site is the user's own code, so the declaration belongs there.
 - `namedValues` can still reach itself (`TODO.md`); the fold neither worsens nor fixes it.
 
 ## 7. Evidence
 
-Every row was run against the tree.
+Every row was run against the tree when this landed; the rows marked **v5** were argued in carrier vocabulary and
+their *evidence* is historical, though the claim above each still holds (§2).
 
 | Claim | How |
 | --- | --- |
-| A `List` cannot gather a computation, with nothing declared | `namedValues[Recorded[Unit]]("check")` in a pure definition ⤳ "performs the effect 'Console' but does not declare it" |
-| …and cannot with the effect declared either | the same with `{Console}` on the collector ⤳ `Expected: IO[Recorded[Unit]] / Actual: IO[Unit]` |
-| What a `List` *can* gather | `namedValues[TestCase]("testCase")` over a `{Throw[E] \| Id}`-pinned body, three modules, compiled and run: `PASS A` / `FAIL B: expected 'x' but was 'y'` |
-| An open-row slot runs gathered tests on the caller's carrier | `NamedValuesIntegrationTest`, and the hand-written expansion `step("A", checkA, step("B", checkB, done))` |
-| A pinned slot discharges per test, with rows differing per test | `examples/src/TestSuite.els` — `{Throw[String]}` and `{Console, Throw[String]}` tests in one suite, runner declaring only `{Console}` |
-| A concrete-carrier slot fixes gathered code to a test double | the fold's `collect(name, program: Recorded[Unit], acc)` in a carrier-free definition, run: `GreetTest::test -> hello;` |
+| A `List` cannot gather a computation | `namedValues[…]("check")` in a pure definition ⤳ "performs the effect 'Console' but does not declare it" |
+| …and declaring the effect does not rescue it | **v5**: `Expected: IO[Recorded[Unit]] / Actual: IO[Unit]`. Under v6 the gathering definition simply performs the effect, which is the wrong thing for a registry to do |
+| A `{}`-rowed slot leaves gathered tests to the caller's declarations | `NamedValuesIntegrationTest`, and the hand-written expansion `step("A", checkA, step("B", checkB, done))` |
+| A supplying slot discharges per test, with rows differing per test | `examples/src/TestSuite.els` — `{Throw[String]}` and `{Console, Throw[String]}` tests in one suite, runner declaring only `{Console}` |
+| A slot fixes gathered code to a test double | **v5** as a concrete carrier; under v6 the same thing is a `with` on the slot's type, which `eliot-test`'s `mocked` does for five doubles at once |
 | Heterogeneous element *types* through one algebra | `render[V ~ Show](name, v, acc)` over an `Int` and a `String`, `NamedValuesIntegrationTest` |
 | The sugar is unchanged | `PluginRegistry.els` still prints `60`; the collected order is asserted in `NamedValuesIntegrationTest` |
 | Every fail-safe is a located error | non-literal name, lambda algebra, under-applied call, bare reference — `NamedValuesRewriteProcessorTest` and `NamedValuesIntegrationTest` |
 
 ## 8. Found on the way, not fixed here
 
-An open row nested in a type argument **crashes the compiler** instead of being rejected:
+A row nested in a **type argument** crashes the compiler instead of being rejected:
 
 ```eliot
 def gathered: List[{Console} Unit] = empty
@@ -137,6 +131,8 @@ def gathered: List[{Console} Unit] = empty
 IllegalStateException: BlockExpression should not exist after block desugaring
 ```
 
-§1 rule 3 says this can never be a type, so it deserves a located diagnostic ("an open row may not appear in a
-type; pin it with `| G`"). It is the first thing someone hits when trying to store an effectful value, and it is
-independent of the fold.
+**Still reproduces under effects v6** (re-checked 2026-09-09). Only a *top-level* parameter or `data`-field row
+lowers (to a thunk); a row in a type argument matches no rule and falls through to this crash. It deserves a
+located diagnostic — the v5 advice "pin it with `| G`" is now wrong, since there are no pinned rows; the honest
+message names the position ("an effect row may not appear in a type argument"). It is the first thing someone hits
+when trying to store an effectful value, and it is independent of the fold.

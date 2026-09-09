@@ -6,6 +6,11 @@ plus this round's quick-wins; round 2 was performed 2026-07-02 at `653bf006`; ro
 `68e8c584`, `653bf006`). Round 4 (2026-07-03) landed the R3-1 resolution-ladder dedup (§3.4a) as a
 standalone behaviour-neutral commit.
 
+> **Snapshot, not a checklist (2026-09-09).** This is a record of the package as it stood in July 2026.
+> Effects v6 has since deleted `EffectLifter`, `IdNormalizer`, the carrier and the whole effect-lift
+> arrangement round 3 was reviewing, so its effect-related findings and file references no longer apply.
+> The current package is described by the `eliot-monomorphize` skill; re-review from there.
+
 A whole-package architecture review of `lang/src/com/vanillasource/eliot/eliotc/monomorphize/` —
 the NbE type checker — after the compiler-as-platform rework (rounds 1–2) and the
 effect-lift-in-checker landing (round 3). Three questions: is the NbE algorithm still faithfully

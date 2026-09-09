@@ -1548,9 +1548,11 @@ run 3: demand w        w's dep m validates "unchanged" (it *is* the entry) → w
 updated a fact and never reached its dependents. In the compiler that middle run is a **failing compile** — the
 overlapping-instances case in `ExamplesIntegrationTest2`, which advances the synthetic entry's `MonomorphicValue`
 (the two programs' `main` signatures happen to agree, so it recomputes equal and validates "unchanged") but dies
-before codegen, leaving `WovenValue`/`UncurriedMonomorphicValue` retained from *two* programs back — the
-carrier-generic `main[IO]` of the effect corpus. The next compile accepts them, demands `MonomorphicValue(Test::main,
-[IO])` against a `main` that now takes no type arguments, and reports exactly that.
+before codegen, leaving `WovenValue`/`UncurriedMonomorphicValue` retained from *two* programs back — a `main`
+carrying a type argument, from the effect corpus. The next compile accepts them, demands
+`MonomorphicValue(Test::main, [<arg>])` against a `main` that now takes none, and reports exactly that. (The
+argument was the carrier `IO` when this was measured; effects v6 replaced it with an implementation binding,
+which changes nothing about the failure shape.)
 
 That the trigger is a failing compile is why it looked like flaky test-ordering: whether a suite meets it depends on
 which suite ran before it in the worker, and the middle run has to fail.

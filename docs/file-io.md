@@ -19,26 +19,29 @@ concrete, `jvm/.../FileNatives.scala` leaves, `FileIoIntegrationTest`):
   `foreachLine`.
 
 **Deliberately not implemented** (per the reduced scope this pass was asked for): the access-mode
-phantom types (`Read`/`Write`/`ReadWrite`, §6), the `Bracket` carrier ability (§8), and the file
+phantom types (`Read`/`Write`/`ReadWrite`, §6), the `Bracket` ability (§8), and the file
 **handle** surface (`File[M]`, the `with*File` bracket methods, `readLine`/`readCodePoint`/`writeText`).
 
-Two mechanisms differ from the design as written, forced by the current checker:
+Two mechanisms differ from the design as written:
 
-- **The `FileSystem` ability header is unconstrained** (`FileSystem[F[_]]`, like `Console`) rather
-  than carrying `F[_] ~ Throw[IoError]` (§7/§12.1, unverified). The `Throw[IoError]` requirement is
-  carried on the *instance* constraint instead, so use-site ability resolution still forces a
-  `{FileSystem, Throw[IoError]}` row — soundly, if more cryptically on omission.
+- **`FileSystem` is an `effect`, and each failing operation declares `{Throw[IoError]}` itself**
+  (`def readAll(path: Path): {Throw[IoError]} String`). §7/§12.1 wanted the requirement on the ability
+  *header* (`F[_] ~ Throw[IoError]`); under effects v6 there is no carrier binder to put it on, and
+  per-operation is both more precise and what the language already expresses — an operation's row is
+  what it performs *beyond* the effect it belongs to. A caller therefore declares
+  `{FileSystem, Throw[IoError]}`, exactly as intended.
 - **Natives never construct Eliot `data` in bytecode.** The `Path` inspectors return a nullable and
   the wrappers build the `Option` in Eliot via a leaf `isNull`; the effectful ops catch their
   exception into a two-slot `Object[]` result holder (`IoResult`), and the instance raises
   `IoError` / returns the value in ordinary Eliot. The `§9` question is settled this way rather than
   by emitting factory calls.
 
-Two **library idioms** the current effect-lifter forces on callers (documented on the ability):
-bind a `List`-returning result (`readLines`/`listDirectory`/`walk`) to a `val` before folding it —
-dot-chaining a fold directly onto an effectful `F[List[..]]` mis-infers the carrier to `List` — and
-recover with `runThrow` + `foldEither` (naming the error type) rather than an effectful `catch`
-handler. Both are effect-lifter limitations, not `eliot.file` ones.
+> **The two library idioms this document used to require are gone** (re-measured 2026-09-09). Callers
+> once had to bind a `List`-returning result (`readLines`/`listDirectory`/`walk`) to a `val` before
+> folding it, and to recover with `runThrow` + `foldEither` rather than an effectful `catch` handler.
+> Both were **effect-lifter** limitations, and effects v6 deleted the lifter: `readLines(p).foldLeft(…)`
+> and `read(p) catch (e -> { printLine("failed"); "<none>" })` both compile and run today. Nothing in
+> `eliot.file` changed.
 
 ## 1. Requirements
 
@@ -112,7 +115,7 @@ Lessons this design adopts:
    naturally bracket (Effekt closes in handler `finalize`), and every ecosystem's *recommended*
    path is already a block (`with`, try-with-resources, `withFile`, Eio's `with_open_in`).
    → Eliot goes one step further: `with*File` is the **only** handle API — `open`/`close` are
-   not public at all, and the guarantee is a per-carrier law (§8).
+   not public at all, and release is guaranteed by the bracket itself (§8).
 9. **Capability scoping (Eio: a path = (directory capability, relative string); WASI preopens)**
    is the one design here that materially improves security posture. Eliot's effect row already
    gives the coarse grain ("touches the filesystem at all"); per-directory capabilities are
@@ -124,13 +127,14 @@ Lessons this design adopts:
   `eliot.effect` — most programs, and most microcontroller targets, never touch a filesystem).
   Two modules: `eliot.file.Path` (pure algebra) and `eliot.file.File` (everything effectful:
   modes, handles, `IoError`, the `FileSystem` ability, the public surface).
-- One effect ability **`FileSystem`**, riding `Suspend` exactly like `Console`. (The ability is
+- One **`effect FileSystem`**, exactly like `Console`. (The effect is
   named `FileSystem`, not `File`, because it also covers directories and metadata — and the name
   `File` is taken by the handle type. A row reads `{FileSystem, Throw[IoError]}`.)
-- The ability's carrier parameter is bound **`F[_] ~ Throw[IoError]`**: every operation raises
-  on the same carrier, directly — no error-encoding tier in the API. Recovery is the ordinary
-  `catch`, and `Either`-style results are *derived* (`runThrow(readFile(p))`), not declared.
-  No new error machinery — file failures are just `Throw[IoError]`.
+- **Every failing operation declares `{Throw[IoError]}` on its own return**: it raises directly, with
+  no error-encoding tier in the API. Recovery is the ordinary `catch`, and `Either`-style results are
+  *derived* (`runThrow(readFile(p))`), not declared. No new error machinery — file failures are just
+  `Throw[IoError]`. (This document was written when the requirement lived on the ability's carrier
+  binder; effects v6 removed the binder, and per-operation says the same thing more precisely.)
 - Handles are **`File[M]`** with phantom access-mode markers `Read` / `Write` / `ReadWrite`,
   enforced by compile-evaluated `where` guards (§6). Whole-file and fold ops never expose a
   handle at all and are the primary API; a handle exists **only inside a `with*File` bracket**
@@ -206,7 +210,8 @@ implement Show[IoError] {
 ```
 
 jvm: `data IoError(message: String)` — the abstract `message` merges with the generated
-data-field accessor, the established `ThrowCarrier.runThrow` pattern. v1 carries a message only;
+data-field accessor, the established abstract-twin-of-an-accessor pattern (`eliot-layers`). v1
+carries a message only;
 a structured `kind` (NotFound / PermissionDenied / …, Roc's precise tag unions being the model)
 is additive later — worth doing before the build system relies on distinguishing "no
 `eliot.pkg` here" from genuine I/O failure, or that distinction gets an `exists` pre-check
@@ -298,13 +303,13 @@ phantom parameter is the design.
 
 ## 7. The `FileSystem` effect
 
-The ability *itself* demands failure capacity of its carrier — its parameter is bound
-`F[_] ~ Throw[IoError]` — so every operation raises on the same carrier and the API encodes no
-error tier of its own. (Mechanically: an ability header's generic parameters are parsed by the
-same binder component as any def's, `~`-constraints included, and are prepended to every
-method — so calling any op demands `Throw[IoError]` on the ambient carrier through the
-ordinary constraint path, exactly like `catch`'s `G[_] ~ Effect`. A row using the ability
-therefore reads `{FileSystem, Throw[IoError]}`, and the bound makes that contract
+Each failing operation declares `{Throw[IoError]}` — the design said this by demanding failure
+capacity of the ability's carrier (`F[_] ~ Throw[IoError]`), which effects v6 has no binder for — so
+every operation raises directly and the API encodes no
+error tier of its own. (Mechanically: a member's row is what it performs *beyond* the effect it
+belongs to, so `{Throw[IoError]}` on `readFile` is read by the ordinary scope check at every call.
+A row using the effect therefore reads `{FileSystem, Throw[IoError]}`, and the declaration makes
+that contract
 platform-invariant: no instance can opt out of typed failure.)
 
 The ability methods ARE the public API — the `Console` model. Subject-last parameter order
@@ -419,9 +424,8 @@ def foreachLine(action: String => {Effect} Unit, path: Path): {FileSystem, Throw
 
 Failure and access are separate row entries (Koka's `<fsys, exn>` validated split), so `catch`
 discharges `Throw[IoError]` while `{FileSystem}` keeps riding to `main` like `Console` does.
-`foreachLine` has an Eliot body built from `foldLines` + the `Effect` machinery (the
-`foreach`/`catch` precedents); its exact elaboration through the effect lifter is an
-implementation detail to be settled with tests, not part of the design surface.
+`foreachLine` has an ordinary Eliot body built from `foldLines` (the `foreach`/`catch`
+precedents).
 
 ## 8. Resource safety: bracket-only handles, guaranteed release
 
@@ -437,7 +441,15 @@ Design line: **the API must not offer an easy way to write a bad program.** An e
   cats-effect `Resource` guarantee in Eliot shape — the bracket *is* the construct, and it is
   not optional.
 
-The guarantee rests on one new carrier ability in `eliot.carrier` (a peer of
+> **§8 is design-only, and it was written against the carrier.** Effects v6 deleted `eliot.carrier`,
+> `Effect`, `Suspend` and the cross-lift matrix, so the mechanism below — a `Bracket` carrier ability
+> with a per-carrier instance and a `Suspend`-lift — has no v6 spelling as written. The *requirement*
+> is untouched (a handle exists only inside a bracket; release is guaranteed on every path), and the
+> v6 shape it would take is an ordinary `effect Bracket` whose `guarantee` operation is implemented
+> once per platform over the same leaves. Nothing here has been re-derived; read the rest of this
+> section as the original design record.
+
+The guarantee rested on one new carrier ability in `eliot.carrier` (a peer of
 `Effect`/`Suspend`: import-required machinery that application code never names):
 
 ```eliot
@@ -590,22 +602,21 @@ the build system can do anything useful with `walk`'s result.
 Things this design *assumes* and the implementation must confirm (with tests), roughly in risk
 order:
 
-1. The ability-header carrier bound `F[_] ~ Throw[IoError]`, end-to-end. Syntax is confirmed
-   (`AbilityBlock` parses header generics with the same constrained-binder component as defs
-   and prepends them to every method, so call sites demand the constraint through the ordinary
-   `~` path); to verify: the synthetic ability marker, instance-conformance checking against a
-   constrained header, and that an undeclared `Throw[IoError]` fails at every use (soundly,
-   even if cryptically).
+1. ~~The ability-header carrier bound `F[_] ~ Throw[IoError]`~~ — **settled differently and shipped**:
+   each failing operation declares `{Throw[IoError]}` on its own return, and the scope check reports
+   an undeclared one at the call. There is no header binder under effects v6, and per-operation is
+   the more precise statement anyway.
 2. `where canRead[M]` guards **on ability methods**, with `M` generic and `==` over abstract
    marker types (`Eq[Type]` structural equality — the `where E1 != E2` mechanism). Fallback if
    this corner is unimplemented: mode-exact method signatures + `asRead`/`asWrite` (§6/§7).
-3. The `Bracket` machinery end-to-end: higher-order ability methods (`use: File[Read] => F[A]`
-   as a method parameter), the per-carrier `guarantee` instances, and the precedence law
-   holding through stacked carriers (`ThrowCarrier` over `IO` first — finalizer runs on both
-   `Left` and `Right`, body failure wins over finalizer failure).
-4. Instance bodies through the effect machinery: `suspend(...).flatMap(orRaise)` — raising from
-   within an implement body on the constrained carrier (the `catch` body is the precedent).
+3. The `Bracket` machinery end-to-end: higher-order operations (`use: File[Read] => {} A` as a
+   parameter), the platform's `guarantee` implementation, and the precedence law (finalizer runs on
+   both the raising and the returning path, body failure wins over finalizer failure). **Restate
+   before building** — the v5 phrasing assumed per-carrier instances and stacked carriers, neither
+   of which exists (§8).
+4. ~~Instance bodies through the effect machinery~~ — no subject: an implementation's clause is
+   ordinary Eliot and may declare a row of its own.
 5. Backend construction of `Either`/`Option` results from leaf natives (§9).
-6. `foreachLine` through the lifter (build-the-action-chain, `foreach` precedent).
+6. ~~`foreachLine` through the lifter~~ — shipped as an ordinary body over `foldLines`.
 7. Erased-generic native for `File[M]` and the `Path` natives (the `List` mechanism, new leaf
    set).

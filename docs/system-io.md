@@ -17,10 +17,9 @@ API of the stdlib. The companion of `docs/file-io.md`, and deliberately shaped l
 
 ## The four decisions
 
-**1. Two abilities, not one.** `Environment` cannot fail, so it rides `Suspend` alone, exactly like
-`Console`. `Process` can fail to *start* a program, so its instance additionally requires
-`Throw[IoError]`. Fusing them would force a failure channel on `environmentVariable`, which has
-nothing to report.
+**1. Two effects, not one.** `Environment` cannot fail, so none of its operations declares a row.
+`Process` can fail to *start* a program, so each of its operations declares `{Throw[IoError]}`.
+Fusing them would force a failure channel on `environmentVariable`, which has nothing to report.
 
 **2. `Process` reuses `eliot.file`'s `IoError` rather than introducing its own.** Every program that
 runs other programs also reads files — that is what a build tool *is* — and two error types in one

@@ -147,8 +147,9 @@ Consequence to accept: meta is lost at every data boundary, exactly as today.
 ## 3. The four rules, precisely
 
 **R1 — Every type has a meta type.** `metaTypeOf(T)` = `T$Meta` if `T` declares slots, else `Unit`;
-non-structural. Carrier-transparent: `metaTypeOf(F[A]) = metaTypeOf(A)` — a computation's meta is its
-payload's meta.
+non-structural. (It was also stated *carrier-transparently*, `metaTypeOf(F[A]) = metaTypeOf(A)` — a
+computation's meta is its payload's meta. Effects v6 removed carriers, so a computation is a thunk and
+the clause has no subject: `metaTypeOf(Unit => A)` is the ordinary function case.)
 
 **R2 — A leaf must state its transfer.** The existing return brace. Omitting it asserts *"this return's
 meta type is `Unit`"*; if it is not, that is an error (§4). A leaf with genuinely nothing to say states so
@@ -291,8 +292,7 @@ needed for `foldLeft`. **Both withdrawn.** Walking the leaves that seemed to nee
 | `String::length` | ~~`0 .. platform max`~~ — the parenthesised "better" answer is the one that shipped: **`{size(s)}`**, the string's own size meta, which now exists | nothing |
 | `Process::exitCode` | `0 .. 255` | nothing |
 | `String::parseIntInternal` | ~~the platform int range~~ — **`Unbounded`**, spelled `whole` and **stated** (S4) | the domain top (above) |
-| `Id::runId`, `Effect::pure` | identity on the payload's meta | nothing |
-| `Function::apply`, `Effect::flatMap` | the function argument's transfer, applied | **higher-order** |
+| `Function::apply` | the function argument's transfer, applied | **higher-order** |
 | `PatternMatch::handleCases` | join over the cases' transfers | **higher-order** |
 | `List::foldLeft` | `combine`'s transfer iterated over `list`'s size meta | **higher-order + §5.2** |
 
@@ -425,7 +425,7 @@ walking the *actual* body with:
 
 Node correspondence is then free — you are walking the very body whose layout the representation pass
 stamps. Higher-order falls out: a lambda node's meta is a *closure over metas*, built during the same
-walk and applied when `apply`/`flatMap`/`handleCases` calls it. That single property is what unblocks
+walk and applied when `apply`/`handleCases` calls it. That single property is what unblocks
 every row of the §5 table, including the fold — iterating `combine`'s transfer requires reaching a lambda
 argument's transfer, which is precisely what A cannot do.
 
@@ -608,11 +608,11 @@ mono fact already carries — `MonomorphicValue.runtime.isEmpty` (no need for th
 detection §2/§3 sketch). The R2 check rides each `MonomorphicValue` as
 `monomorphize/channel/MetaTransferAccountingProcessor` (on the `EffectAccountingProcessor` template): a
 body-less value whose **declared** return head is a concrete meta-carrying type and which declares no `^Meta`
-companion is reported at the value. A **type-parameter return head** (`foldLeftInternal : F[B]`, `runId : A`)
+companion is reported at the value. A **type-parameter return head** (`foldLeftInternal : F[B]`)
 is exempt — the meta is forwarded, not originated, so it is the §6 higher-order case, not this one. Proven
 against the real stdlib: armed, it fired on exactly `String::length`, `indexOfInternal`, `parseIntInternal`,
-and `Process::exitCode`/jvm `outcomeExitCode`; folds, carrier returns, bodied values, and the brace-carrying
-arithmetic leaves all pass. It is now **demanded**: a `getFactOrAbort(MetaTransferAccounting.Key(…))` beside the
+and `Process::exitCode`/jvm `outcomeExitCode`; folds, type-parameter returns, bodied values, and the
+brace-carrying arithmetic leaves all pass. It is now **demanded**: a `getFactOrAbort(MetaTransferAccounting.Key(…))` beside the
 effect-accounting precondition in `WovenValueProcessor`, so a leaf that states nothing blocks its own `WovenValue`
 and with it codegen — the same shape, and the same reasoning, as an undeclared effect. `String::length` left that
 firing list by being *answered* (S3) rather than exempted, and S5 answered the rest.

@@ -81,10 +81,11 @@ claim "nothing". Both questions the derivation answers then came out wrong for e
 `f(e)` read as pure, so §1 rule 1's hoist never happened and the computation was passed inline to a
 payload slot (a hard rule-4 error); and the position settled `ρ := {}`, so the whole call was written
 at `Id` and an effect landed on a carrier that cannot perform it. Keeping the machinery entry inside
-the derivation — and dropping it from the *derived* row at `RowChecker.checkValue`, exactly as
-`declaredRow` drops it from the declared one — fixes both with one row rather than a second, parallel
-predicate. The verification vocabulary is unchanged: `derived ⊆ declared` is still decided in user
-abilities on both sides.
+the derivation — and dropping it from the *derived* row, exactly as `declaredRow` dropped it from the
+declared one — fixed both with one row rather than a second, parallel predicate. **Historical from
+effects v6 on**: there is no row derivation, no machinery ability and no `Id`; the paragraph is kept
+because its lesson is not about carriers — a derivation that turns "nothing I can name" into "nothing"
+is wrong in any vocabulary.
 
 ## What is deliberately not here
 
@@ -159,12 +160,10 @@ its compile-time twin in `StringReductions` — implement the same total functio
 pattern (`[+-]?[0-9]+`, exactly what `java.math.BigInteger` accepts), so a numeral parses identically
 while checking and while running.
 
-### `List.flatMap` shadows the `Effect` ability's bind
+### `List.flatMap` shadowed the `Effect` ability's bind — no longer a hazard
 
-`eliot.carrier.Effect` declares `flatMap` (and `map`, which `List` has collided with since round
-one). A file importing both `eliot.carrier.Effect` and `eliot.collection.List` now resolves a bare
-`flatMap` to the list one. This is a compile error at the use site, never a silent miscompile, and
-`eliot.carrier` is machinery a program is not meant to import — the integration-test programs that
-did so were hand-writing a discharge that `catch` expresses directly, and now use it (which also
-removed the import). Recorded because the same shape will recur for any list operation named after a
-carrier method.
+`eliot.carrier.Effect` declared `flatMap` (and `map`, which `List` had collided with since round one),
+so a file importing both resolved a bare `flatMap` to the list one. **Effects v6 deleted the whole
+`eliot.carrier` package**, so there is nothing left to collide with. Kept as the record of a shape that
+will recur for any two imported modules exporting the same name: it is a compile error at the use site,
+never a silent miscompile.

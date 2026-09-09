@@ -13,6 +13,14 @@ implementation refinement §1.3 did not anticipate: the native `Dep` instance is
 emits no `dependency$lambda$N` class that would collide with the cross-lift's — the same trick `Throw`'s native
 `raise` uses. The cross-lift `Dep[X2, DepCarrier[X1, G]] where X1 != X2` mirrors `Throw`'s foreign-error lift.
 
+> **Superseded in mechanism by effects v6 (2026-09-09), not in outcome.** `Dep` is still an effect with
+> `dependency` and `provide`, and it still behaves as a Reader — but there is no `DepCarrier`, no cross-lift and
+> no carrier machinery of any kind: `provide` installs a cell frame over the platform's private leaf, and
+> `Dep[X]`'s single implementation reads it (`docs/effects.md` §3.4). **§2–4 remain design-only and are written
+> against carriers**, so the "peel the Reader carrier" framing has to be restated before it is built — the
+> optimization it names (a dependency provided once is a constant at every read) is untouched and, with the
+> plumbing already gone, is now a smaller job than this document assumes.
+
 ## 0. Thesis
 
 Three seemingly separate ideas came up:

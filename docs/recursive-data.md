@@ -270,10 +270,11 @@ effectful mapping works in direct style and rows already do `traverse`'s job.
 
 ### Effects need nothing from the ability
 
-Instantiate `R := G[B]`: the algebra receives already-folded computations as children and `flatMap`s
-them itself, so `fold` stays pure and effect-transparent. This is `foldLeftInternal`'s design
-generalized — the ability carries no effect row, and therefore never interacts with the effect
-machinery at all.
+The ability carries no effect row and never interacts with effects at all. Under effects v6 this is
+simpler than the carrier-era sketch below assumed: an arm declared `{} B` is a suspended slot whose
+operations are bound by the *caller's* declarations, so a fold is effect-transparent with nothing to
+thread. (The original argument — instantiate `R := G[B]` so the algebra receives already-folded
+computations and `flatMap`s them itself — has no subject: there is no `G` and no `flatMap`.)
 
 ## A worked example: a fully pure search tree
 

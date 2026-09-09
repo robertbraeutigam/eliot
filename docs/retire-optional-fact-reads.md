@@ -133,8 +133,8 @@ possibly-cyclic walk. They **cannot** be totalized: a value that failed to type-
 and errors are deliberately never cached so they re-surface every run until fixed.
 
 - **Skip-broken-callee (upstream errored):** `UsedNamesProcessor`, `CodegenProjection`, `ExpressionCodeGenerator`,
-  `JvmClassGenerator`, `JvmProgramGenerator`, `Checker`, `CarrierKindChecker`, `CalculatedReturnResolver`,
-  `Sourced` (synthetic-URI content).
+  `JvmClassGenerator`, `JvmProgramGenerator`, `Checker`, `CarrierKindChecker`, `GuardDischargeResolver`
+  (renamed from `CalculatedReturnResolver`), `Sourced` (synthetic-URI content).
 - **Cyclic / not-yet-resolved walk:** `RowElaborationProcessor`, `RecursionChecker`, and the
   `NativeBinding`/`CompilerMonomorphicValue` self-recursion guards in `BindingClosure` / `ReducedBindingClosure`
   (already gated by `ancestors.contains(...)`).
