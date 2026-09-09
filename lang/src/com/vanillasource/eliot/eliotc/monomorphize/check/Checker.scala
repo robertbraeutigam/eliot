@@ -66,14 +66,6 @@ class Checker(
   private[check] val abilityResolver: AbilityResolver =
     new AbilityResolver(resolveAbility, platform)
 
-  /** The residual carrier machinery of the v2 effect auto-lift (docs/effect-lift-in-checker.md): the carrier
-    * recognition, the pure-wrap arm of the resolution ladder ([[resolveLadder]]) and the `Effect.flatMap`/`map`/`pure`
-    * node assembly the surviving bind producers splice. A non-equality *elaboration* concern, kept out of this
-    * checker's definitional-equality core. Consulted from the shared resolution ladder and the
-    * immediately-applied-lambda `let` rule ([[typeImmediateLambda]]). See [[EffectLifter]].
-    */
-  private[check] val lifter: EffectLifter = new EffectLifter(force, doUnify)
-
   /** Ensure a NativeBinding is in the cache, fetching it via CompilerIO if needed. */
   private def ensureBinding(vfqn: ValueFQN): CheckIO[Option[SemValue]] =
     for {
@@ -278,20 +270,7 @@ class Checker(
   ): CheckIO[SlotOutcome] =
     for {
       (updatedExpr, instantiated) <- instantiatePolymorphic(expr, inferred)
-      // The pure-wrap pre-arm: a pure actual against a carrier-meta-headed expectation is the shape unification can
-      // only solve *degenerately* (`?F := const String`), so it must be consulted before definitional equality —
-      // waiting for a failure that never comes would miscompile. See [[EffectLifter.mustPureWrapBeforeUnify]].
-      prePure                     <- lifter
-                                       .mustPureWrapBeforeUnify(instantiated, expected)
-                                       .flatMap(
-                                         if (_) lifter.tryPureWrap(tm, updatedExpr, instantiated, expected)
-                                         else pure(Option.empty[SemExpression])
-                                       )
-      out                         <- prePure match {
-                                       case Some(wrapped) =>
-                                         pure(SlotOutcome.Resolved(wrapped): SlotOutcome)
-                                       case None          => resolveFailureLadder(tm, updatedExpr, instantiated, expected)
-                                     }
+      out                         <- resolveFailureLadder(tm, updatedExpr, instantiated, expected)
     } yield out
 
   /** The failure ladder consulted when definitional equality (arm 1) does not immediately unify: try the pure-wrap
@@ -304,15 +283,8 @@ class Checker(
       expected: SemValue
   ): CheckIO[SlotOutcome] =
     tryUnifyCommitting(instantiated, expected, tm.as("Type mismatch.")).flatMap {
-      case true  =>
-        pure(SlotOutcome.Resolved(updatedExpr): SlotOutcome)
-      case false =>
-        lifter.tryPureWrap(tm, updatedExpr, instantiated, expected).flatMap {
-          case Some(wrapped) =>
-            pure(SlotOutcome.Resolved(wrapped): SlotOutcome)
-          case None          =>
-            commitMismatch(instantiated, expected, tm, updatedExpr)
-        }
+      case true  => pure(SlotOutcome.Resolved(updatedExpr): SlotOutcome)
+      case false => commitMismatch(instantiated, expected, tm, updatedExpr)
     }
 
   /** Commit the exact `instantiated`/`expected` mismatch into the unifier (deferred to drain, like all mismatches) and
@@ -724,8 +696,11 @@ class Checker(
     }
 
   /** Phase-A argument-slot resolution — the one path for every slot on both tracks since the v2 uniform bridge was
-    * deleted. A bare flex domain receiving an effect-carrier-headed argument is *deferred* (the compile track's Phase
-    * B decides, §8); everything else runs the shared resolution ladder.
+    * deleted. Every slot runs the shared resolution ladder.
+    *
+    * The *deferral* arm went with the carrier (effects v6, F3): it existed to hold a bare flex domain receiving an
+    * effect-carrier-headed argument until the compile track's Phase B could pin the carrier. There is no carrier to
+    * pin — an implementation is a written phantom binder — so no slot's decision waits on one.
     */
   private def defaultArgSlot(
       arg: Sourced[OperatorResolvedExpression],
@@ -733,23 +708,7 @@ class Checker(
       argType: SemValue,
       forcedDomain: SemValue
   ): CheckIO[SlotOutcome] =
-    forcedDomain match {
-      case VMeta(_, Spine.SNil) =>
-        // The deferral decision needs the argument's *instantiated* type — a bare ability-method reference (`readLine`)
-        // infers as a polytype (`VLam`), whose carrier only appears once the binder is peeled to its (flagged) meta.
-        // Instantiating here is exactly once either way (the ladder's own instantiation is a no-op on a monotype).
-        for {
-          (updatedExpr, instantiated) <- instantiatePolymorphic(argExpr, argType)
-          out                         <- lifter.effectCarrierSplit(instantiated).flatMap {
-                                           case Some(_) =>
-                                             pure(SlotOutcome.Deferred(updatedExpr, instantiated, forcedDomain))
-                                           case None    =>
-                                             resolveGuardedLadder(arg, updatedExpr, instantiated, forcedDomain)
-                                         }
-        } yield out
-      case _                    =>
-        resolveGuardedLadder(arg, argExpr, argType, forcedDomain)
-    }
+    resolveGuardedLadder(arg, argExpr, argType, forcedDomain)
 
   /** Whether `expr` is an unannotated function literal `(x -> body)`. Its parameter type cannot be inferred from the
     * literal alone; when it is *immediately applied* the type is taken from the argument (see [[typeImmediateLambda]]).
@@ -764,12 +723,10 @@ class Checker(
     * against `expected` when known (pushing the type down) and inferred otherwise. Returns the rebuilt application
     * expression and its type.
     *
-    * The let-bind rule (docs/effect-lift-in-checker.md): an *effect-carrier-headed* argument bound by an unannotated
-    * binder is sequenced — the binder receives the payload type `T'` and the whole `let` becomes
-    * `flatMap/map(param -> body, arg)` ([[EffectLifter.bindWrap]]). This is what threads effects through `{ ... }`
-    * blocks. An *annotated* carrier-typed binder — deliberate storage — never reaches this method (annotated
-    * immediately-applied lambdas go through the ordinary application path, where the annotation unifies with the
-    * carrier type).
+    * It is an ordinary `let` and nothing more. The bind rule that used to sit here — an effect-carrier-headed argument
+    * sequenced into `flatMap/map(param -> body, arg)` — went with the carrier (effects v6, F3): a block `val` binding
+    * an effectful call binds its *value*, because the effect is performed by the callee under the implementation the
+    * write handed it, not staged into a carrier the checker has to thread.
     */
   private def typeImmediateLambda(
       target: Sourced[OperatorResolvedExpression],
@@ -781,68 +738,18 @@ class Checker(
     for {
       (argExpr0, argType0) <- infer(arg)
       (argExpr, argType)   <- instantiatePolymorphic(argExpr0, argType0)
-      split                <- lifter.effectCarrierSplit(argType)
-      result               <- split match {
-                                case Some((carrier, payload)) =>
-                                  // The continuation body is *inferred*, never checked against the pushed-down carrier
-                                  // expectation: a still-flex tail type (`old : ?S`) would wrongly unify with the whole
-                                  // carrier type (`?S := IO[String]`), corrupting the binder's payload. The wrap decides
-                                  // `map` (pure tail) vs `flatMap` (carrier-headed tail) from the inferred shape —
-                                  // exactly the former desugarer's continuation rule — and the wrap's carrier-headed
-                                  // result then resolves against the expected type (with coercion) at the let level.
-                                  for {
-                                    _                          <- modify(_.bindValueParam(paramName.value, payload))
-                                    // Instantiate the inferred continuation's polytype (like the argument at the top of
-                                    // this method): a bare polymorphic nullary reference in tail position (`state :
-                                    // [S, F] F[S]`) must get its `[?S, ?F]` implicit type args here, or it reaches
-                                    // monomorphization with none and its ability resolves at empty arguments. This is
-                                    // instantiation, not the pushed-down carrier check the comment above warns against —
-                                    // it peels leading polytype binders to fresh metas, leaving a monotype tail
-                                    // (`?F[?S]`) the `bindWrap` below then classifies (an effect-carrier-headed tail
-                                    // correctly selects `flatMap`; a bound-var / applied monotype tail is a peel no-op).
-                                    (bodyExpr0, bodyType0)     <- infer(body)
-                                    (bodyExpr, bodyType)       <- instantiatePolymorphic(bodyExpr0, bodyType0)
-                                    bind                        = EffectLifter.Bind(paramName.value, arg, argExpr, argType, carrier, payload)
-                                    (wrappedExpr, wrappedType) <- lifter.bindWrap(bind, bodyExpr, bodyType)
-                                    resolved                   <- expected match {
-                                                                    // Definitional equality. Two arms that used to
-                                                                    // sit here are gone: the pure-boundary `Id`
-                                                                    // fallback retired with the effects-as-rows
-                                                                    // slices (the elaborator writes `Id` and its
-                                                                    // `runId` projection at the two pure boundaries
-                                                                    // itself), and the bind-lift consultation
-                                                                    // retired with effects-v5 step 4 — the
-                                                                    // elaborator writes the carrier, so the
-                                                                    // carrier-meta shapes it recognized no longer
-                                                                    // arise (docs/effects-v5-one-carrier.md §5 Q1).
-                                                                    case Some(exp) =>
-                                                                      tryUnifyCommitting(wrappedType, exp, body.as("Type mismatch."))
-                                                                        .flatMap {
-                                                                          case true  => pure((wrappedExpr, exp))
-                                                                          case false =>
-                                                                            modify(st =>
-                                                                              st.withUnifier(st.unifier.addMismatch(wrappedType, exp, body.as("Type mismatch.")))
-                                                                            ).as((wrappedExpr, exp))
-                                                                        }
-                                                                    case None      => pure((wrappedExpr, wrappedType))
-                                                                  }
-                                  } yield resolved
-                                case None                     =>
-                                  for {
-                                    _                    <- modify(_.bindValueParam(paramName.value, argType))
-                                    (bodyExpr, bodyType) <- expected match {
-                                                              case Some(exp) => check(body, exp).map(e => (e, exp))
-                                                              case None      => infer(body)
-                                                            }
-                                    lamType               = VPi(argType, _ => bodyType)
-                                    lamExpr               =
-                                      SemExpression(lamType, SemExpression.FunctionLiteral(paramName, argType, body.as(bodyExpr)))
-                                  } yield (
-                                    SemExpression(bodyType, SemExpression.FunctionApplication(target.as(lamExpr), arg.as(argExpr))),
-                                    bodyType
-                                  )
+      _                    <- modify(_.bindValueParam(paramName.value, argType))
+      (bodyExpr, bodyType) <- expected match {
+                                case Some(exp) => check(body, exp).map(e => (e, exp))
+                                case None      => infer(body)
                               }
-    } yield result
+      lamType               = VPi(argType, _ => bodyType)
+      lamExpr               =
+        SemExpression(lamType, SemExpression.FunctionLiteral(paramName, argType, body.as(bodyExpr)))
+    } yield (
+      SemExpression(bodyType, SemExpression.FunctionApplication(target.as(lamExpr), arg.as(argExpr))),
+      bodyType
+    )
 
   /** Peel leading `VLam` closures from an inferred type with fresh metas, baking the metas as implicit type arguments
     * onto the expression's [[SemExpression.ValueReference]] and updating its `expressionType`. Returns the updated

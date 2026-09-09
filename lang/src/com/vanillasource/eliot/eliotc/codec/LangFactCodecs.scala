@@ -373,12 +373,6 @@ object LangFactCodecs {
       : FactCodec[com.vanillasource.eliot.eliotc.ast.parser.ParserResult[A]] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_ast_parser_ParserResult_Consume
       : FactCodec[com.vanillasource.eliot.eliotc.ast.parser.ParserResult.Consume] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_row_RowChecker_RowResult
-      : FactCodec[com.vanillasource.eliot.eliotc.row.RowChecker.RowResult] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_row_RowElaborator_Elaborated
-      : FactCodec[com.vanillasource.eliot.eliotc.row.RowElaborator.Elaborated] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_row_RowElaborator_Violation
-      : FactCodec[com.vanillasource.eliot.eliotc.row.RowElaborator.Violation] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_row_fact_RowElaboratedValue
       : FactCodec[com.vanillasource.eliot.eliotc.row.fact.RowElaboratedValue] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_row_fact_RowElaboratedValue_Key
