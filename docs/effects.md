@@ -1,21 +1,22 @@
 # Effects in Eliot — the design, and what is left to do
 
-**Status (2026-09-07): the v5 effect system is shipped, this is its single document, and Part II is the decided
-plan to replace its carrier with statically bound implementation names — effects as abilities, an implementation
-as a *name* bound by `with` (v6).** Part I describes the tree as it is until §10's flag day lands. What is here is
-(I) the design as it actually behaves, (II) the plan to replace it, and (III) enough provenance to read a source
-comment that cites a retired document.
+**Status (2026-09-09): effects v6 is shipped and this is its single document.** An effect is an ability
+declared with the `effect` keyword; an **implementation is a name**, bound by `with` and forwarded lexically
+from `main` inward through declarations. There is no carrier, no monad, no `Id`, and nothing to infer. Part I
+describes the tree as it is; Part II is how it was decided and landed, kept for its reasoning, its
+measurements and its open decisions; Part III is enough provenance to read a source comment that cites a
+retired document.
 
-**One-sentence summary.** The user writes **effect rows**; the compiler works in **carriers**; suspension is
-*declared* in signatures instead of inferred from genericity, and the carrier is *written* by a desugar
-before checking instead of solved by the checker — so effect elaboration is a syntax-directed phase, effects
-verify as a **channel** beside the type (the same architectural move as the `Int` refinement channel), and
-the NbE checker holds one local rule and no effect decisions.
+**One-sentence summary.** The user writes **effect rows**; each row entry desugars to one **phantom generic
+binder** whose value is an implementation, written at every reference by a syntax-directed pass that reads
+declarations only — so an operation call is an ordinary call to a known method, effects verify as a
+**channel** beside the type (the same architectural move as the `Int` refinement channel), and the NbE
+checker holds no effect rule at all.
 
 **How to read this document.** Part I states the shipped design; it is the authority for the tree, and the
-CLAUDE.md *Effects Are a Channel* cornerstone is its summary. Part II is the plan: the v6 decision (§9), its
-implementation steps (§10), the decisions still open (§11, numbered **D**) and the list of things that are
-**closed by measurement or decision and must not be re-proposed** (§12). Part III is provenance.
+CLAUDE.md *Effects Are a Channel* cornerstone is its summary. Part II records the v6 decision (§9), how it
+landed (§10), the decisions still open (§11, numbered **D**) and the list of things that are **closed by
+measurement or decision and must not be re-proposed** (§12). Part III is provenance.
 Where Part I and any code, stdlib signature, example or test disagree, Part I wins and the artefact is the
 defect.
 
@@ -27,56 +28,46 @@ defect.
 
 1. **Effects run where they are written.** An effectful expression in any plain position performs its
    effects there, and they join the enclosing definition's row. Strict call-by-value in **every** plain
-   position, a bare generic slot included: `choose(readLine, readLine)` runs both reads. The only exceptions
-   are the two *declared* ones below.
+   position, a bare generic slot included: `choose(readLine, readLine)` runs both reads, `Box(shout)` runs
+   `shout` and stores its value. The only exception is the *declared* one below.
 
-2. **Suspension is declared, and a row is not a carrier.** A parameter that must *not* run its argument
-   declares a row: `whenTrue: {} A` receives the computation unrun; `if[T](c: Bool, value: {Abort} T)`
-   spells this and means it.
+2. **Suspension is declared.** A parameter that must *not* run its argument declares a row: `whenTrue: {} A`
+   receives the computation unrun; `if[T](c: Bool, value: {Abort} T)` spells this and means it. After
+   desugaring such a slot is a **thunk** (`{Abort} T` ⤳ `Unit => T`), since there is no carrier left to hold
+   an unrun computation — but the thunk is an artefact of the lowering, not the surface: what a reader and
+   every phase go by is the **row tag** on the declaration (`EffectRow.parameterEffects`), never the shape.
 
-   A **row** position means *"a value or a computation"* — the empty row is a legal row, so a pure argument
-   fits and is lifted. A **carrier-typed** position (`x: G[A]`, `IO[A]`, a pinned stack) means *"a
-   computation on this carrier"*, and a plain `A` is a type error there, never a lift. Both are `F[A]` after
-   desugaring, so the difference is read from the **row tag** (`EffectRow.parameterEffects`), never from the
-   shape.
+3. **A stored computation is bound where it is written.** A row-typed `data` field (`data TestCase(body:
+   {Throw[E]} Unit)`) is a thunk whose operation calls were bound at construction, by the declarations in
+   force *there*. Storing it, passing it through a plain generic and running it later are all ordinary;
+   running it performs what the field's row declares, charged at the read. A `with` applied to it afterwards
+   is an error, not a rebinding — there is nothing left to bind. This replaces v5's pinned rows: no base, no
+   `| Id`, no canonical stack, and no ordering to spell.
 
-   Until this rule landed, every `~ Effect`-constrained carrier slot lifted a pure actual, which made the
-   *calling convention depend on a constraint the callee declares for its own body's sake*: adding
-   `~ Effect` to `def hold[G[_]](x: G[String])` silently changed what callers could pass, and without it the
-   same call died in the quoter with "contains unresolved variable" instead of reporting a mismatch. That is
-   exactly the implicitness this design exists to remove.
-
-3. **Pinned means captured.** `{Throw[E] | Id} A` is a reified computation *and* an ordinary type, usable in
-   `data` fields, discharger parameters, `List[TestCase]`. Open rows never appear in types; pinned rows are
-   the only place a type contains a computation.
-
-4. **An effect passes through a position if and only if that position declares it.** *(Found last, stated
+4. **A binding passes into a position if and only if that position declares a row.** *(Found last, stated
    last, and it outranks the other three.)*
-   - A **plain generic is a payload, always.** `A`, `B`, `T` in `def .[A, B](a: A, f: A => {} B): {} B`,
-     `def ++[T ~ Combine[T]](left: T, right: T): T`, `def foldLeft[A, B](initial: {} B, …): {} B` can never
-     be instantiated at a computation. A function that transports effects says so.
-   - A **rowless slot may not receive a computation** — not a carrier-headed value, not a pinned capture,
-     not a value whose declared row is non-empty. A hard error naming the slot, never a silent re-route.
-   - `{}` is a **row variable**, not a fixed carrier. `ρ := {}` is an ordinary instantiation, so
-     `dependency.url` (ρ = `{}`) and `items.foreach(x -> printLine(x))` (ρ = `{Console}`) go through the
-     *same* declaration of `.`.
-   - **`Id` is the value of the empty row, and that is allowed.** A row-polymorphic definition instantiated
-     at `ρ := {}` is *written* at `Id` and erased by monomorphization. Rule 4 constrains declarations, not
-     the representation of the empty row.
-   - A **carrier-headed slot captures**, however that carrier is named — a pinned row's stack, one of the
-     callee's own carrier binders, the concrete `Id`, or a platform run carrier (`data Box(action:
-     IO[Unit])`). There is no third kind of slot and no name-keyed exemption: the four namings are one
-     predicate, not four arms.
+   - A **plain generic is a payload, always.** `A`, `B`, `T` in `def .[A, B](a: A, f: A => {} B): B`,
+     `def ++[T ~ Combine[T]](left: T, right: T): T`, `def foldLeft[A, B](initial: B, …): B` carry values.
+     A function that transports effects says so with a row on the slot.
+   - A **rowless slot receives the value**, computed where the argument stands (rule 1). It is not a place a
+     computation can be *handed on* unrun, and there is nothing to diagnose: the effects were the caller's.
+   - **A row on the slot is what lets the callee's body reach the caller's declarations.** The lexical walk
+     that decides an operation's implementation crosses into an argument iff the slot it sits at declares a
+     row — `{}` counts. So a lambda at a rowless arrow (`map`'s `f: A => B`) may bind and discharge locally
+     but may not reach the enclosing def's bindings, and anything it performs and does not discharge is the
+     error at the lambda.
+   - The four "carrier namings" of v5 collapse to **one predicate**: a slot either declares a row or it is a
+     payload. There is no third kind of slot and no name-keyed exemption.
 
-   Everything the elaborator decides is then decided by declarations, per call, order-free.
+   Everything the write decides is then decided by declarations, per reference, order-free.
 
 **Consequences the user sees.** `something.foldLeft(f, z)` with `something : {Console} List[T]` works with
 zero declaration on `foldLeft`: the effects run, the payload flows, `Console` joins the caller's row, and
 the collections library stays effect-oblivious. Evaluation order is readable from signatures. Rows remain
-the only effect surface, and diagnostics stay in payload/row vocabulary.
+the only effect surface, and diagnostics stay in row vocabulary.
 
 **Rule 4 was agreed and then worked around four times, and every stall in this design's history traces to
-that erosion.** Recorded so it cannot read as new:
+that erosion.** Recorded so it cannot read as new — the vocabulary is v5's, and the lesson is not:
 
 | # | how rule 4 was worked around | what it cost |
 | --- | --- | --- |
@@ -90,32 +81,99 @@ generic-headed return*. It **approximates** rule 4 instead of **declaring** it i
 
 ## 2. The surface
 
+Three constructs carry the whole model.
+
+**An `effect` is an ability with no carrier binder**, declared with its own keyword. **A member's row lists
+what it performs *beyond* the ability it belongs to** — membership in the block already says the member needs
+that binding, exactly as `show` inside `ability Show[T]` does not repeat `~ Show[T]`. So `{Console}` on a
+member of `effect Console` is not written; a member's row is real where it names *other* effects. A function
+that needs no such binding is not a member: it lives outside the block as an ordinary def with its own row,
+as `updateState`, `orRaise` and `orAbort` do beside the primitives `state`, `putState` and `raise` inside.
+
+```eliot
+effect Console {
+   def printLine(s: String): Unit
+   def readLine: Option[String]
+}
+
+effect FileSystem {
+   def readAll(path: Path): {Throw[IoError]} String
+}
+
+ability Show[T] {
+   def show(t: T): String
+}
+```
+
+**An anonymous `implement` is a default; a named one never is.** An anonymous block in one of the **two
+sites** — the ability's module or the type's module — is the default for its pattern, subject to the existing
+coherence and `where` rules, and is what a declaration with no named implementation binds. A **named**
+`implement` may live anywhere, is never searched, is not checked for overlap, and its clauses may declare
+rows — a clause row is what the implementation performs beyond its ability, charged wherever the name is
+bound. It takes no parameters and closes over nothing: what it needs at runtime it asks an effect for.
+
+```eliot
+implement Console {                                       -- the platform's default
+   def printLine(s: String): Unit = printLineInternal(s)
+   def readLine: Option[String] = lineOrNone(readLineInternal)
+}
+
+implement session: Terminal {                             -- a test's, in the test module
+   def write(line: String): {Writer[String]} Unit = tell(line ++ ";")
+   def read: String = "Bob"
+}
+```
+
+**`with` binds a name for its subject**: infix, subject-first, at the loosest precedence, left-associative,
+so `xs.sort.render with reverseOrd` applies to the whole chain and `c with a with b` is `(c with a) with b`,
+an inner `with` for the same ability shadowing the outer within its subject. It works on an ability exactly
+as on an effect, and there are **two positions, one construct**: an expression in a body, and a slot's type
+in a signature — the same split as `f(x)` and `List[Int]`, both application under the types-are-values
+cornerstone.
+
+```eliot
+def greetTranscript: String = runWriterToLog(greet with session)
+def sorted: List[Int] = sort(xs) with reverseOrd
+
+def transcriptOf(program: {Console} Unit with recordingConsole): String = runWriterToLog(program)
+```
+
+The slot form reads *"this slot's computation, run with `mockConsole`"*: the actual delivered there has its
+binding applied by the callee's signature, and the caller writes nothing. It is the one way a callee decides
+the binding of calls it cannot see, since an actual's calls are bound in the caller. `with` **inside** a row
+(`{Console with mockConsole}`) is rejected: it would put an ability on the left instead of a subject, a
+second grammar repeating a pairing the implementation already declares. A `with` is accepted on a parameter's
+or a field's type only, never on a def's own return row, which would be a second spelling of `with` around
+the body.
+
+**`with` is written almost nowhere.** Most code fixes nothing: a def declaring `{Console}` receives its
+binding from its caller, up to `main`. That chain is what makes a fake possible — `greeting` never said
+which console, so a test may say. A `with` in production code is the same mistake as a hard-coded dependency.
+
 ### 2.1 Rows, and the empty row `{}`
 
-`{}` denotes the signature's own ambient carrier — *"on my own carrier, nothing added"*. It is the spelling
-of every suspended-but-effect-transparent slot (`fold`'s arms, `else`'s fallback, `catch`'s handler,
-`foldLeft`'s `initial`, `.`'s `f`), and it is the only spelling in the tree: zero `{Effect}` occurrences
-remain in `.els`.
+A row on a **return** is what the definition performs and does not discharge. A row on a **slot** is what the
+slot receives unrun, and it is the declaration that lets the walk cross into the argument (§1 rule 4).
 
-Mechanically `{}` parses as a tail-less row whose desugar treats the empty open row as the machinery entry
-`Effect`, so `{}` and the older explicit `{Effect}` produce the *same* AST — one carrier, one `F ~ Effect`
-constraint, one row tag. When a definition already binds exactly one `Effect`-constrained carrier
-(`G[_] ~ Effect`, as every discharger does), its rows reuse *that* binder instead of minting a second, and
-the row's entries join its constraints; two or more such binders are ambiguous and mint as before. That
-reuse is why `else`'s `fallback: {} A` **is** `G[A]` and still accepts `host else "localhost"`.
+`{}` is the empty row: *"a computation, and I add nothing to it"*. It is the spelling of every
+suspended-but-effect-transparent slot — `fold`'s arms, `else`'s fallback, `catch`'s handler, `.`'s `f` — and
+it is the only spelling in the tree. It supplies no entry, so an operation inside such an argument is bound
+by whatever the *caller* declares, and the argument is not run until the callee runs it. It needs no import,
+and it puts nothing in the user's scope: under v5 `{}` named the machinery ability `Effect` and the whole
+`eliot.carrier` package existed to hold it; both are gone.
 
-The synthesized constraint resolves at its fixed FQN (`eliot.carrier.Effect`), so writing `{}` needs no
-import — which is what keeps `map`/`flatMap`/`pure` out of user scope. A row with a base but no entries
-(`{| G} A`) is rejected at the parser: that is just `G[A]`.
+A row with a base (`{Throw[E] | Id} A`, `{| Recorded} A`) has no v6 meaning — there is no carrier stack to
+name — and is rejected by the desugar rather than silently read as an open row.
 
 ### 2.2 A parameter row is *supplied* — what makes a discharger
 
-A **non-empty** row in a parameter position says "on my ambient carrier **extended by** these", and the
-extension is the same subtraction the elaborator applies to a call, read one level up at the declaration:
+A **non-empty** row in a parameter position says *"I will run this computation, and these bindings come from
+me"*. Which entries those are is read one level up, at the declaration:
 
-- an entry the definition's own declared (return) row already has needs no extension, so `if`'s
-  `value: {Abort} T` rides the ambient unchanged (`if` declares `Abort` itself);
-- an entry it lacks is **supplied**, so the slot is that entry's carrier stacked over the ambient.
+- an entry the definition's own declared (return) row already has is **not** supplied — `if`'s
+  `value: {Abort} T` rides the caller's `Abort`, because `if` declares `Abort` itself and the walk continues
+  outward;
+- an entry it lacks is **supplied**, bound by the slot's own `with` or, with none, by `Default`.
 
 ```eliot
 def if[T](condition: Bool, value: {} T): {Abort} T                     -- performs Abort
@@ -124,125 +182,55 @@ def catch[E, A](computation: {Throw[E]} A, onError: E => {} A): A      -- suppli
 def runStateToPair[S, A](initial: S, p: {State[S]} A): Pair[A, S]      -- supplies State[S]
 ```
 
-Read as English they are already right: *"I will run this computation, and the `Throw` it needs comes from
-me."* That is what a discharger is, and it needs no tail, no base and no second concept.
+Read as English they are already right, and that is the whole of what a discharger is: no tail, no base, no
+second concept. Only a **top-level** parameter row supplies; a row in an arrow codomain (`onError: E => {} A`)
+is the callback's own row, bound where the callback's body is written.
 
-The first bullet has a consequence worth stating outright, because it reads as a bug the first time it is
-met: **a definition cannot supply an entry its own declared return row already names.** A combinator that
-consumes `Throw[E]` and re-raises `Throw[E]` itself — the "rewrite this failure's message" shape — cannot
-spell its parameter `{Throw[E]} A`, because that denotes the very same carrier rather than one layer above
-it, and there is then nothing to discharge. The two available answers are both honest: take the inner error
-at a *different* declared type (`[E1, E2]`, the shape `Throw`'s own cross-lift instance already uses), or
-pin the body (`{Throw[E] | Id} A`) and give up composing with effectful bodies. This is not a limitation of
-the supply rule so much as the rule being per *entry* and syntactic, which is what keeps it decidable from
-declarations alone.
+A supplied entry's own **type arguments** are written at the call from the actual's declaration, matched
+entry-by-entry against the slot's row (`bad : {Throw[String]} String` against `Throw[E]` gives
+`E := String`). Where no declaration answers, the call spells it — `runThrow[AssertionError, Unit](body)` —
+and an argument nothing determines is **rejected** rather than defaulted, which is what stops a `catch` from
+compiling against a frame it will not meet at runtime. Three shapes reach that rejection honestly, and all
+three are ordinary: the actual is a **parameter reference** (a parameter has no callee whose declaration
+could state the row); the actual **raises nothing**, so its row has no entry of that ability at all; or the
+slot's row names the **same ability twice** (`{Throw[IoError], Throw[AssertionError]}`), where only the call
+can say which one is being discharged.
 
-`EffectSugarDesugarer.supplyPinnedParameters` rewrites the supplied entries into the **pinned** spelling
-over the ambient carrier before anything else runs, so the signature and the capture tag
-(`EffectRow.pinnedParameterEffects`) are identical to what `{Abort | G} A` produced by hand — which is why
-this landed one signature at a time with no downstream phase touched. Machinery never supplies (so `{}` is
-never a stack), and only a **top-level** parameter row supplies: a row in an arrow codomain
-(`onError: E => {} A`) is the callback's own row on the ambient carrier.
+Since v5's supply rule was per *entry* and syntactic, a definition could not supply an entry its own declared
+return row already named. That limitation is **gone**: discharge is a frame installed at the discharger's
+call, and the nearest enclosing frame is its own, so a definition may now discharge the very effect it
+declares — which is what lets `describedAs(body: {Throw[AssertionError]} Unit): {Throw[AssertionError]} Unit`
+catch its body's failure and re-raise a better one.
 
-A discharger's base carrier is found by the ordinary rule (§2.1's one `Effect`-constrained binder), so the
-dischargers that used to leave it unconstrained *because* the pinned tail named it now say `G[_] ~ Effect`.
-No new carrier-discovery rule exists, and none should be added.
+### 2.3 Storing a computation
 
-### 2.3 Pinned rows — the one spelling of a stored computation
-
-A **stored** effectful value must commit to one concrete representation. Before pinned rows that commitment
-had to be spelled in machinery vocabulary (`TestCase[ThrowCarrier[AssertionError, Id]]`), leaking carrier
-names onto exactly the users the row sugar hides them from.
+A row-typed `data` field is the one place a type holds a computation, and it needs no extra spelling:
 
 ```eliot
-{Throw[E]} A          -- open: caller picks the carrier
-{Throw[E] | Id} A     -- pinned: the canonical Throw layer over the pure base Id
+data Task[E](step: {Throw[E]} String, label: String)
 ```
 
-A pinned row is not a constraint but a *concrete type*: the canonical carrier stack realizing exactly those
-effects over the base, built in `core` by the `<Ability>Carrier` naming convention (the carrier is colocated
-with its ability, so it resolves wherever the ability does):
+The field lowers to a thunk. Its calls are bound where the constructor is applied, and the field's row is the
+declaration that covers them there — so `Task(failing, "load")` binds `failing`'s `Throw` at the
+construction site rather than charging it to whoever built the value. Reading the field runs it: the accessor hands back the
+thunk and the read applies it, so the entries the field's row declares are **charged at the read**, and an
+undeclared read is the ordinary "performs but does not declare" error there. Nothing captures a frame, so
+nothing can dangle — a frame is installed by a discharger's call and left when that call returns or is exited.
 
-```
-{Throw[E], State[S] | Id} A   ⤳   ThrowCarrier[E, StateCarrier[S, Id], A]
-```
+The accessor's return is the field *as stored*, deliberately not a return row: a return row would mint a
+phantom binder and claim the accessor performs those effects.
 
-- **Entries are ordered**: leftmost = outermost = discharged first. Nesting order is semantically observable
-  (state preserved on failure or not), so pinning makes it a visible, user-written choice. Open rows stay
-  unordered constraint sets.
-- **No generic parameter is introduced**; everything downstream sees what the hand-written carrier spelling
-  produced.
-- A pinned row is one *solution* of the corresponding open row's constraints, so construction by
-  unification just works.
-- **A stored row MUST be pinned.** A `data` field with an open positive row is rejected: *"A stored effect
-  row must be pinned to a base carrier."* So is an open row in a type-alias body (`type Susp = {Suspend}
-  Unit`) — an open row lowers its carrier onto the alias's own generics, which a definition naming the alias
-  cannot reach.
-- A **generic tail** (`{E | G}`) is no longer written anywhere: §2.2's supply rule produces the identical
-  type. A **concrete** base (`| Id`, `| IO`) is the live spelling.
-- **Zero entries is a legal pin** (`{| Recorded} A`, shipped 2026-09-04 as W3): no layers, so the stack *is*
-  the base and the type is the plain `Recorded[A]`. It is spelled as a row not for the type — that needs no
-  row — but for the **tag**, which says the slot *hosts a computation on that carrier*. That is the one
-  thing about a user's own carrier no declaration could state before, and it is what lets a fake run be
-  written inline at a call site that has an ambient carrier of its own (§7.7). It is not a new meaning of
-  the row and not a new kind of slot: §1 rule 4's first naming, "a pinned row's stack", already covers it,
-  and the tag-not-shape distinction is the one that already separates `{} A` from `G[A]`. It was rejected
-  until W3 on the reasoning that such a row "is that carrier itself and needs no row spelling" — true of the
-  type, false of the tag.
-- A pinned row spelled **through a type alias** is read through one level of alias expansion by all three
-  consumers that need it: `topRegionCarrier` (the definition side), `RowElaborator.declaredResultKind` (a
-  saturated call to such a callee is `Kind.Carrier`, not a payload to `pure`-wrap) and
-  `RowChecker.pinnedReturnEntries` (such a return is a declared capture, so its abilities count as
-  declared).
+### 2.4 Naming a set of effects
 
-**Usage model.** Application code writes bare open rows and learns nothing of this. Storing an effectful
-value costs one concept — rows have a base; `| Id` when only pure control effects remain, which also proves
-the value can do no I/O (`Id` has no `Suspend`) and is total (`Inf` has no canonical carrier either).
-Discharger authors learn nothing new: a parameter row is what you supply.
+**There is no spelling for one, deliberately** (§12, "not now"). v5's `ability Web[F[_] ~ Console & Log]`
+worked by requiring abilities *of the carrier*, and with no carrier binder there is nothing to hang the
+requirement on. A slot doubling many effects writes the full chain; a project wrapping a word of its own
+restates the row and the chain.
 
-There are **no discharge markers**. A discharger's consumed effect vanishes structurally — it lands on an
-inner transformer carrier, absent from the caller's ambient — so there is no negative member to spell.
-
-### 2.4 Naming a set of effects — an ability that requires abilities
-
-An ability may require other abilities **of its carrier**, and that is how a set of effects gets a name:
-
-```eliot
-ability Web[F[_] ~ Console & Log]
-
-def handle(request: Request): {Web} Response       -- declares all three
-def audited[A](action: {} A): {Web} A              -- effect-transparent over the set
-
-ability Api[E, F[_] ~ Web & Throw[E, F]]           -- parameterised, and transitive
-```
-
-No syntax was added — `ability`'s common generic parameters already took `~`, and a method-less,
-never-implemented ability already rode a row to `main`. The whole feature is one rule in
-`ValueResolver.superConstraints`: **a `~` constraint is closed under what the named ability itself
-requires.** Five details it settles:
-
-- **Which requirements are inherited is decided by the use, not by a shape**: what is inherited is what the
-  ability requires of *the parameter this use bound to this binder*. A requirement on an unrelated parameter
-  (`ability Fallible[E ~ Show, F[_] ~ Throw[E, F]]`) stays on `E` and never lands on the carrier, where
-  `declaredEffects` would read it as a declared effect.
-- **It lands in `resolveParamConstraints` only.** A carrier binder's constraints are the single source of
-  truth for "declared" that *both* verifiers read (`RowChecker.declaredRow`,
-  `EffectAccountingProcessor.openRow`), so one place covers the whole channel. `EffectRow` is rendering
-  vocabulary and keeps the name the user wrote — `{Web}` still reads as `{Web}`.
-- The ability's requirements **resolve in the ability's own scope**, then its parameters are substituted by
-  the use's arguments.
-- **Closure is transitive and idempotent**, so mutually-requiring abilities close instead of looping.
-- **It is uniform**: a hand-written `G[_] ~ Web` inherits exactly as a row entry does, and an ability *with*
-  methods requires others the same way.
-
-Two consequences to state plainly. The name is **real**, so it propagates to callers as itself — correct,
-since the caller's carrier must have it too. And it is a property of the **carrier**, so discharging one
-effect behind the name does not remove the name: name a set for what rides together, not for what one
-function discharges.
-
-The same rule can state a relation the tree could not express before: `ability Console[F[_] ~ Suspend]`
-would put "Console rides Suspend" in the ability instead of repeating it on every instance. Under v6 (§9) an
-`effect` has no carrier binder, so the question disappears — and so does this spelling of a *set* of effects (§12, "not now").
+What survives is the ordinary **superability closure** on a `~` constraint: `~ A` is closed under what `A`
+itself requires of the parameter this use bound to this binder (`ValueResolver.superConstraints`, transitive
+and idempotent). That is a relation between abilities and their parameters, and it never lands an ability on
+something it was not written about.
 
 ### 2.5 `~` and `&`
 
@@ -272,90 +260,98 @@ than cosmetic.
 - **A `type` spelling of a row.** `type Web = {Console, Log}` was proposed and rejected: `type X = …` names
   a *type*, and a set of abilities is not one — which is why that spelling needed a body no type expression
   could hold — and paying for it with a new `ast.fact.Expression` case is not how this language grows.
-  §2.4's requiring ability is the answer.
-- **Aliasing a computation with its row.** `type Test = {Writer[W]} Unit` is a carrier-applied type and is
-  written as ordinary generics: `type Test[F[_] ~ Writer[W]] = F[Unit]`. The mechanical reason no sugar
-  quietly does it: the row desugar runs in `core`, before names resolve, so a definition that merely *names*
-  an alias carries no `{…}` of its own and mints no carrier.
-- **A negative effect.** See §2.3 — discharge is structural.
-- **Row inference of any kind.** See §5.
+- **A name for a set of implementations**, and a `with` that binds several at once. §12, "not now".
+- **A closed row.** A slot's row cannot say *"and nothing else"*: an entry the slot does not supply continues
+  the walk into the caller's scope, so there is no way to forbid what the caller allows. This is what deleted
+  `eliot.test`'s `pure { … }`, whose whole meaning was that pin; making it expressible is a language
+  addition, not a library one (§7).
+- **A negative effect.** Discharge is a frame, so a discharged entry simply never joins the row.
+- **Row or binding inference of any kind.** See §5.
 
 ## 3. The mechanism
 
-### 3.1 The elaborator writes the carrier
+### 3.1 The desugar writes the implementation
 
-`row/RowElaborator`, run by `RowElaborationProcessor` between the recursion gate and saturation, rewrites
-each definition into **fully explicit monadic core Eliot** — so monomorphization, ability resolution,
-`used`/`uncurry`, the jvm backend, `runMain` and the synthetic main are unchanged consumers.
+Two passes, both syntax-directed, both reading declarations only.
+
+**`core/processor/EffectSugarDesugarer`** turns each row entry and each `~` constraint into **one phantom
+generic binder**: a binder of kind `Type` that occurs in the generic list and in **no parameter or return
+type**, so rows still never flow into types (§3.3). Three rewrites and nothing else:
 
 ```
-printLine("hi")        ⟶   printLine[F]("hi")
-flatMap(k, readLine)   ⟶   flatMap[F](k, readLine[F])
+def greeting(name: String): {Console} Unit    ⟶   def greeting[Impl](name: String): Unit      -- Impl ~ Console[Impl]
+def sort[T ~ Ord[T]](xs: List[T])             ⟶   def sort[Impl, T ~ Ord[Impl, T]](xs: List[T])
+computation: {Throw[E]} A                     ⟶   computation: Unit => A
 ```
 
-The ambient carrier at any point is a **syntactic** function of the definition's own minted binder
-(`EffectSugarDesugarer` mints it as generic **0**), so every carrier position is **rigid**, and the base
-binds once at the platform entry point — both tracks (`IO` on jvm, `Either[String, _]` on the compile track)
-work without the elaborator knowing which. Because the carrier is written, **no carrier metavariable is ever
-created**.
+Minted binders are a **leading prefix**, because `ValueReference.typeArgs` applies positionally and the write
+is a prefix write; for an ability member the prefix moves, since its leading binders are the ability's own and
+its binding must stay the last ability-level type argument. The pass is idempotent, because `CoreProcessor`
+applies it uniformly to definitions the ability lowering has already produced.
 
-Three rules complete it:
+**`row/BindingWriter`**, run by `RowElaborationProcessor` between the recursion gate and saturation, then
+rewrites one definition so that every reference carries the implementation each of the callee's phantom
+binders stands for. Three jobs, one walk:
 
-- **A region's carrier has three states** (`RegionCarrier`): `Absent`; `Spelled` — writable from the
-  definition's own declaration (its minted binder, the pinned stack its return declares minus the payload, a
-  platform run carrier); and `Unspelled` — a carrier exists but only a *callee* can name it (chiefly the
-  interior of a pinned capture). All three place identically; **only `Spelled` writes.**
-- **Every type argument a declaration determines is written**, as a leading positional prefix of the
-  callee's binders. Two sources determine one: the **region** supplies the carrier, and a **pinned
-  parameter** supplies its row's ability arguments, instantiated from the captured argument's own declared
-  row (`catch`'s pinned slot against `bad`'s declared `{Throw[String]}` gives `E := String`). Writing stops
-  at the first binder nothing determines, since `typeArgs` applies positionally.
-- **The discharge stack is derived**: `carrier(call) = stack(callee.declaredRow ∖ ambient.declaredRow) over
-  ambient`. A callee needing more than the ambient provides cannot be running on it, so it runs on the
-  canonical stack of that difference — which is what lets a `val` bind a dischargeable computation as data.
-  Delivering that result to a **rowless** slot is a hard error (rule 4); the fix at the call site is the
-  direct call.
-  - **The filter that makes it work**: an effect the ambient does not declare is *not* automatically
-    dischargeable. `Suspend`-riding effects (`Console`, `Log`, `Inf`) have no `<Ability>Carrier` and are
-    provided by the base. Dischargeability is read off **the universe's own pinned rows** — an effect is
-    dischargeable in this body iff a discharger for it is among the names the body reaches — which needs no
-    lookup, since probing for a carrier type that does not exist is itself a hard compile error.
+1. **write the bindings** — each phantom binder is given a value by the resolution order below, as a leading
+   positional prefix. A binder is never left to a metavariable.
+2. **thunk and apply** — an actual delivered to a row-typed slot is wrapped in a lambda, and a reference to
+   one of *this* definition's row-typed parameters is applied to `unit`. Doing both unconditionally is what
+   makes a pass-through (`runAbort(computation)`, `val restFailures = rest`) come out right with no inspection
+   of the argument's shape or type: wrap and apply are inverse, so a pass-through is an η-expansion.
+3. **erase `with`** — the node exists to put a binding in scope for its subject; once the subject's references
+   carry it, it is dropped, from a body and from a slot's type.
 
-**Pure code is untouched.** A definition with an empty row and no discharge elaborates to itself. The one
-exception is a pure definition that *discharges*: its region is written at `Id`, its arms come out
-`pure[Id]`, and `runId` is written beside it — **honestly well-typed**, not well-typed-modulo-normalization.
+**Where a binding comes from — the resolution order**, walking outward lexically:
 
-Two mechanical invariants of the phase, both of which cost real bugs to learn:
+1. the nearest enclosing `with` for that ability;
+2. this definition's own phantom binder for it — a **received** binding, filled by its caller. There is no
+   graph to sum: forwarding is the enclosing signature, read once;
+3. for an actual at a row-typed slot, the entries that slot **supplies** (§2.2) — bound by the slot's own
+   `with`, or by `Default` with none;
+4. `Default`, "search at the ground arguments" — today's two-site resolution — for an ordinary **ability**.
+   For an **effect** there is no default: an uncovered one is the "performs but does not declare" error,
+   reported here at the reference.
 
-- **Position fidelity.** `assemble` returns the **original** nodes when nothing changed. Rebuilding an equal
+**Effect-ness is read from one place only**: the callee's declared row. An ability appearing in
+`effectRow.returnEffects` is an effect at this reference — which for an `effect`'s member is what membership
+recorded, and for an ordinary definition is what its `{ … }` says. A `~` constraint's ability is in no row, so
+it defaults. Nothing keys on a name or a shape.
+
+**Both halves of a definition are written, because both hold references.** A guarded return
+(`def head[COND: Bool]: if(COND, String[]) else raise("empty")`) is compile-time code in type position, and
+its `if`/`else`/`raise` are ordinary calls with row-typed slots and phantom binders. What differs is only the
+scope check: a signature's effects are the guard channel's vocabulary, discharged by the guarded-return read
+rather than performed, so an uncovered one defaults instead of being reported. The same exemption covers the
+platform **run boundary** (`row/RunBoundaryFunctions`), which is where every effect's chain ends.
+
+**Pure code is untouched**, and so is code that only forwards: a definition with no rows, no constraints and
+no rowed callee is returned unchanged.
+
+Two mechanical invariants of the pass, both of which cost real bugs to learn:
+
+- **Position fidelity.** The walk returns the **original** nodes when nothing changed. Rebuilding an equal
   spine re-attributes it to per-argument positions, silently moving every diagnostic anchored at a call and
   duplicating LSP hover hints.
-- **The universe is built by demand, not guessed.** `RowChecker.Universe.onMiss` reports every name
-  consulted but absent; the processor fetches exactly those and repeats until a round misses nothing new.
-  Guessing would fall back to unknown-callee approximations, and a wrong slot mode changes *when* an effect
-  runs — which no later phase catches.
+- **The universe is built by demand, not guessed.** `RowChecker.Universe.onMiss` reports every name consulted
+  but absent; the processor fetches exactly those and repeats until a round misses nothing new. Guessing would
+  fall back to unknown-callee approximations, and an unwritten binder silently runs on the platform's default.
 
-### 3.2 The whitelist — the anti-accretion guardrail, binding on every future change
+### 3.2 What the write may consult
 
-The elaborator may consult exactly: a callee's declared parameter and return types (slot carrier-headedness,
-carrier-codomain arrows, atomic-vs-applied shape), its declared row and carrier binders, its pinned metadata,
-the run-boundary registry, one level of type-alias expansion inside those signatures, and **the derived row
-of an argument at a position whose classification that argument settles**.
+Declarations, and nothing else: the callee's declared parameter and return types, its declared row, its
+membership in an `effect`/`ability` block, the implementation names a `with` resolved to, the run-boundary
+registry, and one level of type-alias expansion inside those signatures.
 
-A decision that cannot be made from that list is a **design gap to close in the declarations** — never
-approximated by a new syntactic rule. In particular, **a rule that inspects a *sibling argument's*
-expression shape is inference, not desugaring, and is prohibited.** (An elaborator-local join over the
-callee's *declared* parameter shapes is inside the whitelist; a sibling-expression rule is not.)
+v5 needed a written *whitelist* here (§9.9's retired rule 5), because its elaborator had to classify each
+slot — carrier-headed or payload, pinned or open — and every classification is a place an approximation can
+accrete. **There is no classification left to approximate**: a slot either declares a row or it does not, and
+that is read off the declaration. A rule that inspects a *sibling argument's expression shape* is inference,
+not desugaring, and is still prohibited; a decision that cannot be made from a declaration is a gap to close
+**in the declarations**.
 
-The argument-row clause is not a sibling rule: the derivation reads only declarations, and the position is
-one the callee's own signature nominated by mentioning a carrier binder there. It is what settles
-`ρ := {}` — by what the determining positions *do*, not by what kind of value they hold. Both readings are
-needed and neither subsumes the other, and their conjunction can only **withhold** `ρ := {}`, never grant
-it: a withheld empty row costs a `pure` wrap, a wrongly granted one puts an effect on a carrier that cannot
-perform it.
-
-The fail-safe direction is built in: a missing rewrite leaves direct-style code the checker rejects loudly;
-a wrong rewrite silently changes when an effect runs.
+The fail-safe direction is built in: a missing write is an aborted definition with a violation at its own
+position, never a binding silently taken from the platform's default.
 
 ### 3.3 Two verifiers, one vocabulary
 
@@ -364,188 +360,144 @@ and a **row** (a second output, exactly as an `Int`'s range lives in the refinem
 not inside it). Row constraints are set-shaped: union for sequencing, inclusion for boundaries
 (`derived ⊆ declared`) — commutative and order-independent, so no argument-order sensitivity can exist.
 
-- **Pre-mono**, per definition: `RowElaborationProcessor.verifyRow`, reported at the definition before
-  anything downstream runs.
-- **Post-mono**, at ground instantiations: `channel/EffectAccountingProcessor`, wired as a **codegen
-  precondition** via `getFactOrAbort`, so an undeclared effect blocks code generation rather than merely
-  warning. It gates each reference's contribution by the **ride test**: a contribution counts only if it is
-  performed on the value's *own* ambient carrier, compared by exact `GroundValue` equality against
-  `MonomorphicValue.ambientCarriers`.
+- **Pre-mono**, per definition: the **scope check**, which is not a separate pass but the write's own walk
+  (§3.1). An operation or a rowed callee needs a covering declaration, and the only places one can come from
+  are the enclosing def's row or constraints, an enclosing `with`, or a slot's row. It is complete before
+  monomorphization, since nothing about it is instantiation-dependent, and it owns the diagnostic for a `with`
+  whose subject contains no covered use.
+- **Post-mono**, at ground instantiations: `monomorphize/channel/EffectAccountingProcessor`, wired as a
+  **codegen precondition** via `getFactOrAbort`. Under names "performs X" is "a reference that forwards a
+  **received** binding to a callee declaring X as a row entry", read off the value's own type arguments, and
+  the check is that set ⊆ the declared row.
 
 Both emit the same message: *"This value performs the effect 'X' but does not declare it…"*.
 *Forward what is declared, derive what is done* — a forwarded per-operation verdict would be a checker
 self-report and is rejected, as is any negative-effect surface.
 
-The pre-mono check is bounded exactly three times, by what declarations genuinely cannot settle:
+**The post-mono check's coverage is a strict subset of the scope check's, and that is measured, not assumed**
+(D7, `jvm/…/EffectAccountingDerivationTest` pins it). It sees propagation through a *declaring callee* —
+`main` calling `{Inf, Console} loopForever` forwards both — and does **not** see a direct operation call, since
+`AbilityResolver` has by then rewritten `printLine` into the implementation method, which declares no row.
+That is not a hole: the scope check reports an uncovered effect at the reference for an operation and a
+declaring callee alike. The processor nonetheless has a **second job that is nobody's shadow** — rejecting a
+supplied row entry whose argument nothing determines (§2.2) — so retiring the subset check would not retire
+the processor.
 
-1. **coverage** — an unknown callee may leave the derivation incomplete;
-2. **decidability** — a definition whose declared return could *itself* be the carrier (an applied
-   `Box[String]`, `IO[Unit]`, a generic head) is the constructor-class shape, settled only by the
-   instantiation;
-3. per row entry, a contribution handed to a slot that **fixes a foreign concrete carrier**
-   (`RowChecker.fixesCarrier`) is performed in *that* carrier, not on this definition's ambient — which is
-   the whole of the fake-carrier testing strategy (§6).
+### 3.4 The three primitives
 
-All three defer to accounting's ride test, which decides them exactly. Everything else is enforced,
-including the one diagnostic accounting cannot voice — *declared pure but performs effects*, for a
-definition whose return cannot host a carrier, since such a value's mono fails and produces no
-`MonomorphicValue`.
+A resuming clause is a call and needs nothing. A finishing clause is a **non-local exit**; a stateful
+implementation needs a value **threaded through calls that never mention it**. Neither is expressible as a def
+in a strict pure core — under v5 both were expressed by the transformer instances, which is the whole reason
+the carrier existed. They are now three **platform-private leaves**, one per target, and nothing else:
 
-`fixesCarrier` has three conditions, each fail-safe *towards deciding* (the direction that keeps a
-diagnostic at the definition): the argument is a **saturated call to a callee with a non-empty declared
-row**; the slot's declared type is a **concrete constructor applied to at least one argument**, not the
-`Function` arrow and not one of the callee's own binders; and the slot is **not what the argument's own
-declared payload already is** (a payload delivery, `orEmpty(readLine)`, must stay charged — reading it as a
-carrier fixing silently dropped the everyday "I forgot the effect set" diagnostic). It compares the
-*payload*, not the declared return, because a rowed callee's return is `F[X]` by the time the row check
-reads it.
+| primitive | shape | jvm | microcontroller | compile track |
+| --- | --- | --- | --- | --- |
+| escape | `escapeInternal[K, A, R](body: {} A, onExit: K => {} R, onValue: A => {} R): R` — abortive, never re-entered; the frame is the machine stack | an exception, one class per instantiation | a status flag and a jump (§10.3 A2) | an evaluator intrinsic |
+| cell | `withCellInternal[S, A, R](initial: S, body: {} A, combine: A => S => {} R): R` — scoped to one call, saved and restored around it | a static field per instantiation | a register | an evaluator intrinsic |
+| loop | `foreverInternal` | `while(true)` | the super-loop | never runs (`Inf` is stuck) |
 
-The first condition is asked of what the argument **finally delivers**, not of its outermost node. A
-`{ … }` block is an applied lambda, so before that peel a block never matched and the harness was charged
-for the very effect it fakes — while the same harness written as a single call deferred correctly, which is
-a difference the user cannot see and cannot act on. The peel changes only *which* expression the
-discriminator is applied to: a block delivering the slot's own payload (`takeOpt({ …; readOpt })`) is still
-charged where it ran.
+The control effects' single implementations are written over them: `Throw[E]`'s `raise` is `exit`, `State[S]`'s
+`state`/`putState` are `read`/`write`, `Writer[W]` appends to a cell, `Dep[T]` reads one. The frame an operation
+reaches is the **nearest enclosing** one of its instantiation — the machine stack's discipline, inside the leaf
+and nowhere else.
 
-### 3.4 `Id`
+They are **private, and the dischargers are therefore abstract in the base.** A public cell is Landin's knot —
+a cell holding a closure that reads the cell is a loop, and `termination/PurityGuardTest` exists to keep it out
+— so `withCell` may not be a base name, and `escape` follows for uniformity. `runThrow`, `runAbort`,
+`runStateToPair`, `runWriterToPair` and `provide` are body-less signatures in the base and bodied per platform;
+`catch`, `else`, `runStateToValue`, `runStateToFinalState`, `runWriterToValue` and `runWriterToLog` are ordinary
+platform-independent bodies over those and stay in the base, where the base-layer rule says they belong.
 
-`Id` is the value of the empty row, and it is **written**, not manufactured. It stays ordinary `data`
-(`data Id[A](runId: A)` + `implement Effect[Id]`, deliberately **no** `Suspend[Id]`, so real I/O can never
-run on it — only the pure control effects `Abort`/`Throw`/`State`/`Dep`). `channel/IdNormalizer` erases it
-at the `WovenValue` seam and `WovenValueProcessor.assertNoIdResidue` is a **hard build error** on any
-survivor — the proof that erasure is complete, and *more* load-bearing now that `Id` is written
-deliberately.
-
-What v2 was faulted for, and what is gone, is the checker **manufacturing** a carrier head on pure judgments
-(`T` → `Id[T]`, term → `pure@Effect[Id](term)`) so slot arms could split unconditionally, then normalizing
-it away — ~95% of which was the identity `runId(pure@Id(x))`. Written `Id` with an honest type is not that.
-
-**Recurring tax: any new consumer of `MonomorphicValue` or of mid-mono `SemExpression`s must Id-normalize
-first.** Rendering hides the machinery *names* but not the inserted machinery *nodes*.
+Eliot has no *layer*-private visibility — `private` is module-scoped — so each jvm module needing a primitive
+declares its own copy. That is five copies of two shapes, and it is the right trade: one public `eliot.jvm.Cell`
+would put a mutable cell in reach of any jvm program. Repetition also separates the frames for free, since the
+backend keys a frame class on the name that installed it.
 
 ### 3.5 Discharge
 
-Discharge falls out structurally, with no annotation: a discharger's consumed effect lands on an *inner
-transformer carrier* (`StateCarrier[S, G]`, not the caller's ambient `G`), so it simply drops out of the
-derived row. That is why wrapper-reached discharge inside a `{Console}` body just compiles, and why there is
-nothing to spell as a negative effect.
+**Discharge is a frame, not a layer.** A discharger installs the frame its effect's operations exit to or
+thread through, and the entry simply never joins the row — so there is nothing to spell as a negative effect,
+and a wrapper-reached discharge inside a `{Console}` body just compiles.
 
-A discharger must be **called directly** (`runStateToPair(s0, p)`): by rule 4 the dot's subject is a plain
-type parameter, which may not carry a computation, so `p.runStateToPair(s0)` is a hard error naming the fix.
-The infix dischargers `catch`/`else` resolve to a direct call and are unaffected. A discharger's **handler
-may itself perform effects** (`onError: E => {} A`, a row over the same carrier), and a **`val`-bound**
-computation is dischargeable, since a call needing more than the ambient declares carries its own discharge
-stack and the `val` binds the reified computation as data.
+**Nesting order at the run site decides interaction**, and it is written where the frames are installed:
+`runStateToPair(s, runThrow(c))` versus `runThrow(runStateToPair(s, c))` is the difference between state
+surviving a `raise` and not. There is no canonical form to fix and no ordering for the compiler to choose.
 
-### 3.6 An ability is not an effect by nature
+A discharger may be called any way a function can be — v5's "a discharger must be called directly" rule has no
+subject, since a thunk is a plain value and passes through the dot's plain `T` as the value it is. A
+discharger's **handler may itself perform effects** (`onError: E => {} A`, bound where it is written), and a
+`val`-bound computation is dischargeable.
 
-**A method performs an effect because it declares one.** An ability method spells its effects with a row on
-its return, exactly as any other definition does:
+**Two families, and only one is rebindable.** The **control effects** — `Throw`, `Abort`, `State`, `Writer`,
+`Dep`, `Inf` — have exactly one implementation per platform, over the private primitives; `with` has nothing
+to choose there. The **interpretation effects** — `Console`, `Log`, `FileSystem`, `Process`, `Environment` —
+and every ability are what `with` and a naming slot are for. The families are a description, not a bit in the
+language: nothing keys on it.
 
-```eliot
-ability Console[F[_]] { def printLine(s: String): {Console} Unit }
-```
+### 3.6 An effect is declared, never read off a shape
 
-That row desugars onto the *ability's own* binder (`EffectSugarDesugarer.abilityMethodCarrier`), so the
-ordinary declared-carrier and declared-row rules answer for it and **no phase reads effect-ness off the
-shape of an ability's signature**. A method declaring **no** row performs nothing — which is exactly what a
-**constructor class** is (`ability Container[F[_]] { def wrap[A](a: A): F[A] }`), and what the old "any
-higher-kinded binder of an ability method is a carrier" rule made impossible to express: it read `unwrap(b)`
-as performing the effect `Container` and rejected `def unboxed(b: Box[String]): String = unwrap(b)` with no
-spelling that could fix it.
+v5 read effect-ness off an ability method's declared row; v6 moves the declaration to the block, where an
+ability's already is. Membership in an `effect` block says a member needs that binding; a **constructor
+class** is simply an `ability` (`ability Container[F[_]] { def wrap[A](a: A): F[A] }`), and needs no exception.
 
-The one exception is the **machinery** abilities `Effect`/`Suspend`, whose methods keep spelling `F[A]`:
-machinery is filtered out of every row by design, and they are recognized by name
-(`EffectMachinery.isMachineryAbility`).
+**No phase reads effect-ness from a name, a shape, or a higher-kinded binder.** The one reading is the callee's
+declared row (§3.1). The `<Ability>Carrier` naming convention, an LSP reverse table and "has an `Effect`
+instance" all miscompiled in both directions under v5 and are prohibited; under v6 there is no carrier to
+recognise at all, so the prohibition has nothing left to guard and is kept only so it is not reinvented.
 
-`EffectCarriers.declaredCarrierBinders` therefore asks which binders a signature *declares* as carriers:
-ability-constrained (`[G[_] ~ Effect]`, every row-minted binder), the base of a declared **pinned** row
-(deliberately unconstrained, so nothing else marks it), or a *machinery* ability's method.
-
-**Carrier-ness is recognized by a tag threaded from elaboration — never by name or shape.** A pinned row
-desugars to a carrier stack with no residual marker, so the marker is added at the desugar and carried on
-the fact (`EffectRow.returnPinnedEffects` / `pinnedParameterIndices`), plus the platform-contributed run
-boundaries (`row/RunBoundaryFunctions`) for concrete carriers no row can spell, like the synthetic main's
-`IO[A]`. Classifying by the `<Ability>Carrier` naming convention, an LSP reverse table, or "has an `Effect`
-instance" **miscompiles in both directions** and is prohibited.
+What remains of carrier identification is **one structural predicate that is not about effects**:
+`EffectCarriers.isHktBinder`, "is this binder higher-kinded?", which `check/CarrierKindChecker` asks in order to
+reject a `[F[_]]` binder instantiated at a fully-applied proper type. That is a kind system living next door,
+and it is soundness (§11, "do not re-propose").
 
 ### 3.7 Rendering
 
-User-facing text stays in payload/row vocabulary: carrier machinery names (`ThrowCarrier`, `AbortCarrier`, …)
-and the `Id[X]` payload wrapper are never rendered. One inverter does it — `effect/EffectRowRendering` driven
-by `EffectCarrierNaming.abilityNameOfCarrier` — used by `monomorphize/fact/GroundValueRenderer` (LSP hover,
-ability-demand diagnostics) and `unify/SemValuePrinter` (`Expected:`/`Actual:` lines), so a carrier stack
-always reads as the pinned row that spells it (`{Abort | IO} String`).
+There is nothing to invert. An effect is an ordinary nullary ability, an implementation is a name, and a
+computation is a thunk, so a type contains no machinery to hide: `GroundValueRenderer` prints what the user
+wrote. v5's inverter — a canonical `ThrowCarrier[E, StateCarrier[S, Id], A]` stack rendered back as
+`{Throw[E], State[S] | Id} A`, plus the `Id[X]` ⤳ `X` erasure — went with the carrier, and with it the two
+entry points it needed, which existed only because a carrier's last argument meant one thing applied to a
+payload and another unapplied.
 
-**Recognizing carrier-ness by name is sanctioned here and nowhere else** — a misrendering is cosmetic, the
-same guess in the checker miscompiles. Two deliberate rules: `Id[X]` is erased to `X`, but an `Id` **row
-base is kept** (`{Throw[E] | Id} A` is legal surface and is *not* the open row `{Throw[E]} A`). The one
-demand with a story rather than a name — `Suspend` at `Id` — gets a purpose-built message, keyed on the
-*base* of the row (`GroundValueRenderer.baseCarrier`), so any effect demanded on a stack that bottoms out at
-`Id` keeps the pure-base explanation.
+### 3.8 What the checker holds
 
-### 3.8 What the checker still holds
+**No effect rule at all.** v5's one survivor, `EffectLifter.tryPureWrap`, had a carrier-headed expected type
+for its subject and is deleted with it. There is no lift, no `pure`, no `Id`, and no effect diagnostic in the
+checker.
 
-Exactly **one** effect rule, deliberately: a pure term meeting a **rigid** carrier-headed expected type is
-`pure`-lifted (`check/EffectLifter.tryPureWrap` — no metas, no ordering, no lattice). The checker holds no
-effect diagnostic of its own; the rule above is enforced where the declaration is known, in the desugar, and
-this arm is the fallback for what the elaborator does not classify.
+Two things beside it are **not** effect machinery and must not be deleted as such (measured — see §12):
+`check/CarrierKindChecker` (§3.6) and the compile track's mid-spine default ladder with its deferred slots
+(`Track.Compiler`, `Checker.resolveDeferredSlot`), where an inline guard's carrier is still inferred and pinned
+post hoc — the sole live reader of the `Unifier`'s higher-kinded-meta record.
 
-Beside it live two classes that are **not** effect machinery and must not be deleted as such (measured — see
-§12): `EffectLifter`'s carrier recognition (`effectCarrierSplit`, `mustPureWrapBeforeUnify`) and
-`check/CarrierKindChecker` (`recordCarrierMetas`, `verifyCarrierKinds`). `verifyCarrierKinds` is the only
-thing rejecting a `[F[_]]` binder instantiated at a fully-applied proper type; with it off, a wrongly-kinded
-program silently compiles. They are a **kind system living next door**, not effects.
+## 4. The scope check, as a spec
 
-The **compile track** keeps its mid-spine default ladder and deferred slots *by design* (`Track.Compiler`,
-`Checker.resolveDeferredSlot`): an inline guard's carrier is inferred and pinned to `Either[E]` post hoc —
-the sole live reader of the `Unifier`'s higher-kinded-meta record.
+A `Row` is a set of effect-ability entries (production: multiset of *(ability, type-args)*). The check is per
+definition, over the operator-resolved body **and signature**, reading only *declared* information. It is the
+write's own walk (§3.1), so this is a spec of `row/BindingWriter` rather than of a separate pass:
 
-## 4. The derivation, as a spec
-
-A `Row` is a set of effect-ability entries (production: multiset of *(ability, type-args)*). Judgments are
-per definition, over the operator-resolved body, reading only *declared* information. This is the live spec
-of `row/RowChecker`:
-
-- **value-of**: `row(literal) = row(λ) = row(under-applied ref) = ∅`;
-  `row(saturated call f(a₁…aₙ)) = riding(f) ∪ ⋃ᵢ contrib(aᵢ)`;
-  `row(applied λ)` (the block/`val` desugar) `= row(bound arg) ∪ row(body)`.
-- **riding**: `riding(f) = declared(f) ∖ capturedByStack(f)`, where
-  `capturedByStack(f) = (declared(f) ∖ ambient) ∩ dischargeable`. Effects the ambient does not provide and a
-  discharger in scope can consume land in that call's own carrier stack, for a consumer to discharge — not
-  on this definition's row. **This must stay the mirror of `RowElaborator.carrierAt`**: a verifier that
-  counts what the elaborator has just routed elsewhere reports a leak for correct code. A capture nothing
-  discharges is still rejected — by the checker, against the declared return.
-- **contrib** at slot *i*: `contrib(aᵢ) = (row(aᵢ) ∪ latent(aᵢ)) ∖ pinnedEntries(f, i)` — the subtraction
-  applies only when slot *i* is pinned; every non-pinned slot, strict *or suspended*, contributes
-  identically. A non-pinned slot that `fixesCarrier` (§3.3) still contributes, but its entries are recorded
-  as *undecided* and drop out of the leak.
-- **latent**: `latent(λx.e) = row(e)`; `latent(under-applied ref f) = declared(f)`; else `∅`. One latent row
-  per arrow; a function-valued argument's latent row joins the receiving call conservatively ("the callee
-  may run it").
-- **declared**: open-row return entries ∪ the effects constrained on the signature's carrier binders
-  (machinery excluded); an effect-ability method's contribution is its own declared row.
-- **check**: `row(peeled body) ∖ undecided ⊆ declared`, bounded by the three cases in §3.3.
-
-`RowElaborator.performs` reads the same derivation against the **region's** row, not the definition's:
-inside a pinned capture the region carrier provides that slot's pinned entries, and inside a run-boundary
-argument it provides everything. Without that widening an effectful argument inside a `catch` capture stops
-binding.
+- **the environment** at a point is `bindings` (innermost-first, so a nearer `with` shadows an outer one for
+  the same ability) and `thunks` (the row-typed parameters in scope, whose references apply to `unit`).
+- **a reference** to a callee with phantom binders resolves each binder by §3.1's order. An **ability** with
+  nothing in scope binds `Default`; an **effect** with nothing in scope is the error, at that reference.
+- **entering an argument** at slot *i*: the walk descends with the slot's supplied entries bound (to the
+  slot's `with`, else `Default`) iff slot *i* declares a row. A rowless slot is descended into with no slot
+  scope, so a lambda there reaches nothing enclosing.
+- **a `with`** binds its ability for its subject's text, and crosses a def boundary only through a
+  declaration. A `with` whose subject contains no covered use and no call to a declaring def is a hard error
+  naming the fix, never a silent no-op.
+- **a clause row is charged at the binding site**: `greeting("Bob") with recordingConsole` performs
+  `Writer[String]` there, because the name's clauses declare it, and the binding for it comes from the same
+  order.
+- **two exemptions, both because something else answers**: a **signature**, whose `raise`/`abort` is the guard
+  channel's vocabulary and is discharged by the guarded-return read; and a platform **run boundary**, where
+  every effect's chain ends and each of `main`'s entries is bound to the two-site `Default`.
 
 **Suspension is row-neutral.** Whether a slot is strict or declared-suspended changes only *when* the effect
-runs — elaboration's business — never whether the caller must declare it. The *only* slot mode that touches
-derivation is pinned capture, as subtraction.
+runs and *whose* declarations bind it — never whether the caller must declare what it performs.
 
-**Two same-ability entries** at different arguments are two entries; at identical arguments they
-deduplicate. Two such entries with a non-pinning handler have no canonical order and stay a diagnostic
-asking for a pin. First-order abilities (`Show`) are distinguished from effect abilities by the missing HKT
-binder. Only the *outer* layer of a carrier stack is payload-applied — shape knowledge that belongs at the
-desugar, not at a consumer.
-
-**A definition returning the platform's concrete run carrier** (`def main: IO[Unit]`) is the *nominal run*
-spelling of a boundary, where the concrete carrier captures the whole row. The run-carrier head is read off
-the **registered run boundary's own first parameter** (`runMain(io: IO[A])` ⇒ `IO`), never guessed from a
-name.
+**Two same-ability entries** at different arguments are two entries; at identical arguments they deduplicate.
+In one slot's row they are the shape §2.2 requires the call to spell.
 
 ## 5. Standing rules
 
@@ -560,12 +512,13 @@ These bind every future change to the effect system.
    record it as a corollary. The tells, in this project's own vocabulary: "bounded staging", "the corpus
    forced", "narrowed to ~nothing", "a small local concession", "keeps the shipped idiom", "it usually
    holds". A conflict is a decision for Robert, not a judgement call in flight.
-3. **No carrier inference.** No carrier metavariable, no join, no lattice, no ordering-sensitive slot
-   decision. That is the historical bug class — carrier theft and premature commitment — and it is
-   prohibited. The same prohibition covers rows if a row ever enters a type (§9.9 restates it for v6): rows are declared and
-   written, never solved.
-4. **Carrier-ness by tag, never by name or shape** — except in the one inverter (§3.7).
-5. **The whitelist** (§3.2) is closed. No sibling-expression rule.
+3. **There is nothing to infer.** A phantom binder is written by a `with`, by the enclosing declaration, by a
+   supplying slot, or as `Default`, in that order — never left to a metavariable, a join, a lattice, an
+   ordering-sensitive slot decision, or a sum over a monomorphized sub-graph. Carrier inference was the
+   historical bug class (carrier theft, premature commitment); binding inference would be the same bug in the
+   new vocabulary, and **dynamic scoping resolved at compile time** is its exact shape. Both are prohibited.
+4. *(Retired: "carrier-ness by tag, never by name or shape" — no subject. §3.6 keeps what it protected.)*
+5. *(Retired: the elaborator whitelist — no subject. §3.2 says what replaced it.)*
 6. **A component may read solved metas and splice rewrites; it may never run inside unification, never
    retract a solution, never grow an ordering arm.** A shape that genuinely needs mid-drain resolution is a
    stop-and-redecide signal, not a licence for a mid-flight arm.
@@ -574,141 +527,96 @@ These bind every future change to the effect system.
 8. **Fail-safe direction.** Every bound, every deferral and every declination must be able only to *withhold*
    a permission, never to grant one silently.
 
-## 6. Testing — the carrier is the injection point
+## 6. Testing — a named implementation is the injection point
 
-**Status: adopted and working**, for application-owned abilities (`examples/src/EffectsFakeCarrier.els`),
-for stdlib effects (`examples/src/EffectsFakeConsole.els`) and for a small framework built on it
-(`examples/src/EffectsTestFramework.els`).
-
-Production code that declares an effect row is already polymorphic in its carrier; it names no carrier, so
-it commits to no interpretation. Which interpretation it gets is decided by what its carrier binder is
-instantiated to, and that is decided by whoever runs it — in production the synthesized entry point
-instantiating `main` at `IO`, in a test the test:
+Production code that declares an effect row commits to no interpretation: it names no implementation, so
+whoever runs it decides. In production that is the synthesized entry point binding each of `main`'s entries to
+the platform's default; in a test it is one `with`.
 
 ```eliot
-data Session[A](runSession: Function[Pair[String, String], Pair[A, Pair[String, String]]])
-implement Effect[Session] { … }
-implement Terminal[Session] { … }
+effect Terminal {                                  -- the application's own effect
+   def write(line: String): Unit
+   def read: String
+}
 
-def greetTranscript: String = second(second(runSession(greet)(Pair("Bob", ""))))
+def greet: {Terminal} Unit = {                     -- production code, untouched by the test
+   val name = read
+   write("Hello, " ++ name ++ "!")
+}
+
+implement session: Terminal {                      -- the test's double, in the test module
+   def write(line: String): {Writer[String]} Unit = tell(line ++ ";")
+   def read: String = "Bob"
+}
+
+def greetTranscript: String = runWriterToLog(greet with session)
 ```
 
-Three properties fall out of the design rather than being added for testing. **The fake cannot cheat**: a
-pure test carrier has no `Suspend` instance, and `Suspend` is the only route to a native side effect. **The
-fake is confined to the test program**: compilation is whole-program monomorphization from `main`, so a test
-binary is a different program and coherence is a per-program question. **The orphan rule is satisfied for
-free**: the test module declares the test carrier, so the instance is legally colocated.
+Four properties fall out of the design rather than being added for testing.
 
-Two mechanisms had to be extended to reach it, and both are now load-bearing parts of the design:
+- **A double is one declaration.** It needs no type to hang on, no colocation with the ability or a carrier,
+  and no coherence question: a named implementation is never searched, so it may freely overlap a default.
+- **A double cannot cheat.** A user module cannot declare a native, and the platform's natives and primitives
+  are private to its layer, so an implementation reaches the world only through effects **its own clauses
+  declare** — which are charged, and bound, at the binding site.
+- **A double keeps its own state through an effect**, not through a carrier: `session` above writes to
+  `Writer[String]`, and that entry is charged where `session` is bound and discharged there by
+  `runWriterToLog`. It never appears in `greet`'s row.
+- **Interpretation is per effect, not per program.** `body with mockConsole with mockFileSystem` binds two
+  doubles and leaves everything else at its default; under v5 one type argument decided every effect at once.
 
-- **Constraint-aware declination** (`AbilityImplementationProcessor.constraintsSatisfied`). Candidate
-  selection is structural, so the jvm layer's `implement[F[_] ~ Suspend] Console[F]` matched *every* carrier
-  and a fake `Console` was a second surviving candidate — ambiguity, decided before the constraint could
-  fail. A candidate whose `~` constraints have no implementation at the matched bindings now **declines**.
-  Every step is fail-safe *towards keeping*, so it can only remove a candidate that could not have worked; a
-  constraint probe that leads back to a resolution already in progress is answered "satisfied" off
-  `activeFactKeys`, never demanded. Effect accounting reads an implementation's ability off its own resolved
-  declaration (`Qualifier.AbilityImplementation`), not off the implementation reference's module — the
-  orphan rule admits two placements and a fake takes the second.
-- **`RowChecker.fixesCarrier`** (§3.3), so the pre-mono verifier does not charge the harness for the effect
-  it fakes. Before it, the identical harness was accepted or rejected purely on the shape of its own return
-  type.
+`eliot-test` is the worked framework: `mocked` binds five doubles on its slot's type, so a unit test writes no
+fixture at all and reads `"…" should "…" in mocked { … }`. `examples/src/EffectsNamedEffect.els` is the
+minimal version of the same thing, and `EffectsFakeConsole.els` does it for a stdlib effect.
 
-**What a fake gets, and what it does not: lifting.** A real effect instance is **carrier-polymorphic**
-(`implement[F[_] ~ Suspend] Console[F]`), so it applies at any *stack* whose base can suspend — and
-`Suspend` lifts through all five stdlib carriers. That is why real effects appear to compose freely: the
-`Suspend` constraint is doing the work an mtl `lift` would. A fake instance is **monomorphic at one concrete
-carrier** (`implement Console[Recorded]`) — which is exactly what makes it uncheatable — and therefore gets
-no lifting at all. So a fake carrier can host any number of abilities, but the moment a stdlib control
-carrier is stacked *over* it, resolution fails at the stack:
-
-```
-No ability implementation found for ability 'Transcript' with type arguments [{Throw[AssertionError] | Recorded}]
-```
-
-The strategy that follows, and the one the framework in `eliot-test` uses, is **do not stack over a fake**:
-give the fake carrier its own instance of every ability the test body needs — assertions included
-(`implement Throw[AssertionError, Recorded]`) — so everything rides one carrier and nothing has to lift.
-That is what makes §7.7's interleaved case work. A missing cell *can* be hand-written
-(`implement[E, G[_] ~ Transcript & Effect] Transcript[ThrowCarrier[E, G]]` resolves and runs), but it is one
-instance per (ability × carrier layer) — the n² matrix the stdlib's own cross-lift comments name. Whether
-that matrix should ever be derived rather than written is **not** an open decision here: nothing in the
-testing strategy needs it, and the no-stacking answer costs nothing.
-
-**Alternatives, deliberately kept documented.** `Dep[X]` + `provide` is the supported route when you are
-willing to state the seam in the signature — it changes production signatures, so it is the fallback, not
-the strategy. **Swapping the platform layer** (drop `jvm/eliot` from `--path`, put a test layer there)
-substitutes everything at once and suits whole-program integration tests; a test layer added *beside* `jvm`
-collides at the merge. **`where` is the wrong tool**: a guard can only make a candidate decline, would have
-to be written on the library's instance, and needs a predicate no guard can express (guards see type
-arguments, not the instance environment).
-
-**This strategy is what ships; it is not the final form.** Part II (§9) replaces the carrier as the injection
-point with an implementation *name* bound by `with` — every limitation below (the lifting wall, the region rule,
-one interpretation per type argument) is a symptom of choosing an interpretation by instantiating a type, and
-disappears with it.
+**What this deletes from v5's testing story**, all of it symptom rather than design: the fake carrier and its
+`Effect` instance; the rule that a fake gets no lifting because it has no `Suspend` (the n² cross-lift wall);
+the region rule and the `{| Recorded}` capture tag that opted out of it; "do not stack over a fake"; and
+run-then-assert as a necessary shape. `Dep[X]` + `provide` remains available for a seam you want stated in the
+signature, and swapping the platform layer remains the whole-program integration answer.
 
 ## 7. Live limitations
 
 Each is stated, fail-safe, and either has a plan entry or is a deliberate trade.
 
-1. **A handler whose effects enter via a declared carrier-typed parameter must return a carrier-headed
-   type.** That carrier is caller-chosen, so no declaration determines it.
-2. **`Suspend`-riding effects cannot be pinned** (`{Console | X}` fails loudly at resolve — no
-   `ConsoleCarrier`) **nor supplied** in a parameter row; the two are the same limitation and the same
-   diagnostic. → **D4**.
-3. **A pure actual at a pinned slot is rejected.** Pinned captures never boundary-wrap, which is what
-   preserves the curated val-bound-discharge diagnostic. Rule 2's "pure arguments fit" is about *suspended*
-   (open-row) slots, not pinned ones. Storing a pure value in a computation field must be written
-   `Box(pure(x))`, which needs `import eliot.carrier.Effect`; declaring the field at its payload type is
-   usually the better answer.
-4. **An inline effectful call at a pinned slot is rejected unless it goes through a declared row.**
-   `Task(raise("boom"))` reports the undeclared `Throw`, while `def bad: {Throw[String]} String =
-   raise("boom")` + `Task(bad)` compiles — the elaborator instantiates a pinned row's ability arguments from
-   the argument's **declared** row.
-5. **A lambda body at a rowless arrow slot does not get its own pure region.** → **D5**.
-6. **Rule-4 violations are diagnosed twice, unequally.** → §10.3 A3 (formerly W2).
-7. **A fake run needs a region with no ambient carrier of its own.** Inside a pinned region the ambient
-   carrier *is* the pinned stack, and the elaborator writes every carrier-generic callee at the region's
-   carrier — so a fake run written *inside* a pinned body is written at the pinned stack, not at the fake
-   carrier. A carrier-generic value can only be instantiated at a foreign carrier in a region with no
-   ambient carrier of its own. W3 (below) removed the constraint; v6's `with` (§9) subsumes it.
-
-   This was previously stated as "a test is run-then-assert, never interleaved", which is **wrong** and is
-   corrected here: interleaving assertions with faked effects works today, and `eliot-test`'s
-   `test/eliot/test/example/` is the worked example. What made it work was not stacking — a pinned
-   `{Throw[AssertionError] | Session}` does fail, for the two reasons the retired L3 note recorded — but
-   giving the *fake carrier itself* a `Throw[AssertionError]` instance, so assertions ride the same carrier
-   as the faked effects and nothing has to lift (§6).
-
-   **Since W3 shipped (2026-09-04) the region rule is opt-out-able rather than binding.** A slot declared
-   `{| Recorded} A` (§2.3) is a capture, so the elaborator writes nothing into it and the checker
-   instantiates the body at the declared carrier — even at a call site inside a region of its own. A faked
-   case therefore costs **no** helper definitions: the run and a multi-statement body may both be written
-   inline at the `in` site. The rule above still governs every *untagged* slot, which is why it stays
-   stated. Two halves were needed and both are in: the tag, and the block peel (§3.3) so the harness is not
-   charged for the effect it fakes.
-8. **Rows are sets of abilities**, so a definition mixing a faked run with a real leak of *the same* ability
-   defers that entry and the user gets the post-mono `Type mismatch` at the harness body instead of the
-   located effect-vocabulary message. The program is still rejected; only the diagnostic degrades, and only
-   in that one mixed shape.
-9. **Rule 3 has no check of its own for a `data` field typed by the data's *own* open carrier binder**
-   (`data Box[F[_]](action: F[Unit])`). The open-*row* field is rejected; this shape is not. Has no subject under v6 (§10.3 A3, formerly W4).
+1. **A row cannot be closed.** A slot's row says what it supplies, not what it forbids: an entry it does not
+   supply continues the walk into the caller's scope. So there is no way to write "this body may perform
+   nothing at all", which is what `eliot.test`'s `pure { … }` meant and why it is deleted. Making it
+   expressible is a language addition and is not planned.
+2. **A discharger's type arguments are sometimes written by hand.** Where no declaration determines a supplied
+   entry's arguments (§2.2's three shapes), the call spells them. The rejection is loud and names the fix; the
+   alternative — defaulting — compiles a `catch` against a frame it will not meet.
+3. **An under-applied backend *intrinsic* has nowhere to link.** An intrinsic is emitted inline at each call
+   site, so only a saturated call can be emitted at all; `digits.map(show)` for such a name is a hard error at
+   the definition naming the fix (`digits.map(n -> show(n))`). This is a gap in the backend, not a rule of the
+   language — the same shape for an ordinary native, ability-implementation or not, is supported.
+4. **A guarded return cannot carry its author's message.** The compile-track `Throw` went with the carrier
+   (§10.2 F5), so a `raise("…")` in a signature reduces without its text. Accepted rather than fixed; the route
+   back is keying `Throw`'s compile-time frame on a fixed marker the way `Abort` keys on `Aborted`, at the cost
+   of two instantiations sharing one frame.
+5. **A set of effects has no name** (§2.4), so a slot doubling many of them writes the full chain, and a
+   project wrapping such a word restates the row. §12, "not now".
+6. **A stored computation's binding is fixed where it is constructed.** Deciding the handler before storing is
+   unambiguous and easier to understand; losing first-classness is the accepted price. A `with` applied to a
+   stored computation later is an error, never a rebinding.
 
 ---
 
-# Part II — The plan: effects are abilities, and an implementation is a name (v6)
+# Part II — How v6 was decided and landed
 
-**Status (2026-09-08): decided, including the implementation (§9.4).** An `implement` block stays what it is
-today, statically resolved method bodies. No ability becomes a record type, no implementation is ever a
-runtime value, and no row becomes a
-runtime parameter. A **named** `implement` mints an addressable *name*; `with` binds that name for the calls
-lexically inside its subject; and the binding joins the **monomorphization key**, so `greeting` under
-`recordingConsole` is its own instantiation and every operation call erases, from day one. Part I stays the
-authoritative description of the tree *until the flag day in §10 lands*; nothing in Part I is amended in
-place before then (standing rule 1). This part is the design that replaces it, the reasoning behind it in
-condensed form, the implementation steps, the decisions still open (§11) and the list of what is closed
-(§12). Every entry marked **decision** is Robert's; what §11 lists is what is still his to decide.
+**Status (2026-09-09): landed. Part I now describes what this plan built**, so this part is kept for three
+things a description does not hold: the **reasoning** behind each decision (§9), the **record of how it
+landed** with what each step cost and found (§10), and the two lists that bind future work — the decisions
+still open (§11) and what is **closed by measurement or decision and must not be re-proposed** (§12). Where
+this part and Part I disagree about the tree, Part I wins (standing rule 1); where a decision is quoted here
+and not restated there, this is still where the reasoning lives.
+
+An `implement` block stayed what it always was, statically resolved method bodies. No ability became a record
+type, no implementation is ever a runtime value, and no row became a runtime parameter. A **named**
+`implement` mints an addressable *name*; `with` binds that name for the calls lexically inside its subject;
+and the binding joins the **monomorphization key**, so `greeting` under `recordingConsole` is its own
+instantiation and every operation call erases. Every entry marked **decision** is Robert's; what §11 lists is
+what is still his to decide.
 
 **The model in one sentence (decision, 2026-09-08): a row entry is a compile-time parameter, and `with`
 applies its argument.** A row entry behaves exactly as a type parameter does — the caller fills it, it joins
@@ -1602,10 +1510,12 @@ four lived there.
   `Default` at the reference as an ordinary type argument and saturation demands the value it names. And never run
   `./mill` while `scripts/example-sweep.sh` is running: it rebuilds `out/` underneath the sweep, and the report then
   reads as a large regression that is not there.
-- **F9 — the documents. NOT DONE.** Part I rewritten to the v6 design (this Part's §9 is its draft); the CLAUDE.md
-  *Effects Are a Channel* cornerstone rewritten; the `eliot-code`, `eliot-layers` and `eliot-jvm-backend`
-  skills' effect sections; the `TODO.md` pointer. Part I is **still the v5 design as written** — it is accurate about
-  nothing in the tree except the four user rules, and reading it as current is the main hazard this Part leaves.
+- **F9 — the documents. IN PROGRESS.** **Part I is rewritten** (2026-09-09) and is again the authority for the
+  tree; Part II is reframed as the record of how v6 was decided and landed rather than a plan, and A3's
+  reconsidered limitations landed with it. What is left: the CLAUDE.md *Effects Are a Channel* cornerstone, the
+  `eliot-code`, `eliot-layers` and `eliot-jvm-backend` skills' effect sections, the `TODO.md` pointer, and
+  `eliot-test`'s own `.claude/CLAUDE.md` and `docs/mocking.md`, which still describe the mock carrier, fake
+  carriers and the deleted `pure`.
 
 If the gate cannot be met, the assessment in §9.2 is wrong somewhere — find where before landing anything,
 and do not land a narrowed version (standing rule 2).
@@ -1614,12 +1524,16 @@ and do not land a narrowed version (standing rule 2).
 
 - **A2 — backend exit primitive**, if a microcontroller target replaces the jvm exception with a status flag
   and a jump; the primitive's shape (§9.6) does not change.
-- **A3 — the reconsidered Part I limitations** (§7). Items 2 (cannot pin a `Suspend`-riding effect), 7 (a
-  fake run needs a carrier-free region) and 9 (a `data` field typed by its own open carrier binder) have no
-  subject. Item 6 (rule-4 violations diagnosed twice) is re-measured: with the elaborator gone the scope
-  check's error is the only one left, and it must name the slot.
-- **A4 — D4 dissolves** (any effect is storable and suppliable); Part I's limitation 5 dissolves with D5
-  (§9.4).
+- **A3 — the reconsidered Part I limitations. DONE 2026-09-09**, as part of F9: Part I §7 was rewritten and
+  now lists the live set. Of v5's nine, seven had no subject (all four carrier-shaped ones, the two about
+  pinning and fake regions, and the `data`-field binder), and the eighth — rule-4 violations diagnosed twice
+  — turned out to have no *violation*: an effectful call at a rowless slot simply runs where it is written
+  (rule 1), so there is nothing left to diagnose twice or once. What replaced them is smaller and different in
+  kind: a row cannot be closed, a discharger's arguments are sometimes written by hand, a set of effects has no
+  name, a stored computation's binding is fixed at construction — plus the two backend/compile-track items A9
+  and A8.
+- **A4 — D4 dissolves. DONE** (any effect is storable and suppliable); the v5 limitation D5 answered dissolved
+  with it (§9.4).
 - **A5 — retire the post-mono accounting verifier** under the §8 method (D7).
 - **A6 — the write fills a supplied row entry's own arguments. DONE 2026-09-09.** A parameter row lowers to a thunk,
   which erases the entry's arguments from the type, so `catch[E, A](computation: {Throw[E]} A, onError: E => {} A)`
@@ -1713,14 +1627,15 @@ values (§9.2).
 
 ### D4 — `Suspend`-riding effects: pinning and supplying
 
-**Dissolves at the flag day.** There is no canonical carrier for an effect to lack; a stored
-`{Console} Unit` is a thunk bound where it was written. Kept as a number only so §7.2 still resolves.
+**Dissolved at the flag day.** There is no canonical carrier for an effect to lack; a stored
+`{Console} Unit` is a thunk bound where it was written. Kept as a number only because §12 and Part III cite
+it; the Part I limitation it answered is gone with the rewrite (A3).
 
 ### D5 — a lambda body at a rowless arrow slot
 
 **Closed 2026-09-08.** The walk crosses a lambda boundary iff the lambda's slot has a row (§9.4). A rowless
 lambda is a barrier to received bindings only; it may bind and discharge locally, and must discharge everything
-it performs. Kept as a number so §7.5 still resolves.
+it performs. It is now stated in Part I as the third bullet of rule 4, rather than as a limitation.
 
 ### D7 — can the post-mono accounting verifier retire?
 
@@ -1865,11 +1780,11 @@ X §N"), not live references, and they do not index this document.
 
 | retired document | what it was | anchor scheme in comments | where its live content is |
 | --- | --- | --- | --- |
-| `effects-as-channel.md` (v2, "uniform carriers") | the first shipped design: the carrier as a type argument the *checker solves* | `§0`–`§13`, `finding N`, `U1`/`U4-x` | superseded in direction and in code. What it got right and kept: the channel (§3.3), rows never flowing into types, carrier-ness by tag (§3.6), `Id` without `Suspend[Id]` (§3.4), payload/row vocabulary (§3.7). What it got wrong is §12's first entry |
-| `effects-as-rows.md` (v3) | the landed design + its A.1–A.11 record: the elaborator writes the carrier | `§1`–`§9`, `A.x`, `R1`–`R6` | Part I in its entirety; §4 is its Appendix A.1; §5 its standing rules; §8 its A.9.4 method |
-| `effect-row-tails.md` | pinned rows as the one spelling of a carrier stack | prose only | §2.3, §7.2, D4 |
-| `testing-effects.md` | substituting effect implementations | `L1`–`L3`, `§2.x` | §6, §7.7 |
-| `effects-v5-one-carrier.md` | rows as constraints on one carrier — the subtraction from v3 | `§4 step N`, `§5 Q1`–`Q4`, `§7` | §2.1 (step 1), §2.2 (step 2), §2.4 (§7), §3.8 + §12 (step 4 and Q1) |
+| `effects-as-channel.md` (v2, "uniform carriers") | the first shipped design: the carrier as a type argument the *checker solves* | `§0`–`§13`, `finding N`, `U1`/`U4-x` | superseded in direction and in code. What it got right and still holds: the **channel** (§3.3) and rows never flowing into types. Its carrier-specific results — carrier-ness by tag, `Id` without `Suspend[Id]`, the payload/row rendering inverter — went with the carrier. What it got wrong is §12's first entry |
+| `effects-as-rows.md` (v3) | the previous landed design + its A.1–A.11 record: the elaborator writes the carrier | `§1`–`§9`, `A.x`, `R1`–`R6` | its **user model** is Part I §1–§2 and its **standing rules** are §5, both largely intact; its mechanism (the elaborator, the derivation spec, the whitelist) is superseded by §9. §8's gate method is its A.9.4 |
+| `effect-row-tails.md` | pinned rows as the one spelling of a carrier stack | prose only | no live content: a stored computation is a thunk (§2.3) and D4 dissolved |
+| `testing-effects.md` | substituting effect implementations | `L1`–`L3`, `§2.x` | §6 — the question is the same and the answer changed: a name, not a carrier |
+| `effects-v5-one-carrier.md` | rows as constraints on one carrier — the subtraction from v3 | `§4 step N`, `§5 Q1`–`Q4`, `§7` | §2.1 (step 1) and §2.2 (step 2) both survive v6 unchanged in meaning; its §7 (an ability requiring abilities) has no v6 spelling (§2.4); step 4 and Q1 are §12 |
 | `effects-as-channel-v4.md` | the row leaves the type, the carrier leaves the language | `R1`–`R11`, `P0`–`P5`, `Q1`–`Q4`, `§0`–`§11` | superseded by **§9** (v6); its seam finding is §9.7 |
 | `effects-v4-p0-spike.md` | does the `WovenValue` seam know the carrier? | `S1`–`S3` | §9.5's seam test; the test is permanent |
 | `effects-v4-p2-sizing.md` | sizing the flag day | `§1`–`§5` | §10.2 |
