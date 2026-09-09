@@ -1451,6 +1451,19 @@ are the v5 carrier, elaborator and mono suites, which F2 and F3 delete or rewrit
   nullary `Aborted` marker and is what makes an `if..else` guard reduce, and a compile-time reduction that reaches
   the unbodied `runThrow` is *stuck*, which is loud rather than wrong.
 
+  **REVERSAL, accepted by Robert on 2026-09-09: a guarded return type can no longer carry its author's message.**
+  This deletion is not diagnostic-neutral, which the entry above did not say. `raise(msg)` is the vocabulary in which
+  a guard states *why* it rejects — `def head[COND: Bool]: if(COND, T) else raise("empty")`, and the bare
+  `def unavailable: raise("not available")` — and with nothing implementing `raise` on the compile track neither
+  reduces. A rejecting guard still rejects, at the use site, but says only **"A type guard rejected this use."**
+  The accepting half is unaffected: `if(COND, T) else T` types as `T` and runs as the bare type.
+
+  So the effectful-signatures surface is narrowed, not merely re-implemented: the `where`-message vocabulary
+  documented for guarded returns is gone until a compile-track `Throw` exists. The route that would restore it is
+  keying `Throw`'s frame on a fixed marker the way `Abort` keys on `Aborted`, rather than on `E` — at the cost of two
+  `Throw` instantiations sharing one compile-time frame. Not attempted; recorded so the loss is a decision rather
+  than a surprise.
+
   Four debts the examples surfaced, each a real gap rather than a slip: **`fold`'s arms are thunks now**, so the
   backend intrinsic *and* the compile-time reduction have to run the selected arm; **`ClassWriter.getCommonSuperClass`
   cannot load a class being generated**, and merges only became reachable once a branch yields a lambda instance
