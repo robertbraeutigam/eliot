@@ -25,11 +25,12 @@ implement Show[IoError] {
 /**
  * The filesystem effect: reading, writing, folding over, and inspecting files and directories.
  *
- * Every operation runs on a carrier `F` and may fail with an `IoError` — the instance requires `Throw[IoError]` of its
- * carrier, so a filesystem program's row reads `{FileSystem, Throw[IoError]}`. Failure and access are separate row
- * entries: `catch` discharges the `Throw[IoError]` while `{FileSystem}` keeps riding to `main` (just as `{Console}`
- * does). A target without a filesystem simply ships no `FileSystem` instance, so any `{FileSystem}` program fails
- * ability resolution for that target — the layer system is the capability.
+ * Every operation may fail with an `IoError`, which each one declares as `{Throw[IoError]}` — a member's row lists
+ * what it performs *beyond* the effect it belongs to, and membership already says `FileSystem`. So a filesystem
+ * program's row reads `{FileSystem, Throw[IoError]}`: failure and access are separate row entries, and `catch`
+ * discharges the `Throw[IoError]` while `{FileSystem}` keeps riding to `main` (just as `{Console}` does). A target
+ * without a filesystem simply ships no default `implement FileSystem`, so any `{FileSystem}` program fails at the
+ * run boundary for that target — the layer system is the capability, and a test binds a double with `with`.
  *
  * There are no file handles and no `open`/`close`: the whole surface is whole-file and fold operations that open and
  * close internally, so nothing can leak.
@@ -44,70 +45,70 @@ implement Show[IoError] {
  * }
  * ```
  */
-ability FileSystem[F[_]] {
+effect FileSystem {
    /**
     * Read the entire contents of the regular file at `path` as a single `String`.
     */
-   def readFile(path: Path): {FileSystem} String
+   def readFile(path: Path): {Throw[IoError]} String
 
    /**
     * Write `content` to `path`, creating the file or truncating an existing one.
     */
-   def writeFile(content: String, path: Path): {FileSystem} Unit
+   def writeFile(content: String, path: Path): {Throw[IoError]} Unit
 
    /**
     * Append `content` to `path`, creating the file if it does not exist.
     */
-   def appendFile(content: String, path: Path): {FileSystem} Unit
+   def appendFile(content: String, path: Path): {Throw[IoError]} Unit
 
    /**
     * Fold over the lines of the regular file at `path`, front to back, in constant space: starting from `initial`,
     * combine each line into the accumulator with `step`. The platform-owned loop — a total language expresses every
     * iteration as a native, and a file is no different.
     */
-   def foldLines[B](initial: B, step: B => String => B, path: Path): {FileSystem} B
+   def foldLines[B](initial: B, step: B => String => B, path: Path): {Throw[IoError]} B
 
    /**
     * Fold over the Unicode code points of the regular file at `path`, front to back, in constant space. A code point is
     * an `Int` in `[0, 1114111]`; the platform decodes the file's bytes.
     */
-   def foldCodePoints[B](initial: B, step: B => Int => B, path: Path): {FileSystem} B
+   def foldCodePoints[B](initial: B, step: B => Int => B, path: Path): {Throw[IoError]} B
 
    /**
     * Read the regular file at `path` as a list of its lines, in order. The whole-file counterpart of `foldLines`.
     */
-   def readLines(path: Path): {FileSystem} List[String]
+   def readLines(path: Path): {Throw[IoError]} List[String]
 
    /**
     * `true` when something exists at `path`.
     */
-   def exists(path: Path): {FileSystem} Bool
+   def exists(path: Path): {Throw[IoError]} Bool
 
    /**
     * `true` when `path` exists and is a directory.
     */
-   def isDirectory(path: Path): {FileSystem} Bool
+   def isDirectory(path: Path): {Throw[IoError]} Bool
 
    /**
     * The immediate entries of the directory at `path` (not recursive), each as a full `Path`.
     */
-   def listDirectory(path: Path): {FileSystem} List[Path]
+   def listDirectory(path: Path): {Throw[IoError]} List[Path]
 
    /**
     * Every file under `path`, depth-first — the recursive tree walk. A native by necessity: tree descent is unbounded
     * iteration, inexpressible in user Eliot.
     */
-   def walk(path: Path): {FileSystem} List[Path]
+   def walk(path: Path): {Throw[IoError]} List[Path]
 
    /**
     * Create the directory at `path` and every missing parent. A no-op when it already exists.
     */
-   def createDirectories(path: Path): {FileSystem} Unit
+   def createDirectories(path: Path): {Throw[IoError]} Unit
 
    /**
     * Delete the file or empty directory at `path`.
     */
-   def delete(path: Path): {FileSystem} Unit
+   def delete(path: Path): {Throw[IoError]} Unit
 }
 
 /**

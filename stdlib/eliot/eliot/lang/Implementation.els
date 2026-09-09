@@ -1,0 +1,12 @@
+/**
+ * The compiler's marker for "no implementation was named here".
+ *
+ * Effects v6 gives every effect row entry and every `~` constraint a compile-time parameter — a *binding* — whose
+ * value is the implementation the calls under it run on (`docs/effects.md` §9.4). Where a `with` names one, that
+ * name is the value. Where nothing does, the compiler writes `Default`, which means "find the implementation the
+ * ordinary way": the unique `implement` block in the ability's module or in the type's.
+ *
+ * It is not a value and cannot be constructed. It exists as a declaration only because a binding is an ordinary
+ * type argument, and a type argument has to name something.
+ */
+type Default

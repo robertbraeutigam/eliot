@@ -1,21 +1,20 @@
-import eliot.jvm.IO
-
-ability Inf[F[_]] {
-   def forever(step: F[Unit]): {Inf} Unit
+// Merge copy of the base declaration so the implementation below can resolve it (name resolution is per-file). The
+// merge verifies this copy agrees with the abstract declaration in the stdlib layer, which carries the documentation.
+effect Inf {
+   def forever(step: {} Unit): Unit
 }
 
 /**
- * The JVM `Inf` instance: `forever` is pinned to the concrete runtime carrier `IO`. `Inf` is *run, not discharged*, so
- * there is no transformer and no `Suspend` lift — the loop is realised directly on `IO`. `forever` wraps the unbounded
- * loop in a fresh `IO` thunk; running that `IO` (via `main`'s `apply(block(...), unit)`) drives `foreverInternal`,
- * which re-invokes the step's deferred block on every iteration so the step's effects repeat. It never returns.
+ * The JVM `Inf` implementation: the unbounded loop itself. `Inf` is *run, not discharged*, so this is what the
+ * synthesized entry point binds when `{Inf}` reaches `main` — a deliberately non-terminating program. `step` arrives
+ * suspended, so each iteration re-runs it and its effects repeat.
  */
-implement Inf[IO] {
-   def forever(step: IO[Unit]): IO[Unit] = IO(_ -> foreverInternal(block(step)))
+implement Inf {
+   def forever(step: {} Unit): Unit = foreverInternal(step)
 }
 
 /**
- * The single non-terminating operation: invokes a deferred thunk endlessly. `private` so divergence is
+ * The single non-terminating operation: invokes a suspended computation endlessly. `private` so divergence is
  * reachable only through the `{Inf}`-typed `forever`. Implemented by the backend as an unbounded loop.
  */
-private def foreverInternal(thunk: Function[Unit, Unit]): Unit
+private def foreverInternal(step: {} Unit): Unit

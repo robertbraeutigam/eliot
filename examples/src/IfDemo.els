@@ -1,7 +1,7 @@
 
 // `if` is an ordinary function: `if(cond, value)` yields `value`, or short-circuits via the `Abort` effect, which the
-// infix `else` (from `eliot.effect.Abort`) discharges with the alternative. Because the branch is a carrier value, it
-// may be pure OR effectful, and only the selected branch's effect is ever run — so this reads like an imperative `if`.
+// infix `else` (from `eliot.effect.Abort`) discharges with the alternative. Because the branch is a suspended slot, it
+// may be pure OR effectful, and only the selected branch is ever run — so this reads like an imperative `if`.
 
 // Every form of if..else, all driven by the single `flag` parameter. `demo` declares only `{Console}`: every `if`'s
 // `{Abort}` is fully discharged by its matching `else`, so a discharged effect never joins the declared row.
@@ -28,9 +28,9 @@ def demo(flag: Bool): {Console} Unit = {
    } else printLine("6. plain else")
 }
 
-// `if..else` needs no effect row at all: in a PURE function the fully-discharged branch runs on the identity carrier
-// `Id`, which the compiler writes and unwraps for you, so branching code looks exactly like it would in any other
-// language — a plain `String` in, a plain `String` out.
+// `if..else` needs no effect row at all: in a PURE function the `else` discharges the `{Abort}` the `if` introduced,
+// and nothing is left over — so branching code looks exactly like it would in any other language, a plain `String` in
+// and a plain `String` out.
 def sign(flag: Bool): String = if(flag, "+") else "-"
 
 // The same in an if..else if..else chain, and through a block `val` holding the discharged branch.
@@ -41,8 +41,8 @@ def describe(a: Bool, b: Bool): String = {
 
 // `fold` is the raw two-armed eliminator that `if` is built on: `if(cond, v)` is exactly `fold(cond, v, abort)`, and
 // `else` discharges that abort. The difference is that `fold` takes BOTH arms explicitly and adds no `{Abort}` to the
-// effect row. Both arms are suspended (`{} A`), so only the selected one ever runs and a pure arm lifts to sit
-// beside an effectful one — they need only agree on the value type they yield.
+// effect row. Both arms are suspended (`{} A`), so only the selected one ever runs and a pure arm sits happily beside
+// an effectful one — they need only agree on the value type they yield.
 def foldForms(flag: Bool): {Console} Unit = {
    // 1. Two pure arms of one type: `fold` selects a value and adds nothing to the effect row (result is `String`).
    printLine(fold(flag, "1. fold pure: then", "1. fold pure: else"))
@@ -50,8 +50,7 @@ def foldForms(flag: Bool): {Console} Unit = {
    // 2. Two effectful arms: `A` unifies to `{Console} Unit`, and only the chosen branch's `printLine` runs.
    fold(flag, printLine("2. fold effectful: then"), printLine("2. fold effectful: else"))
 
-   // 3. The arms agree on their value type; a mixed `fold(flag, printLine("x"), "y")` is fine too, since the pure
-   //    arm lifts into the same carrier as the effectful one.
+   // 3. The arms agree on their value type; what one of them performs on the way is not part of that agreement.
    printLine(fold(flag, "3. fold same-type arms: A", "3. fold same-type arms: B"))
 }
 
@@ -64,11 +63,10 @@ def main: {Console} Unit = {
    printLine(sign(true))
    printLine(describe(false, true))
 
-   // With a runtime value. An effectful condition — `readLine orElse ""` : IO[String] — is direct-style
-   // lifted (run) in the rigid slot it is written in, exactly like `printLine(readLine orElse "")`. We
-   // sequence it once into `answer` (each `readLine` reads the *next* line, so we bind it a single time and reuse
-   // the pure `Bool`), then drive both demos. Feed "yes" on stdin for the true branches, anything else for the
-   // false branches.
+   // With a runtime value. An effectful condition — `readLine orElse ""` — simply runs where it is written, exactly
+   // like `printLine(readLine orElse "")`. We bind it once into `answer` (each `readLine` reads the *next* line, so we
+   // read a single time and reuse the pure `Bool`), then drive both demos. Feed "yes" on stdin for the true branches,
+   // anything else for the false branches.
    val answer = readLine orElse ""
    val flag   = answer == "yes"
    printLine("========== runtime: readLine == yes ==========")

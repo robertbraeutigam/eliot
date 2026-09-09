@@ -20,18 +20,21 @@ import com.vanillasource.eliot.eliotc.token.Token
   *   reference so a caller never spells one. It is also what tells a minted binder from a user's, which is how the
   *   desugar stays idempotent. The former `auto` keyword (for a user-written implicit-generics feature) was retired
   *   together with the saturation machinery it fed.
-  * @param binding
-  *   True for the one binder an `ability` or `effect` block mints for its own implementation slot
-  *   ([[AbilityMembers]]) — the **last ability-level type argument** every member reference carries, which
-  *   [[com.vanillasource.eliot.eliotc.monomorphize.check.ImplementationBinding]] reads back. It marks where a member's
-  *   own minted binders go: after it, so the ability-level prefix stays exactly the ability's.
+  * @param abilityLevel
+  *   True for every binder an `ability` or `effect` block contributes to each of its members ([[AbilityMembers]]): the
+  *   implementation binding slot it mints, and its own generic parameters. The run of them is the member reference's
+  *   **ability-level prefix**, which
+  *   [[com.vanillasource.eliot.eliotc.monomorphize.check.AbilityResolver]] slices off and
+  *   [[com.vanillasource.eliot.eliotc.monomorphize.check.ImplementationBinding]] reads the binding from. Marking the
+  *   whole run is what tells the desugar where a member's *own* minted binders go — after it, so the prefix stays
+  *   exactly the ability's.
   */
 case class GenericParameter(
     name: Sourced[String],
     typeRestriction: Sourced[Expression],
     abilityConstraints: Seq[UnresolvedAbilityConstraint[Sourced[Expression]]],
     inferable: Boolean = false,
-    binding: Boolean = false
+    abilityLevel: Boolean = false
 )
 
 object GenericParameter {

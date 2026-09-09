@@ -1,9 +1,7 @@
-import eliot.carrier.Effect
-
 /**
  * The writer effect: a computation that accumulates an output log of type `W` alongside its result, never reading it
  * back. `W` must be a monoid (`Combine[W]`): each `tell` contributes a piece of log, and the pieces are joined with
- * `combine` as the computation sequences, starting from `empty`.
+ * `combine` as the computation runs, starting from `empty`.
  *
  * `Writer` is exactly `State` restricted to append-only — a function accumulates with `tell` but can never inspect what
  * has been accumulated so far, which is the honest contract for a collector (gathering diagnostics, building a list of
@@ -13,48 +11,33 @@ import eliot.carrier.Effect
  * ```eliot
  * def note(line: String): {Writer[String]} Unit = tell(line)
  * ```
+ *
+ * A **control effect**: one implementation per platform, appending to that platform's private cell.
  */
-ability Writer[W, F[_]] {
+effect Writer[W] {
    /**
     * Append `w` to the accumulated log, yielding `unit`. The pieces told across a computation are joined with the
     * `Combine[W]` monoid when the writer is discharged.
     */
-   def tell(w: W): {Writer[W]} Unit
+   def tell(w: W): Unit
 }
 
 /**
- * The internal carrier that realises the `Writer[W]` effect: a `WriterCarrier[W, G, A]` is a `G`-computation yielding
- * the result paired with the accumulated log.
+ * Discharge the `Writer[W]` effect, materialising it as a `Pair[A, W]`: the result paired with the accumulated log.
+ * Every other effect the computation performs is unaffected. Reach for `runWriterToValue` or `runWriterToLog` to keep
+ * only one side of the pair.
  *
- * Plumbing only — application code never names it. A function that accumulates declares `{Writer[W]}` and discharges it
- * with `runWriterToPair`; this carrier is what that operates on under the hood. Generic over the base carrier `G`, so it
- * composes over `IO`, `Id`, and so on. Its representation (the `Effect`/`Suspend`/`Writer` instances) is supplied by the
- * platform layer.
+ * Body-less here and bodied per platform, over that platform's private cell primitive.
  */
-type WriterCarrier[W, G[_], A]
-
-/**
- * Unwrap a `WriterCarrier` to its underlying `G[Pair[A, W]]`. The single accessor of the carrier; the platform layer
- * supplies the body (the *generated* `WriterCarrier` data-field accessor). Discharge is read structurally at
- * monomorphization from the `{Writer[W]}` input against the plain output, so no annotation is needed. Discharge the
- * effect with `runWriterToPair`.
- */
-def runWriterCarrier[W, G[_] ~ Effect, A](obj: {Writer[W]} A): G[Pair[A, W]]
-
-/**
- * Discharge the `Writer[W]` effect, materialising it as a `Pair[A, W]`: the result paired with the accumulated log. Any
- * other effects remain in the carrier `G`. Reach for `runWriterToValue` or `runWriterToLog` to keep only one side of the
- * pair.
- */
-def runWriterToPair[W, G[_] ~ Effect, A](p: {Writer[W]} A): G[Pair[A, W]] = runWriterCarrier(p)
+def runWriterToPair[W ~ Combine[W], A](p: {Writer[W]} A): Pair[A, W]
 
 /**
  * Discharge the `Writer[W]` effect keeping only the result, discarding the accumulated log.
  */
-def runWriterToValue[W, G[_] ~ Effect, A](p: {Writer[W]} A): G[A] = map(first, runWriterToPair(p))
+def runWriterToValue[W ~ Combine[W], A](p: {Writer[W]} A): A = first(runWriterToPair(p))
 
 /**
  * Discharge the `Writer[W]` effect keeping only the accumulated log, discarding the result. This is the usual way to
  * collect a writer's output.
  */
-def runWriterToLog[W, G[_] ~ Effect, A](p: {Writer[W]} A): G[W] = map(second, runWriterToPair(p))
+def runWriterToLog[W ~ Combine[W], A](p: {Writer[W]} A): W = second(runWriterToPair(p))

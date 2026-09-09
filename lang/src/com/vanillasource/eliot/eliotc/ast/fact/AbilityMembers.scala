@@ -9,14 +9,19 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   * performs beyond the ability it belongs to — for `effect` and `ability` alike"); they differ in exactly one thing,
   * `performsItself`, and that difference is metadata, not shape.
   *
-  * Effects v6 adds one binder. The block mints, after its own generic parameters, a **binding binder** of kind `Type`:
-  * the implementation slot, and the *last ability-level type argument* of every member reference, which is the contract
-  * [[com.vanillasource.eliot.eliotc.monomorphize.check.ImplementationBinding]] reads back and
+  * Effects v6 adds one binder. The block mints, **ahead of** its own generic parameters, a **binding binder** of kind
+  * `Type`: the implementation slot, and the *first ability-level type argument* of every member reference, which is the
+  * contract [[com.vanillasource.eliot.eliotc.monomorphize.check.ImplementationBinding]] reads back and
   * [[com.vanillasource.eliot.eliotc.monomorphize.check.AbilityResolver]] slices off. So `effect Console` declares
-  * `Console[Impl]` and `effect Throw[E]` declares `Throw[E, Impl]`, exactly where the carrier binder used to sit.
+  * `Console[Impl]` and `effect Throw[E]` declares `Throw[Impl, E]`.
   *
-  * The binder is *not* `inferable`: a member reference has its whole ability-level prefix written by the `row` phase,
-  * never inferred. It is flagged [[GenericParameter.binding]] so
+  * It goes first because a type-argument list applies positionally and the write is a prefix write: an ordinary
+  * ability call (`show(x)`, `a ++ b`, `sort(xs)`) has its pattern arguments *inferred*, and no declaration determines
+  * them, so a binding behind them could never be written at all. First, the write is one element long and everything
+  * after it is inferred exactly as before. See `ImplementationBinding` for why this reverses §10.1 step 6.
+  *
+  * The binder is *not* `inferable`: it is always written by the `row` phase, never inferred. It is flagged
+  * [[GenericParameter.abilityLevel]], as are the block's own parameters, so
   * [[com.vanillasource.eliot.eliotc.core.processor.EffectSugarDesugarer]] knows to mint a member's *own* phantom
   * binders after it rather than in front of the ability's.
   *
@@ -41,9 +46,9 @@ object AbilityMembers {
       name.as(freshName("Impl", commonGenericParameters.map(_.name.value).toSet)),
       name.as(typeExpr(name.as("Type"))),
       Seq.empty,
-      binding = true
+      abilityLevel = true
     )
-    val abilityParams = commonGenericParameters :+ bindingBinder
+    val abilityParams = (bindingBinder +: commonGenericParameters).map(_.copy(abilityLevel = true))
     val ownRow        =
       if (performsItself)
         EffectRow(returnEffects =

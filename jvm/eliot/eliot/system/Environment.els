@@ -1,26 +1,24 @@
-import eliot.carrier.Suspend
 import eliot.file.Path
 import eliot.collection.List
 
-// Merge copy of the base declaration so the instance below can resolve it (name resolution is per-file). The merge
-// verifies this copy agrees with the abstract ability in the stdlib layer, which carries the documentation.
-ability Environment[F[_]] {
-   def arguments: {Environment} List[String]
-   def environmentVariable(name: String): {Environment} Option[String]
-   def workingDirectory: {Environment} Path
+// Merge copy of the base declaration so the implementation below can resolve it (name resolution is per-file). The
+// merge verifies this copy agrees with the abstract effect in the stdlib layer, which carries the documentation.
+effect Environment {
+   def arguments: List[String]
+   def environmentVariable(name: String): Option[String]
+   def workingDirectory: Path
 }
 
 /**
- * The JVM `Environment` instance, generic over any carrier with a `Suspend` base — the `Console` shape exactly, and for
- * the same reason: none of these operations can fail, so none of them needs a failure channel, and riding `Suspend`
- * lets one instance serve `IO` and every transformer stacked over it.
+ * The JVM `Environment` implementation, and the default one: each operation calls its `private` leaf native directly.
+ * None of them can fail, so none declares a row — an absent variable is an `Option`, not an error.
  */
-implement[F[_] ~ Suspend] Environment[F] {
-   def arguments: F[List[String]] = suspend(_ -> argumentsInternal)
+implement Environment {
+   def arguments: List[String] = argumentsInternal
 
-   def environmentVariable(name: String): F[Option[String]] = suspend(_ -> valueOrNone(environmentVariableInternal(name)))
+   def environmentVariable(name: String): Option[String] = valueOrNone(environmentVariableInternal(name))
 
-   def workingDirectory: F[Path] = suspend(_ -> workingDirectoryInternal)
+   def workingDirectory: Path = workingDirectoryInternal
 }
 
 /**

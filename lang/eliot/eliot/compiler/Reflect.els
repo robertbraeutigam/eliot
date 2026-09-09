@@ -10,12 +10,12 @@ import eliot.collection.List
  * anyone must remember to edit: each module simply declares a value under the agreed name, and the fold finds it.
  *
  * Because a gathered value is handed to a *declared slot* instead of being stored, it is `combine` that decides what it
- * receives. A slot declaring an open row runs the gathered computation on the caller's carrier; a pinned row lets
- * `combine` discharge its effects; a slot naming a concrete carrier fixes it to a test double. That is what
- * `namedValues` cannot do — a list element is a payload, and a payload may never be a computation — so an effectful
- * value can be gathered here and not there. Each value is elaborated and monomorphized on its own, so the gathered
- * values may differ in effect row *and* in type, as long as each one fits `combine`'s slot; a value that does not is a
- * compile error, never a silent omission.
+ * receives. A slot with a row receives the gathered value as a computation to run in place; a row entry the slot
+ * *supplies* is one `combine` discharges; a `with` on the slot's type binds the gathered value's calls to an
+ * implementation of `combine`'s choosing. That is what `namedValues` cannot do — a list element is a payload, and a
+ * payload may never be a computation — so an effectful value can be gathered here and not there. Each value is
+ * monomorphized on its own, so the gathered values may differ in effect row *and* in type, as long as each one fits
+ * `combine`'s slot; a value that does not is a compile error, never a silent omission.
  *
  * `name` must be a literal `String`, and `combine` must be a **declared value** rather than a lambda, since only a
  * declaration can state the effect rows of the values it receives; both are hard errors rather than an empty fold. The
@@ -27,7 +27,7 @@ import eliot.collection.List
  *
  * // One test, then the rest of the suite. The failure is discharged here, so a failing test
  * // does not fail the run, and `rest` — every test to the right — is still unrun at this point.
- * def runTest[G[_] ~ Effect & Console](name: String, test: {Throw[String]} Unit, rest: G[Unit]): G[Unit] = {
+ * def runTest(name: String, test: {Throw[String]} Unit, rest: {} Unit): {Console} Unit = {
  *    printLine("- " ++ name)
  *    test catch (e -> printLine("  FAILED: " ++ e))
  *    rest

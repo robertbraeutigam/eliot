@@ -116,12 +116,12 @@ object EffectSugarDesugarer {
     }
 
   /** Where the minted binders go in the generic list: `0` for an ordinary definition, and for an **ability member**
-    * past the ability's own binders — right after the [[GenericParameter.binding]] slot
-    * [[com.vanillasource.eliot.eliotc.ast.fact.AbilityMembers]] mints — so a member's own phantom binders never get in
-    * front of the ability-level prefix, whose last argument must stay the binding.
+    * past the whole run of [[GenericParameter.abilityLevel]] binders
+    * [[com.vanillasource.eliot.eliotc.ast.fact.AbilityMembers]] contributes — so a member's own phantom binders never
+    * land inside the ability-level prefix, whose first argument must stay the binding.
     */
   private def mintAt(function: FunctionDefinition): Int =
-    function.genericParameters.indexWhere(_.binding) + 1
+    function.genericParameters.lastIndexWhere(_.abilityLevel) + 1
 
   /** The constraints of this definition that have not yet had a binder minted for them. */
   private def unprocessedConstraints(
@@ -180,8 +180,17 @@ object EffectSugarDesugarer {
     case _                         => false
   }
 
-  /** A parameter or field position: a top-level row becomes the thunk `Unit => A`; everything else is [[bare]]. */
+  /** A parameter or field position: a top-level row becomes the thunk `Unit => A`; everything else is [[bare]].
+    *
+    * A slot's `with` chain (`body: {Console} Unit with mockConsole`, §9.3) is **kept wrapped around the thunk**: it is
+    * a declaration about the slot, and the `row` phase both reads it — to bind those implementations for the actual
+    * delivered there — and strips it from the signature. Keeping it in the type rather than in [[EffectRow]] is what
+    * lets it be a resolved `ValueFQN` by the time the write needs one, on the same fact chain every other reference
+    * rides.
+    */
   private def thunked(expr: Sourced[Expression]): Sourced[Expression] = expr.value match {
+    case WithBinding(subject, implementation) =>
+      expr.as(WithBinding(thunked(subject), implementation))
     case EffectfulType(_, resultType, None) =>
       expr.as(
         FunctionApplication(

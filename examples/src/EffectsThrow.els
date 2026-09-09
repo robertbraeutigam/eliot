@@ -4,9 +4,9 @@ def parseOk: {Throw[String]} String = "parsed-value"
 
 def parseBad: {Throw[String]} String = raise("malformed input")
 
-// `catch` discharges {Throw[String]} in one step, recovering a raised error to a value of the same type — no
-// ThrowCarrier, no Either, no transformer in sight. A single `import eliot.effect.Throw` brings in `raise` and `catch`.
-// main pins the residual carrier G := IO.
+// `catch` discharges {Throw[String]} in one step, recovering a raised error to a value of the same type — no Either
+// and no transformer in sight: `runThrow` installs the frame `raise` leaves through, and the handler runs after it
+// returns. `Throw` has one implementation per platform, so there is nothing here to choose or to bind.
 def main: {Console} Unit = {
    printLine(parseOk catch (err -> err))
    printLine(parseBad catch (err -> err))

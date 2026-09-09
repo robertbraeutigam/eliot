@@ -1,16 +1,15 @@
-import eliot.carrier.Suspend
-
-ability Log[F[_]] {
-   def log(s: String): {Log} Unit
+// Merge copy of the base declaration so the implementation below can resolve it (name resolution is per-file). The
+// merge verifies this copy agrees with the abstract declaration in the stdlib layer, which carries the documentation.
+effect Log {
+   def log(s: String): Unit
 }
 
 /**
- * The JVM `Log` instance, generic over any carrier with a `Suspend` base (never pinned to `IO`): it reifies a `private`
- * impure leaf native through `suspend`, exactly like `Console`. Because it rides `Suspend`, the same instance serves `IO`,
- * `AbortCarrier[IO]`, etc.; the whole `IO(_ -> ...)` tree stays Eliot-visible to monomorphization, only the leaf is opaque.
+ * The JVM `Log` implementation, the default this platform ships: it calls a `private` impure leaf native, exactly like
+ * `Console`. A test that wants to see what was logged declares its own named `implement` and binds it with `with`.
  */
-implement[F[_] ~ Suspend] Log[F] {
-   def log(s: String): F[Unit] = suspend(_ -> logInternal(s))
+implement Log {
+   def log(s: String): Unit = logInternal(s)
 }
 
 /**

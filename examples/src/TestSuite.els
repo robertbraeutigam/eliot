@@ -1,4 +1,3 @@
-import eliot.carrier.Effect
 import eliot.compiler.Reflect
 
 /**
@@ -8,8 +7,8 @@ import eliot.compiler.Reflect
  * `foldNamedValues` hands each gathered test to `runTest` as an *argument* rather than collecting them into a list,
  * which is what lets a test be a computation instead of a value. `runTest` declares the assertion effect on the slot
  * that receives one, so a failure is caught per test and the suite carries on; a test's remaining effects — printing,
- * here — run on the carrier the suite itself runs on. `namedValues` could not gather these: a list element is a
- * payload, and a payload may never be a computation.
+ * here — are bound where the test was written and simply happen when `runTest` runs it. `namedValues` could not gather
+ * these: a list element is a payload, and a payload may never be a computation.
  *
  * The second test fails on purpose, so the run shows both halves of the report.
  *
@@ -18,7 +17,7 @@ import eliot.compiler.Reflect
  * java -jar target/TestSuite.jar
  * ```
  */
-def runTest[G[_] ~ Effect & Console](name: String, test: {Throw[String]} Unit, rest: G[Unit]): G[Unit] = {
+def runTest(name: String, test: {Throw[String]} Unit, rest: {} Unit): {Console} Unit = {
    printLine("- " ++ name)
    test catch (reason -> printLine("  FAILED: " ++ reason))
    rest

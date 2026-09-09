@@ -14,12 +14,19 @@ import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
   *     implementation's own type arguments in declaration order — [[Implementation]], used **directly**: no candidate
   *     search, no `where` guard, no coherence question (§9.4 step 4).
   *
-  * **The contract with the desugar (§10.1 step 6):** the binding is the **last ability-level type argument** of a
-  * method reference — the ability's marker declares its pattern parameters followed by the phantom binder, so a method
-  * reference carries `[pattern arguments…, binding, method arguments…]`, and the ability-level slice
-  * ([[AbilityResolver]]'s `abilityArity`) ends with the binding. Today no marker declares a phantom binder, so no
-  * reference carries one and the slice is exactly what it was; the reader answers [[None]] for every argument list of
-  * the tree as it stands.
+  * **The contract with the desugar:** the binding is the **first ability-level type argument** of a method reference —
+  * the ability's marker declares the phantom binder ahead of its pattern parameters, so a method reference carries
+  * `[binding, pattern arguments…, method arguments…]` and the ability-level slice ([[AbilityResolver]]'s
+  * `abilityArity`) *begins* with the binding.
+  *
+  * It is first, and not last as §10.1 step 6 originally fixed it, because F1 found that last cannot be written. A
+  * type-argument list applies positionally, so writing an argument at index `k` means writing every argument before
+  * it — and the pattern arguments of an ordinary ability call are exactly what no declaration determines. `show(x)`,
+  * `a ++ b` and `sort(xs)` have their `Show[T]`/`Combine[T]`/`Ord[T]` arguments *inferred* by the checker today, and
+  * the write cannot supply them without doing the inference itself, which rule 3 prohibits. With the binding first the
+  * write is a one-element prefix, everything after it is inferred exactly as before, and the binding is never left to
+  * a metavariable. The reversal is an encoding detail — nothing in §9 depends on which end it sits at — but it is a
+  * reversal, and it is recorded here rather than made quietly.
   *
   * Recognition is by two compiler-owned tags and nothing else: the sentinel's FQN, and an implementation's **marker** —
   * the name in an implementation's namespace whose local name is the ability's own (`Console@Console#…`), which is what
@@ -60,12 +67,13 @@ object ImplementationBinding {
       case _                                                                                      => None
     }
 
-  /** Split a reference's ability-level ground arguments into the pattern arguments and the binding, if the last
-    * argument is one. `(args, None)` when it is not — the whole list is the pattern.
+  /** Split a reference's ability-level ground arguments into the binding and the pattern arguments, if the **first**
+    * argument is a binding. `(args, None)` when it is not — the whole list is the pattern, which is every reference
+    * of a tree whose abilities predate the phantom binder.
     */
   def split(abilityArgs: Seq[GroundValue]): (Seq[GroundValue], Option[ImplementationBinding]) =
-    abilityArgs.lastOption.flatMap(fromGround) match {
-      case Some(binding) => (abilityArgs.init, Some(binding))
+    abilityArgs.headOption.flatMap(fromGround) match {
+      case Some(binding) => (abilityArgs.tail, Some(binding))
       case None          => (abilityArgs, None)
     }
 

@@ -1,4 +1,3 @@
-import eliot.carrier.Effect
 
 /**
  * A single effectful program that uses three effects at once — `Dep[Database]`, `Log`, and `Console` — in
@@ -16,8 +15,8 @@ data Database(url: String)
 
 /**
  * Logs the injected database url, then echoes a line of input — `dependency` (Dep), `log` (Log), `readLine` and
- * `printLine` (Console), sequenced left to right. Direct style: the three effects share one carrier and the block
- * sequences its statements automatically — no hand-written `flatMap` or sequencing helper.
+ * `printLine` (Console), performed left to right. Direct style: a block is strict evaluation order, and each operation
+ * is a direct call to the implementation the declaration bound.
  */
 def run: {Dep[Database], Log, Console} Unit = {
    log(dependency.url)
@@ -25,5 +24,5 @@ def run: {Dep[Database], Log, Console} Unit = {
 }
 
 // The database dependency is injected at the discharge site with `provide`, which hands the value to every
-// `dependency` read and leaves the residual carrier IO. `run` itself never names a concrete Database.
+// `dependency` read of that type. `run` itself never names a concrete Database.
 def main: {Console, Log} Unit = provide(Database("jdbc://app-db"), run)

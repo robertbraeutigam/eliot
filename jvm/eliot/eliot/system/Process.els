@@ -1,15 +1,13 @@
-import eliot.carrier.Effect
-import eliot.carrier.Suspend
 import eliot.effect.Throw
 import eliot.file.Path
 import eliot.file.File
 import eliot.collection.List
 
-// Merge copy of the base declarations so the instance below can resolve them (name resolution is per-file). The merge
-// verifies these copies agree with the abstract ability in the stdlib layer, which carries the documentation.
-ability Process[F[_]] {
-   def run(command: List[String], workingDirectory: Path): {Process} ProcessResult
-   def runInheritingIo(command: List[String], workingDirectory: Path): {Process} Int
+// Merge copy of the base declarations so the implementation below can resolve them (name resolution is per-file). The
+// merge verifies these copies agree with the abstract effect in the stdlib layer, which carries the documentation.
+effect Process {
+   def run(command: List[String], workingDirectory: Path): {Throw[IoError]} ProcessResult
+   def runInheritingIo(command: List[String], workingDirectory: Path): {Throw[IoError]} Int
 }
 
 // The concrete ProcessResult: the abstract accessors in the base layer merge with these generated data-field accessors,
@@ -24,22 +22,22 @@ data ProcessResult(exitCode: Int, standardOutput: String, standardError: String)
 type ProcessOutcome
 
 /**
- * The JVM `Process` instance, generic over any carrier with a `Suspend` base that can also fail with `IoError`. Sharing
- * `eliot.file`'s error type is deliberate: a program that reads files *and* runs programs — every build tool — then has
- * one failure channel to discharge instead of two, and two `Throw`s in one row must each be pinned by hand at their
- * `catch`.
+ * The JVM `Process` implementation, and the default one. Sharing `eliot.file`'s error type is deliberate: a program
+ * that reads files *and* runs programs — every build tool — then has one failure channel to discharge instead of two.
  */
-implement[F[_] ~ Suspend & Throw[IoError] & Effect] Process[F] {
-   def run(command: List[String], workingDirectory: Path): F[ProcessResult] = {
-      val outcome = suspend(_ -> runInternal(command, workingDirectory))
-      val checked = raiseError(outcome)
+implement Process {
+   def run(command: List[String], workingDirectory: Path): {Throw[IoError]} ProcessResult = {
+      val outcome = runInternal(command, workingDirectory)
+
+      raiseError(outcome)
 
       ProcessResult(outcomeExitCode(outcome), outcomeStandardOutput(outcome), outcomeStandardError(outcome))
    }
 
-   def runInheritingIo(command: List[String], workingDirectory: Path): F[Int] = {
-      val outcome = suspend(_ -> runInheritingIoInternal(command, workingDirectory))
-      val checked = raiseError(outcome)
+   def runInheritingIo(command: List[String], workingDirectory: Path): {Throw[IoError]} Int = {
+      val outcome = runInheritingIoInternal(command, workingDirectory)
+
+      raiseError(outcome)
 
       outcomeExitCode(outcome)
    }
@@ -47,8 +45,8 @@ implement[F[_] ~ Suspend & Throw[IoError] & Effect] Process[F] {
 
 /**
  * Raise the holder's error as an `IoError`, or do nothing when it holds a result. Kept separate from reading the
- * result so every effectful step carries a non-container payload and the result itself is produced as a pure tail —
- * the shape `eliot.file.File`'s instance uses, for the same carrier-inference reason.
+ * result so an operation reads as "call the native, check it, read it" — the shape `eliot.file.File`'s implementation
+ * uses.
  */
 private def raiseError(outcome: ProcessOutcome): {Throw[IoError]} Unit =
    if(isNull(outcomeErrorMessage(outcome)), unit) else raise(IoError(outcomeErrorMessage(outcome)))

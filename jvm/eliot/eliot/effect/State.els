@@ -1,56 +1,46 @@
-import eliot.carrier.Effect
-import eliot.carrier.Suspend
-import eliot.effect.Abort
-
-// Re-declared here so the colocated `StateCarrier` instances below can resolve the `State` ability — name
-// resolution is per-file. The merge verifies this copy agrees with the abstract declaration in the base layer.
-ability State[S, F[_]] {
-   def state: {State[S]} S
-   def putState(s: S): {State[S]} Unit
-}
-
-data StateCarrier[S, G[_], A](runStateCarrier: S => G[Pair[A, S]])
-
-/**
- * `StateCarrier[S, G]` is an effect carrier whenever its base `G` is: `pure` produces the value without touching the
- * state; `flatMap` runs the first computation from the incoming state, then runs the continuation from the resulting
- * state — threading the state through, the `State` semantics; `map` transforms the result and leaves the threaded state
- * untouched.
- */
-implement[S, G[_] ~ Effect] Effect[StateCarrier[S, G]] {
-   def pure[A](a: A): StateCarrier[S, G, A] = StateCarrier(s -> pure(Pair(a, s)))
-   def flatMap[A, B](f: A => StateCarrier[S, G, B], fa: StateCarrier[S, G, A]): StateCarrier[S, G, B] =
-      StateCarrier(s -> flatMap(p -> runStateCarrier(f(first(p)))(second(p)), runStateCarrier(fa)(s)))
-   def map[A, B](f: A => B, fa: StateCarrier[S, G, A]): StateCarrier[S, G, B] =
-      StateCarrier(s -> map(p -> Pair(f(first(p)), second(p)), runStateCarrier(fa)(s)))
+// Merge copy of the base declaration so the implementation below can resolve it (name resolution is per-file).
+effect State[S] {
+   def state: S
+   def putState(s: S): Unit
 }
 
 /**
- * The base-effect lift: `StateCarrier[S, G]` is `Suspend` whenever `G` is, running the inner suspend action and pairing its
- * result with the unchanged state. Carries every `Suspend`-keyed fine effect through the `StateCarrier` layer.
+ * The JVM `State[S]` implementation — the single one for this platform: the threaded value lives in the nearest
+ * enclosing cell of this instantiation, so `state` reads it and `putState` replaces it, and neither wraps the result.
  */
-implement[S, G[_] ~ Suspend & Effect] Suspend[StateCarrier[S, G]] {
-   def suspend[A](thunk: Unit => A): StateCarrier[S, G, A] = StateCarrier(s -> map(a -> Pair(a, s), suspend(thunk)))
+implement[S] State[S] {
+   def state: S = readCellInternal
+
+   def putState(s: S): Unit = writeCellInternal(s)
 }
 
 /**
- * The `State` instance: `state` returns the current state as the result while keeping it; `putState(newS)` discards
- * the incoming state, installs `newS`, and yields `unit`.
+ * Discharge `State[S]` by installing the cell `state`/`putState` reach, holding `initial`, and running the computation
+ * inside it: the result paired with the cell's final content. The platform body of the base's body-less signature.
+ *
+ * Nesting is the user's: `runStateToPair(s, runThrow(c))` keeps the state across a `raise`, `runThrow(runStateToPair(s, c))`
+ * does not, because the cell is gone when the frame it sat inside is exited.
  */
-implement[S, G[_] ~ Effect] State[S, StateCarrier[S, G]] {
-   def state: StateCarrier[S, G, S] = StateCarrier(s -> pure(Pair(s, s)))
-   def putState(newS: S): StateCarrier[S, G, Unit] = StateCarrier(s -> pure(Pair(unit, newS)))
-}
+def runStateToPair[S, A](initial: S, p: {State[S]} A): Pair[A, S] = withCellInternal(initial, p)
 
 /**
- * Cross-lift: `Abort` rides through the `StateCarrier` layer (the order-sensitive counterpart to `State[S,
- * AbortCarrier[G]]` in `Abort`). When a `{State[S], Abort}` program discharges `State` *first*
- * (`runAbort(runStateToPair(s0, p))`), the carrier is refined to `StateCarrier[S, G]` with `G` still carrying `Abort`, so the
- * residual `abort` must run at `StateCarrier[S, G]`. It delegates to the inner `G`'s `abort` for any paired result,
- * ignoring the incoming state `s` — so the abort discards the threaded state. Because `StateCarrier` sits *outside* the
- * (inner) `AbortCarrier`, the abort tears down the whole pair: discharging in this order yields `Option[Pair[A, S]]`
- * (vs. `Pair[Option[A], S]` for the other order).
+ * Install a cell for `S` holding `initial`, run `body` inside it, and answer the result paired with the cell's final
+ * content. The stateful half of the platform's two control-flow primitives (`docs/effects.md` §9.6): on the JVM a cell
+ * is a static field per instantiation, saved and restored around this call, so it is scoped to it and gone afterwards
+ * — including when the call is exited through.
+ *
+ * `private`, and re-declared per module rather than shared: a public cell *is* Landin's knot — a cell holding a closure
+ * that reads the cell is a loop — and the recursion gate (`termination/PurityGuardTest`) exists to keep that out.
+ * Implemented by the backend.
  */
-implement[S, G[_] ~ Abort] Abort[StateCarrier[S, G]] {
-   def abort[A]: StateCarrier[S, G, A] = StateCarrier(s -> abort)
-}
+private def withCellInternal[S, A](initial: S, body: {} A): Pair[A, S]
+
+/**
+ * The content of the nearest enclosing cell for `S`. Implemented by the backend.
+ */
+private def readCellInternal[S]: S
+
+/**
+ * Replace the content of the nearest enclosing cell for `S`. Implemented by the backend.
+ */
+private def writeCellInternal[S](s: S): Unit

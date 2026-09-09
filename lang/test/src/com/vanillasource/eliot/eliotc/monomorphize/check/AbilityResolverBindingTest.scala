@@ -22,7 +22,7 @@ import java.net.URI
   * ability-level arguments ending in one, and the two-site search is a stub that records what it was asked.
   *
   * No marker fact is registered, so the arity read falls back to "slice nothing" and a reference's whole argument list
-  * is its ability-level slice — the shape the arm sees once the desugar writes the binding last.
+  * is its ability-level slice — the shape the arm sees once the desugar writes the binding first.
   */
 class AbilityResolverBindingTest extends AnyFlatSpec with Matchers {
 
@@ -79,22 +79,22 @@ class AbilityResolverBindingTest extends AnyFlatSpec with Matchers {
   }
 
   "a reference bound to an implementation" should "resolve directly to that implementation's method at its own type arguments" in {
-    resolve(Seq(string, implBinding))._1 shouldBe
-      Map((raise, Some(Seq(string, implBinding))) ->
+    resolve(Seq(implBinding, string))._1 shouldBe
+      Map((raise, Some(Seq(implBinding, string))) ->
         (ValueFQN(testModule, QualifiedName("raise", namedQualifier)), Seq(string)))
   }
 
   it should "never ask the two-site search" in {
-    resolve(Seq(string, implBinding))._2 shouldBe Seq.empty
+    resolve(Seq(implBinding, string))._2 shouldBe Seq.empty
   }
 
   "a reference bound to Default" should "search at the pattern arguments, with the binding stripped" in {
-    resolve(Seq(string, ImplementationBinding.defaultGround))._2 shouldBe Seq(Seq(string))
+    resolve(Seq(ImplementationBinding.defaultGround, string))._2 shouldBe Seq(Seq(string))
   }
 
   it should "record the search's answer under the full arguments, binding included" in {
-    resolve(Seq(string, ImplementationBinding.defaultGround))._1 shouldBe
-      Map((raise, Some(Seq(string, ImplementationBinding.defaultGround))) -> searchedImpl)
+    resolve(Seq(ImplementationBinding.defaultGround, string))._1 shouldBe
+      Map((raise, Some(Seq(ImplementationBinding.defaultGround, string))) -> searchedImpl)
   }
 
   "a reference with no binding" should "search at all of its ability-level arguments, as today" in {

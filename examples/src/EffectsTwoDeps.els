@@ -1,4 +1,3 @@
-import eliot.carrier.Effect
 
 data Database(url: String)
 data Topic(name: String)
@@ -12,10 +11,8 @@ def describe: {Dep[Database], Dep[Topic], Console} Unit = {
 }
 
 // The "filling in" happens at the discharge site: each dependency is supplied by its own `provide`. Two
-// distinct types => two nested `provide`s, each peeling one Dep layer (the reader counterpart of two chained
-// `catch`es). The inner `provide` supplies the Database, the outer the Topic; only `{Console}` remains. The
-// discharger must receive the computation as a direct call for its discharge to be credited, so the two
-// `provide`s nest rather than dot-chain.
+// distinct types => two nested `provide`s, each installing its own frame (the reader counterpart of two chained
+// `catch`es). The inner `provide` supplies the Database, the outer the Topic; only `{Console}` remains.
 def main: {Console} Unit =
    provide(Topic("events"), provide(Database("jdbc://app-db"), describe))
 

@@ -1,13 +1,16 @@
-import eliot.carrier.Effect
-
 type List[A]
 
-def foldLeft[A, B](initial: {} B, combine: A => B => {} B, list: List[A]): {} B =
-  foldLeftInternal(list, initial, e -> facc -> flatMap(acc -> combine(e)(acc), facc))
+/**
+ * The JVM `foldLeft`: the list-first primitive, applied strictly. With no carrier to thread there is nothing to bind —
+ * `combine` performs whatever the caller's own declarations cover, where it is written, so this reduces to the plain
+ * strict fold it always was underneath.
+ */
+def foldLeft[A, B](initial: B, combine: A => B => {} B, list: List[A]): B =
+  foldLeftInternal(list, initial, combine)
 
 /**
  * The list-first fold primitive behind `foldLeft`. `private` so user code folds only through the dot-chainable
  * `foldLeft`; kept list-first (and thus always called fully applied) because the backend emits it as a single erased
  * generic native, which cannot be partially applied. Implemented by the backend.
  */
-private def foldLeftInternal[F[_] ~ Effect, A, B](list: List[A], initial: F[B], combine: A => F[B] => F[B]): F[B]
+private def foldLeftInternal[A, B](list: List[A], initial: B, combine: A => B => {} B): B

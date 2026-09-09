@@ -1,5 +1,3 @@
-import eliot.carrier.Effect
-
 /**
  * The dependency effect (a reader): read-only access to an environment value of type `X` that is
  * *supplied at the discharge site*, not fixed globally.
@@ -10,51 +8,31 @@ import eliot.carrier.Effect
  * like `State` or `Throw` — nothing about *which* `X` is provided is baked into the signature.
  *
  * The value is injected only when the effect is discharged, by `provide`: it hands `x` to
- * every `dependency` read of that type and yields the residual carrier.
+ * every `dependency` read of that type.
  *
  * ```eliot
  * // Lookup something from a database
  * def lookup(key: String): {Dep[Configuration], DBIO} Row = dependency.query("select ...")
  *
- * // Provide the dependency in main (a direct call — a dot-chained discharger is not credited)
+ * // Provide the dependency in main
  * def main: {Console} Unit = printLine(
  *    provide(Database("jdbc://app-db"), lookup("42")).rowText
  * )
  * ```
+ *
+ * A **control effect**: one implementation per platform, reading that platform's private cell.
  */
-ability Dep[X, F[_]] {
+effect Dep[X] {
    /**
     * Read the environment value of type `X`, dispatched by the type expected at the use site. The reader's
     * `ask`: it returns whatever `provide` later supplies for `X`.
     */
-   def dependency: {Dep[X]} X
+   def dependency: X
 }
 
 /**
- * The internal carrier that realises the `Dep[X]` effect: a `DepCarrier[X, G, A]` is a function from an
- * environment `X` to a `G`-computation of the result — the reader transformer `X -> G[A]`.
- *
- * Plumbing only — application code never names it. A function that reads a dependency declares `{Dep[X]}` and
- * discharges it with `provide`; this carrier is what that operates on under the hood. Generic over the base
- * carrier `G`, so it composes over `IO`, another `DepCarrier[Y, IO]`, and so on. Its representation (the
- * `Effect`/`Suspend`/`Dep` instances) is supplied by the platform layer.
- */
-type DepCarrier[X, G[_], A]
-
-/**
- * Unwrap a `DepCarrier` to its underlying environment-transition function `Function[X, G[A]]`. The single
- * accessor of the carrier; the platform layer supplies the body. Discharge the effect with `provide`, which
- * hands an environment value to this function.
- */
-def runDepCarrier[X, G[_] ~ Effect, A](obj: {Dep[X]} A): X => G[A]
-
-/**
  * Discharge the `Dep[X]` effect by supplying the environment value `x`: every `dependency` read of type `X`
- * in `computation` sees `x`, and the residual carrier `G` (still carrying any other effects) is returned.
- *
- * Call it directly on the computation expression (`provide(x, logic)`) — a discharge is credited to the
- * caller's effect accounting only at a direct call, so nest two `provide`s for two dependency types rather
- * than dot-chaining them.
+ * in `computation` sees `x`. Every other effect the computation performs is unaffected.
  *
  * ```eliot
  * // Some logic using two distinct dependencies
@@ -64,5 +42,7 @@ def runDepCarrier[X, G[_] ~ Effect, A](obj: {Dep[X]} A): X => G[A]
  * def main: {Console} Unit =
  *    provide(Topic("events"), provide(Database("jdbc://app-db"), logic))
  * ```
+ *
+ * Body-less here and bodied per platform, over that platform's private cell primitive.
  */
-def provide[X, G[_] ~ Effect, A](x: X, computation: {Dep[X]} A): G[A] = runDepCarrier(computation)(x)
+def provide[X, A](x: X, computation: {Dep[X]} A): A

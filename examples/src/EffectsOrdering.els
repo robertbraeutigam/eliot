@@ -1,34 +1,23 @@
-import eliot.carrier.Effect
-
-// A pure carrier (the identity monad), so the two discharge orders below are plain values with no I/O.
-data Id[A](runId: A)
-
-implement Effect[Id] {
-   def pure[A](a: A): Id[A] = Id(a)
-   def flatMap[A, B](f: Function[A, Id[B]], fa: Id[A]): Id[B] = f(runId(fa))
-   def map[A, B](f: Function[A, B], fa: Id[A]): Id[B] = Id(f(runId(fa)))
-}
-
 // A validation that always rejects: it aborts regardless of its input. `abort` stands in for a value of any type.
 def reject(value: String): {Abort} String = abort
 
-// ONE carrier-polymorphic {State, Abort} program: install a new state, THEN abort. Direct style — the block
-// sequences the steps for you. The interaction question — "does the abort roll back the state?" — is deliberately
-// left open in the flat effect set, decided only by the ORDER the effects are discharged below.
+// ONE {State, Abort} program: install a new state, THEN abort. Direct style — a block is strict evaluation order. The
+// interaction question — "does the abort roll back the state?" — is deliberately left open in the flat effect set,
+// decided only by the ORDER the two dischargers install their frames below.
 def modifyThenAbort: {State[String], Abort} String = {
    putState("modified")
    reject("modified")
 }
 
-// Discharge Abort first (inner), State second (outer): State SURVIVES the abort. Result Pair[Option[String], S] —
-// the value is None (it aborted) but the final state "modified" is still threaded out.
-def stateSurvives: Pair[Option[String], String] =
-   runId(runStateToPair("initial", runAbort(modifyThenAbort)))
+// Discharge Abort first (inner), State second (outer): State SURVIVES the abort. The cell is installed OUTSIDE the
+// escape frame, so leaving that frame does not take it down — result Pair[Option[String], S], with the value None but
+// the final state "modified" still threaded out.
+def stateSurvives: Pair[Option[String], String] = runStateToPair("initial", runAbort(modifyThenAbort))
 
-// Discharge State first (inner), Abort second (outer): the abort DISCARDS the state. Result Option[Pair[String, S]] —
-// the whole pair is gone (None), so there is no surviving state at all.
-def stateDiscarded: Option[Pair[String, String]] =
-   runId(runAbort(runStateToPair("initial", modifyThenAbort)))
+// Discharge State first (inner), Abort second (outer): the abort DISCARDS the state. Now the cell is installed INSIDE
+// the escape frame, so leaving that frame takes the cell with it — result Option[Pair[String, S]], and there is no
+// surviving state at all.
+def stateDiscarded: Option[Pair[String, String]] = runAbort(runStateToPair("initial", modifyThenAbort))
 
 def main: {Console} Unit = {
    printLine(stateSurvives.first.foldOption("<no value>", s -> s))

@@ -1,5 +1,3 @@
-import eliot.carrier.Effect
-
 /**
  * The abort effect: a computation that may short-circuit, abandoning the rest of the work.
  *
@@ -23,35 +21,27 @@ import eliot.carrier.Effect
  *   openConnection(host, port)
  * }
  * ```
+ *
+ * A **control effect**: one implementation per platform over that platform's private exit primitive, so there
+ * is no interpretation to choose and nothing to bind with `with`.
  */
-ability Abort[F[_]] {
+effect Abort {
    /**
     * Short-circuit the computation. Control does not return, so the result stands in for a value of any
     * type `A`; `runAbort` reflects the abort into a `none`.
     */
-   def abort[A]: {Abort} A
+   def abort[A]: A
 }
 
 /**
- * The internal carrier that realises the `Abort` effect: an `AbortCarrier[G, A]` is a `G`-computation producing an
- * `Option[A]` — `some(a)`, or `none` if it short-circuited.
+ * Discharge the `Abort` effect, materialising it as an `Option[A]`: `Some(a)` if the computation completed,
+ * `None` if it aborted. Every other effect the computation performs is unaffected.
  *
- * Plumbing only — application code never names it. A function that may short-circuit declares `{Abort}` and discharges it
- * with `runAbort`/`else`; this carrier is what those operate on under the hood. Generic over the base carrier `G`, so
- * it composes over `IO`, `ThrowCarrier[String, IO]`, and so on. Its representation (the `Effect`/`Suspend`/`Abort`
- * instances) is supplied by the platform layer.
+ * Body-less here and bodied per platform, for the same reason `runThrow` is: the exit primitive is a platform
+ * private (`docs/effects.md` §9.6). Consume the result with `foldOption`, or reach for `else` to supply a
+ * fallback in one step without ever naming `Option`.
  */
-type AbortCarrier[G[_], A]
-
-/**
- * Discharge the `Abort` effect, materialising it as an `Option[A]`: `Some(a)` if the computation completed, `None` if it
- * aborted. Any other effects remain in the carrier `G`. This is the single accessor of `AbortCarrier` — the platform
- * layer supplies its body (its jvm implementation is the *generated* `AbortCarrier` data-field accessor). Discharge is
- * read structurally at monomorphization from the `{Abort}` input against the plain `G` output, so no annotation is
- * needed. Consume the result with `foldOption`, or reach for `else` to supply a fallback in one step without ever
- * naming `Option`.
- */
-def runAbort[G[_] ~ Effect, A](obj: {Abort} A): G[Option[A]]
+def runAbort[A](obj: {Abort} A): Option[A]
 
 /**
  * Reflect an `Option` into the `Abort` effect: yield the present value, or `abort` on absence. The bridge from an
@@ -66,12 +56,10 @@ def orAbort[A](o: Option[A]): {Abort} A = foldOption(abort, a -> a, o)
 
 /**
  * Discharge an `{Abort}` computation, supplying `fallback` if it short-circuits — the everyday way to run `Abort`, and
- * the `else` of the `if..else` sugar. On completion it yields the computed value; on `abort` it runs `fallback` instead,
- * never exposing `Option`. The fallback is itself a `G`-computation, so it may be a pure value (auto-lifted with `pure`)
- * or effectful; the result stays in the carrier `G` — the `Abort` layer is discharged, any other effects remain. In a
- * pure position (a bare pure declared return, with no other effect in sight) the leftover carrier defaults to the
- * identity carrier `Id` and unwraps automatically, so a fully-discharged computation drops straight into pure code.
- * Binds right-associatively, so `if(..) else if(..) else default` nests as expected.
+ * the `else` of the `if..else` sugar. On completion it yields the computed value; on `abort` it runs `fallback`
+ * instead, never exposing `Option`. The fallback is a suspended slot (`{} A`), so only the taken side ever runs and it
+ * may itself perform whatever the enclosing definition declares. `else` discharges the `Abort` layer and touches
+ * nothing else. Binds right-associatively, so `if(..) else if(..) else default` nests as expected.
  *
  * ```eliot
  * // Get a setting for a key; aborts if the setting does not exist.
@@ -80,10 +68,9 @@ def orAbort[A](o: Option[A]): {Abort} A = foldOption(abort, a -> a, o)
  * // Discharged at the use site, inside an effectful context.
  * def main: {Console} Unit = printLine(setting("host") else "localhost")
  *
- * // Discharged into a PURE function: the leftover carrier defaults to Id and unwraps.
+ * // Discharged into a PURE function: nothing is left over, so the result is a plain String.
  * def port: String = setting("port") else "8080"
  * ```
  */
 infix right
-def else[G[_] ~ Effect, A](computation: {Abort} A, fallback: {} A): G[A] =
-   flatMap(o -> foldOption(fallback, a -> pure(a), o), runAbort(computation))
+def else[A](computation: {Abort} A, fallback: {} A): A = foldOption(fallback, a -> a, runAbort(computation))

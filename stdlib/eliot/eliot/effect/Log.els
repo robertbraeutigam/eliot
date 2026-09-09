@@ -6,9 +6,9 @@
  * api and is expected to be wrapped by a more powerful one on
  * a specific platform.
  */
-ability Log[F[_]] {
+effect Log {
    /**
     * Emit a diagnostic message; the platform chooses the destination.
     */
-   def log(s: String): {Log} Unit
+   def log(s: String): Unit
 }

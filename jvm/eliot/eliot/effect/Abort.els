@@ -1,55 +1,33 @@
-import eliot.carrier.Effect
-import eliot.carrier.Suspend
-import eliot.effect.State
-
-// Re-declared here so the colocated `AbortCarrier` instances below can resolve the `Abort` ability — name
-// resolution is per-file. The merge verifies this copy agrees with the abstract declaration in the base layer.
-ability Abort[F[_]] {
-   def abort[A]: {Abort} A
-}
-
-data AbortCarrier[G[_], A](runAbort: G[Option[A]])
-
-/**
- * `AbortCarrier` is an effect carrier whenever its base `G` is: `pure` injects via `G`'s `pure` and a `Some`; `flatMap`
- * runs the inner `G[Option[A]]`, and on `Some(a)` continues with `f`, on `None` short-circuits (the `Abort` semantics);
- * `map` transforms a present value and propagates `None`, given directly so it needs no `pure` round-trip. The
- * author-written `pure(None)` stays put — the effect-desugar phase does not bind an explicit machinery call.
- */
-implement[G[_] ~ Effect] Effect[AbortCarrier[G]] {
-   def pure[A](a: A): AbortCarrier[G, A] = AbortCarrier(pure(Some(a)))
-   def flatMap[A, B](f: Function[A, AbortCarrier[G, B]], fa: AbortCarrier[G, A]): AbortCarrier[G, B] =
-      AbortCarrier(flatMap(o -> foldOption(pure(None), a -> runAbort(f(a)), o), runAbort(fa)))
-   def map[A, B](f: Function[A, B], fa: AbortCarrier[G, A]): AbortCarrier[G, B] =
-      AbortCarrier(map(o -> foldOption(None, a -> Some(f(a)), o), runAbort(fa)))
+// Merge copy of the base declaration so the implementation below can resolve it (name resolution is per-file).
+effect Abort {
+   def abort[A]: A
 }
 
 /**
- * The base-effect lift: `AbortCarrier[G]` is `Suspend` whenever `G` is, by running the inner suspend action and wrapping its
- * result in `Some`. This single per-carrier lift is what carries every `Suspend`-keyed fine effect (`Console`, `Log`, …)
- * through the `AbortCarrier` layer for free.
+ * The JVM `Abort` implementation — the single one for this platform, `Throw` without a reason: `abort` leaves through
+ * the nearest enclosing `runAbort` frame carrying nothing.
  */
-implement[G[_] ~ Suspend & Effect] Suspend[AbortCarrier[G]] {
-   def suspend[A](thunk: Function[Unit, A]): AbortCarrier[G, A] = AbortCarrier(map(a -> Some(a), suspend(thunk)))
+implement Abort {
+   def abort[A]: A = exitInternal(unit)
 }
 
 /**
- * The `Abort` instance: `abort` is the short-circuit — an `AbortCarrier` whose inner computation purely yields `None`.
+ * Discharge `Abort` by installing the frame `abort` leaves through: `Some(a)` if the computation finished, `None` if it
+ * short-circuited. The platform body of the base's body-less signature.
+ *
+ * Its frame is this module's own `escapeInternal`, so it can never be confused with a `Throw[Unit]` frame: the two are
+ * different names and the backend keys a frame class on the name it was installed by.
  */
-implement[G[_] ~ Effect] Abort[AbortCarrier[G]] {
-   def abort[A]: AbortCarrier[G, A] = AbortCarrier(pure(None))
-}
+def runAbort[A](obj: {Abort} A): Option[A] = foldEither(_ -> None, a -> Some(a), escapeInternal(obj))
 
 /**
- * Cross-lift: `State[S]` rides through the `AbortCarrier` layer (one cell of the n² mtl lifting matrix). When a
- * `{State[S], Abort}` program discharges `Abort` *first* (`runStateToPair(s0, runAbort(p))`), the carrier is refined to
- * `AbortCarrier[G]` with `G` still carrying `State`, so the residual `state`/`putState` must run at `AbortCarrier[G]`.
- * They delegate to the inner `G`'s state and wrap the result in `Some` — state is never *absent* here; only the eventual
- * `abort` makes the discharged *value* `None`. Because `AbortCarrier` sits *outside* the (inner) `StateCarrier`, the
- * threaded state survives an abort: discharging in this order yields `Pair[Option[A], S]`. Its order-sensitive
- * counterpart is `Abort[StateCarrier[S, G]]` (in `State`).
+ * Install an escape frame carrying nothing, run `body` inside it, and answer `Right` of its result or `Left(unit)` if
+ * it left. `eliot.effect.Throw`'s leaf of the same shape and purpose; per-module `private` means each module declares
+ * its own, which is also what keeps the two frames apart. Implemented by the backend.
  */
-implement[S, G[_] ~ State[S] & Effect] State[S, AbortCarrier[G]] {
-   def state: AbortCarrier[G, S] = AbortCarrier(map(s -> Some(s), state))
-   def putState(newS: S): AbortCarrier[G, Unit] = AbortCarrier(map(u -> Some(u), putState(newS)))
-}
+private def escapeInternal[A](body: {} A): Either[Unit, A]
+
+/**
+ * Leave through the nearest enclosing `escapeInternal` frame of this module. Implemented by the backend.
+ */
+private def exitInternal[A](nothing: Unit): A

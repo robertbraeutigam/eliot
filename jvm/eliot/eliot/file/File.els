@@ -1,119 +1,105 @@
-import eliot.carrier.Effect
-import eliot.carrier.Suspend
 import eliot.effect.Throw
 import eliot.file.Path
 import eliot.collection.List
 
-// Merge copy of the FileSystem ability so the instance below can resolve it (name resolution is per-file). The merge
-// verifies this copy agrees with the abstract declaration in the base layer, which carries the documentation.
-ability FileSystem[F[_]] {
-   def readFile(path: Path): {FileSystem} String
-   def writeFile(content: String, path: Path): {FileSystem} Unit
-   def appendFile(content: String, path: Path): {FileSystem} Unit
-   def foldLines[B](initial: B, step: B => String => B, path: Path): {FileSystem} B
-   def foldCodePoints[B](initial: B, step: B => Int => B, path: Path): {FileSystem} B
-   def readLines(path: Path): {FileSystem} List[String]
-   def exists(path: Path): {FileSystem} Bool
-   def isDirectory(path: Path): {FileSystem} Bool
-   def listDirectory(path: Path): {FileSystem} List[Path]
-   def walk(path: Path): {FileSystem} List[Path]
-   def createDirectories(path: Path): {FileSystem} Unit
-   def delete(path: Path): {FileSystem} Unit
+// Merge copy of the FileSystem effect so the implementation below can resolve it (name resolution is per-file). The
+// merge verifies this copy agrees with the abstract declaration in the base layer, which carries the documentation.
+effect FileSystem {
+   def readFile(path: Path): {Throw[IoError]} String
+   def writeFile(content: String, path: Path): {Throw[IoError]} Unit
+   def appendFile(content: String, path: Path): {Throw[IoError]} Unit
+   def foldLines[B](initial: B, step: B => String => B, path: Path): {Throw[IoError]} B
+   def foldCodePoints[B](initial: B, step: B => Int => B, path: Path): {Throw[IoError]} B
+   def readLines(path: Path): {Throw[IoError]} List[String]
+   def exists(path: Path): {Throw[IoError]} Bool
+   def isDirectory(path: Path): {Throw[IoError]} Bool
+   def listDirectory(path: Path): {Throw[IoError]} List[Path]
+   def walk(path: Path): {Throw[IoError]} List[Path]
+   def createDirectories(path: Path): {Throw[IoError]} Unit
+   def delete(path: Path): {Throw[IoError]} Unit
 }
 
 // The concrete IoError: a message. The abstract `message` in the base layer merges with this generated data-field
-// accessor (the established ThrowCarrier.runThrow pattern).
+// accessor.
 data IoError(message: String)
 
 /**
  * The opaque result of a leaf file native: either an error message or a value, kept as a two-slot native holder so a
  * native never has to construct an Eliot `data` value in bytecode. Read back with `resultErrorMessage`/`resultValue`
- * and reflected into `Throw[IoError]` by `reflect` below.
+ * and reflected into `Throw[IoError]` by `raiseError` below.
  */
 type IoResult
 
 /**
- * The JVM `FileSystem` instance, generic over any carrier with a `Suspend` base that can also fail with `IoError`
- * (`Throw[IoError]`), never pinned to `IO` — so it serves `ThrowCarrier[IoError, IO]` and any carrier stacked over it.
- * Each operation reifies its `private` impure leaf native through `suspend`, then `reflect`s the native's error-or-value
- * holder into the effect: the value on success, `raise(IoError(...))` on failure.
+ * The JVM `FileSystem` implementation, and the default one: anonymous, in the effect's own module. Each operation calls
+ * its `private` impure leaf native directly — there is no carrier to reify into and nothing to lift — and then
+ * `raiseError`s the native's error-or-value holder into `Throw[IoError]`, which every member declares.
+ *
+ * A test does not replace this: it declares its own named `implement` of `FileSystem` wherever it likes and binds it
+ * with `with`, so a faked filesystem needs no type of its own and no colocation.
  */
-implement[F[_] ~ Suspend & Throw[IoError] & Effect] FileSystem[F] {
-   def readFile(path: Path): F[String] = {
-      val r = suspend(_ -> readFileInternal(path))
-      val checked = raiseError(r)
-      resultValue(r)
-   }
-
-   def writeFile(content: String, path: Path): F[Unit] = {
-      val r = suspend(_ -> writeFileInternal(content, path))
+implement FileSystem {
+   def readFile(path: Path): {Throw[IoError]} String = {
+      val r = readFileInternal(path)
       raiseError(r)
+      resultValue(r)
    }
 
-   def appendFile(content: String, path: Path): F[Unit] = {
-      val r = suspend(_ -> appendFileInternal(content, path))
+   def writeFile(content: String, path: Path): {Throw[IoError]} Unit = raiseError(writeFileInternal(content, path))
+
+   def appendFile(content: String, path: Path): {Throw[IoError]} Unit = raiseError(appendFileInternal(content, path))
+
+   def foldLines[B](initial: B, step: B => String => B, path: Path): {Throw[IoError]} B = {
+      val r = foldLinesInternal(initial, step, path)
       raiseError(r)
-   }
-
-   def foldLines[B](initial: B, step: B => String => B, path: Path): F[B] = {
-      val r = suspend(_ -> foldLinesInternal(initial, step, path))
-      val checked = raiseError(r)
       resultValue(r)
    }
 
-   def foldCodePoints[B](initial: B, step: B => Int => B, path: Path): F[B] = {
-      val r = suspend(_ -> foldCodePointsInternal(initial, step, path))
-      val checked = raiseError(r)
+   def foldCodePoints[B](initial: B, step: B => Int => B, path: Path): {Throw[IoError]} B = {
+      val r = foldCodePointsInternal(initial, step, path)
+      raiseError(r)
       resultValue(r)
    }
 
-   def readLines(path: Path): F[List[String]] = {
-      val r = suspend(_ -> readLinesInternal(path))
-      val checked = raiseError(r)
+   def readLines(path: Path): {Throw[IoError]} List[String] = {
+      val r = readLinesInternal(path)
+      raiseError(r)
       resultAsList(r)
    }
 
-   def exists(path: Path): F[Bool] = {
-      val r = suspend(_ -> existsInternal(path))
-      val checked = raiseError(r)
+   def exists(path: Path): {Throw[IoError]} Bool = {
+      val r = existsInternal(path)
+      raiseError(r)
       resultValue(r)
    }
 
-   def isDirectory(path: Path): F[Bool] = {
-      val r = suspend(_ -> isDirectoryInternal(path))
-      val checked = raiseError(r)
+   def isDirectory(path: Path): {Throw[IoError]} Bool = {
+      val r = isDirectoryInternal(path)
+      raiseError(r)
       resultValue(r)
    }
 
-   def listDirectory(path: Path): F[List[Path]] = {
-      val r = suspend(_ -> listDirectoryInternal(path))
-      val checked = raiseError(r)
-      val entries = resultAsList(r)
-      entries
-   }
-
-   def walk(path: Path): F[List[Path]] = {
-      val r = suspend(_ -> walkInternal(path))
-      val checked = raiseError(r)
+   def listDirectory(path: Path): {Throw[IoError]} List[Path] = {
+      val r = listDirectoryInternal(path)
+      raiseError(r)
       resultAsList(r)
    }
 
-   def createDirectories(path: Path): F[Unit] = {
-      val r = suspend(_ -> createDirectoriesInternal(path))
+   def walk(path: Path): {Throw[IoError]} List[Path] = {
+      val r = walkInternal(path)
       raiseError(r)
+      resultAsList(r)
    }
 
-   def delete(path: Path): F[Unit] = {
-      val r = suspend(_ -> deleteInternal(path))
-      raiseError(r)
-   }
+   def createDirectories(path: Path): {Throw[IoError]} Unit = raiseError(createDirectoriesInternal(path))
+
+   def delete(path: Path): {Throw[IoError]} Unit = raiseError(deleteInternal(path))
 }
 
 /**
- * Raise the holder's error as an `IoError`, or do nothing when it holds a value. Kept separate from reading the value so
- * every effectful (`F[...]`) step in an operation carries a non-container payload (`IoResult`/`Unit`): the value itself
- * is then produced as a pure tail and auto-lifted, which the carrier inference handles for `List`-shaped results where
- * an explicit `pure`/`flatMap` over `F[List[..]]` does not.
+ * Raise the holder's error as an `IoError`, or do nothing when it holds a value. Kept separate from reading the value
+ * so an operation reads as "call the native, check it, read it" — three ordinary strict statements, which is all
+ * sequencing is now.
  */
 private def raiseError(r: IoResult): {Throw[IoError]} Unit =
    if(isNull(resultErrorMessage(r)), unit) else raise(IoError(resultErrorMessage(r)))
@@ -192,7 +178,7 @@ private def resultValue[A](r: IoResult): A
 
 /**
  * The value slot of a result holder as a `List[E]` — a `List`-headed sibling of `resultValue` for the directory/line
- * operations, whose concrete `List` head auto-lifts into the operation's carrier. Implemented by the backend.
+ * operations, so a `List`-shaped result is read back at its own head. Implemented by the backend.
  */
 private def resultAsList[E](r: IoResult): List[E]
 
@@ -205,7 +191,7 @@ private def resultAsList[E](r: IoResult): List[E]
 private def resultErrorMessage(r: IoResult): String {closed(0, 2147483647)}
 
 /**
- * `true` when `x` is the null reference — lets `reflect` branch on the holder's slots in ordinary Eliot. Implemented by
+ * `true` when `x` is the null reference — lets `raiseError` branch on the holder's slots in ordinary Eliot. Implemented by
  * the backend.
  */
 private def isNull[A](x: A): Bool
