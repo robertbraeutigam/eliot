@@ -314,26 +314,37 @@ class OperatorResolverProcessorTest
       }
   }
 
-  // --- effect-set sugar `{E} A` (effects M1) ---
+  // --- effect-set sugar `{E} A` (effects v6 §9.4 step 2). There is no hand-written equivalent to compare against any
+  // more — the carrier form this pair used to mirror is gone — so the shape is asserted directly. ---
 
-  "effect-set sugar" should "resolve {E} A to the same signature as the hand-written carrier form" in {
+  "effect-set sugar" should "mint one Type-kinded binder per row entry, thunk a row parameter, and leave the return bare" in {
     val source =
       "data Str\ndata Unt\nability Suspend[F[_]] { def delay(value: Str): F[Str] }\n" +
-        "def sugar(x: {Suspend} Str): {Suspend} Unt\ndef hand[F[_] ~ Suspend](x: F[Str]): F[Unt]"
-    (runEngineForResolvedValue(source, "sugar"), runEngineForResolvedValue(source, "hand")).mapN { (sugar, hand) =>
-      (signatureShow(sugar), constraintShow(sugar)) shouldBe (signatureShow(hand), constraintShow(hand))
+        "def sugar(x: {Suspend} Str): {Suspend} Unt"
+    runEngineForResolvedValue(source, "sugar").asserting { sugar =>
+      (signatureShow(sugar), constraintShow(sugar)) shouldBe (
+        "(eliot.compiler.Type::Type^Type :: Impl) -> " +
+          "eliot.lang.Function::Function^Type(" +
+          "eliot.lang.Function::Function^Type(eliot.lang.Unit::Unit^Type)(Test::Str^Type))(Test::Unt^Type)",
+        Map("Impl" -> List(("Suspend", List("Impl"))))
+      )
     }
   }
 
-  it should "resolve {Suspend, Abort} and {Abort, Suspend} to the same signature and effect set" in {
+  it should "resolve {Suspend, Abort} and {Abort, Suspend} to the same signature and the same effect set" in {
+    // The *set* is what a row means; which minted binder carries which entry follows declaration order and is not part
+    // of it — the binders are phantom, written positionally at each reference and named by nothing.
     val source =
       "data Str\nability Suspend[F[_]] { def s(value: Str): F[Str] }\nability Abort[F[_]] { def a(value: Str): F[Str] }\n" +
         "def ab(x: Str): {Suspend, Abort} Str\ndef ba(x: Str): {Abort, Suspend} Str"
     (runEngineForResolvedValue(source, "ab"), runEngineForResolvedValue(source, "ba")).mapN { (ab, ba) =>
-      (signatureShow(ab), constraintShow(ab).view.mapValues(_.toSet).toMap) shouldBe
-        (signatureShow(ba), constraintShow(ba).view.mapValues(_.toSet).toMap)
+      (signatureShow(ab), abilitySet(ab)) shouldBe (signatureShow(ba), abilitySet(ba))
     }
   }
+
+  /** The abilities a value's constraints name, as a set — the row, with the binder assignment abstracted away. */
+  private def abilitySet(rv: OperatorResolvedValue): Set[String] =
+    constraintShow(rv).values.flatten.map(_._1).toSet
 
   // --- effects-as-channel Phase 1: the declared row is recorded as inert signature metadata (docs/effects-as-channel.md
   // §4). The carrier desugar still runs (asserted above), and *in parallel* the open rows are captured, position-
@@ -357,72 +368,43 @@ class OperatorResolverProcessorTest
     }
   }
 
-  // --- effects-as-channel §7 step 3: the carrier-stack recognition tag (finding 14). A *pinned* row `{X[E] | G} A`
-  // desugars to the canonical carrier stack `XCarrier[E, G, A]`; the position is marked on `effectRow.returnPinned` /
-  // `pinnedParameterIndices` so the checker can later split it as a carrier slot without re-deriving carrier-ness
-  // from shape or name. Since effects-as-rows R2 the *entries* are recorded too (`pinnedParameterEffects` /
-  // `returnPinnedEffects`, in declared = discharge order), so the entry's ability name resolves like an open-row
-  // entry's — the ability must be declared (in real code the `<Ability>Carrier` is colocated with its ability, so one
-  // resolves iff the other does). ---
+  // --- The **stored-computation** tag (effects v6 A7). A row-typed `data` field is a computation held unrun, and the
+  // two functions the field is split into see the same position from opposite sides: the value constructor takes it as
+  // a row-typed *parameter* (so an actual delivered there is thunked and its entries supplied), and the accessor hands
+  // it back as `returnThunkEffects` (so a saturated read runs it). The v5 group here recorded a *pinned* row's carrier
+  // stack instead; a pinned row has no v6 meaning and is rejected at the desugar, so its three fields are deleted
+  // rather than re-asserted. ---
 
-  "the pinned-row recognition tag" should "record a discharger-style pinned parameter with its entries (catch's `{Throw[E] | G} A` shape)" in {
-    val source = "data Str\ndata XCarrier[E, G, A]\nability X[E, F[_]] { def op(v: E): F[Str] }\n" +
-      "def discharge[E, G, A](obj: {X[E] | G} A): Str"
-    runEngineForResolvedValue(source, "discharge").asserting { d =>
-      (effectRowReturnPinned(d), effectRowPinnedParamEntries(d)) shouldBe (false, Seq((0, Seq("X"))))
-    }
-  }
-
-  it should "record a pinned-row return with its entries (a value whose type is a carrier stack)" in {
-    val source = "data Str\ndata XCarrier[E, G, A]\nability X[E, F[_]] { def op(v: E): F[Str] }\n" +
-      "def make[E, G, A]: {X[E] | G} A"
-    runEngineForResolvedValue(source, "make").asserting { m =>
-      (effectRowReturnPinnedEntries(m), effectRowPinnedParams(m)) shouldBe (Seq("X"), Set.empty)
-    }
-  }
-
-  it should "record a multi-entry pinned stack's entries in declared (discharge) order" in {
-    val source = "data Str\ndata XCarrier[G, A]\ndata YCarrier[G, A]\n" +
-      "ability X[F[_]] { def opX: F[Str] }\nability Y[F[_]] { def opY: F[Str] }\n" +
-      "def dischargeBoth[G, A](obj: {X, Y | G} A): Str"
-    runEngineForResolvedValue(source, "dischargeBoth").asserting { d =>
-      effectRowPinnedParamEntries(d) shouldBe Seq((0, Seq("X", "Y")))
-    }
-  }
-
-  // A pinned row **stored in a `data` field** must tag the functions the field is split into: the value constructor's
-  // parameter and the field accessor's return. Both are the same capture position seen from the two sides, and both
-  // used to come out untagged, because `CoreProcessor` ran `EffectSugarDesugarer.desugar(DataDefinition)` — which
-  // collapsed the row to its carrier stack — *before* `DataDefinitionDesugarer` built those functions, leaving the
-  // per-function pass nothing to read. The row elaborator then hoisted a stored computation onto the ambient carrier
-  // instead of capturing it (docs/effects-as-rows.md §9 item 4). The data-level pass now rewrites only *open* rows.
-  it should "record a pinned `data` field on the value constructor it is split into" in {
-    val source = "data Str\ndata XCarrier[E, G, A]\nability X[E, F[_]] { def op(v: E): F[Str] }\n" +
-      "data Holder[E, G](tag: Str, run: {X[E] | G} Str)"
+  "the stored-computation tag" should "record a row-typed `data` field on the value constructor it is split into" in {
+    val source = "data Str\nability X[F[_]] { def op: {X} Str }\n" +
+      "data Holder(tag: Str, run: {X} Str)"
     runEngineForResolvedValue(source, "Holder").asserting { holder =>
-      (effectRowReturnPinned(holder), effectRowPinnedParamEntries(holder)) shouldBe (false, Seq((1, Seq("X"))))
+      (effectRowStoredReturn(holder), effectRowParameters(holder)) shouldBe (Seq.empty, Seq((1, Seq("X"))))
     }
   }
 
-  it should "record the same pinned `data` field on the accessor's return" in {
-    val source = "data Str\ndata XCarrier[E, G, A]\nability X[E, F[_]] { def op(v: E): F[Str] }\n" +
-      "data Holder[E, G](run: {X[E] | G} Str)"
+  it should "record the same field on the accessor's return, as a stored computation and not as a performed row" in {
+    val source = "data Str\nability X[F[_]] { def op: {X} Str }\n" +
+      "data Holder(run: {X} Str)"
     runEngineForResolvedValue(source, "run").asserting { accessor =>
-      (effectRowReturnPinnedEntries(accessor), effectRowPinnedParams(accessor)) shouldBe (Seq("X"), Set.empty)
+      (effectRowStoredReturn(accessor), effectRowReturn(accessor)) shouldBe (Seq("X"), Seq.empty)
     }
   }
 
-  it should "NOT mark a data-type parameter or an open-row parameter (only the open row feeds the entries)" in {
-    // `box: Box[Str]` is a plain data type; `eff: {Susp} Str` is an OPEN row — open because `Susp` is in `f`'s own
-    // declared row, so the argument rides `f`'s ambient carrier rather than being supplied a stack of its own
-    // (effects-v5 step 2). Neither is a pinned carrier stack, so the pinned tag stays empty — while the open row still
-    // populates `parameterEffects` at its index, showing the two channels are disjoint.
+  it should "record every entry of a multi-entry stored field, in declared order" in {
+    val source = "data Str\nability X[F[_]] { def opX: {X} Str }\nability Y[F[_]] { def opY: {Y} Str }\n" +
+      "data Holder(run: {X, Y} Str)"
+    runEngineForResolvedValue(source, "run").asserting(effectRowStoredReturn(_) shouldBe Seq("X", "Y"))
+  }
+
+  it should "NOT mark a data-type parameter or an ordinary open-row parameter" in {
+    // `box: Box[Str]` is a plain data type; `eff: {Susp} Str` is a row position and belongs in `parameterEffects`.
+    // Neither is a stored return, so the stored tag stays empty — the two channels are disjoint.
     val source =
-      "data Str\ndata Box[X]\nability Susp[F[_]] { def d(v: Str): F[Str] }\n" +
+      "data Str\ndata Box[X]\nability Susp[F[_]] { def d(v: Str): {Susp} Str }\n" +
         "def f(box: Box[Str], eff: {Susp} Str): {Susp} Str"
     runEngineForResolvedValue(source, "f").asserting { f =>
-      (effectRowReturnPinned(f), effectRowPinnedParams(f), effectRowParameters(f)) shouldBe
-        (false, Set.empty, Seq((1, Seq("Susp"))))
+      (effectRowStoredReturn(f), effectRowParameters(f)) shouldBe (Seq.empty, Seq((1, Seq("Susp"))))
     }
   }
 
@@ -432,17 +414,8 @@ class OperatorResolverProcessorTest
   private def effectRowParameters(rv: OperatorResolvedValue): Seq[(Int, Seq[String])] =
     rv.effectRow.parameterEffects.map(pe => (pe.parameterIndex, pe.effects.map(_.abilityFQN.abilityName)))
 
-  private def effectRowReturnPinned(rv: OperatorResolvedValue): Boolean =
-    rv.effectRow.returnPinned
-
-  private def effectRowPinnedParams(rv: OperatorResolvedValue): Set[Int] =
-    rv.effectRow.pinnedParameterIndices
-
-  private def effectRowReturnPinnedEntries(rv: OperatorResolvedValue): Seq[String] =
-    rv.effectRow.returnPinnedEffects.map(_.abilityFQN.abilityName)
-
-  private def effectRowPinnedParamEntries(rv: OperatorResolvedValue): Seq[(Int, Seq[String])] =
-    rv.effectRow.pinnedParameterEffects.map(pe => (pe.parameterIndex, pe.effects.map(_.abilityFQN.abilityName)))
+  private def effectRowStoredReturn(rv: OperatorResolvedValue): Seq[String] =
+    rv.effectRow.returnThunkEffects.map(_.abilityFQN.abilityName)
 
   private def signatureShow(rv: OperatorResolvedValue): String =
     rv.signature.value.render

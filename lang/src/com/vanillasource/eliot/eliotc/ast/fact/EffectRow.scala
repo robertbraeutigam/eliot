@@ -16,17 +16,10 @@ import cats.syntax.all.*
   * is the explicit, position-attributed copy, and is deliberately **not** part of any `signatureEquality` (the
   * desugared signature already carries the character-exact merge check).
   *
-  * The *open*-row entries populate `returnEffects`/`parameterEffects`. A **pinned** row (`{Throw[E] | Id} A`) is a
-  * concrete carrier stack, not a channel constraint — its positions and entries are recorded separately
-  * (`returnPinnedEffects` / `pinnedParameterEffects`): the effects-as-channel **carrier-stack recognition tag**
-  * (docs/effects-as-channel.md, finding 14 / §7 step 3), widened at effects-as-rows R2 (docs/effects-as-rows.md,
-  * Appendix A.6) to carry the *entries* too — which abilities, with which type arguments, in declared (=discharge)
-  * order — so a consumer (the v3 row checker's discharge subtraction, and any capture-legality check) never inverts the
-  * desugared `<Ability>Carrier` stack by name or shape. Recorded at the one point that knows — `EffectSugarDesugarer`,
-  * where the pinned row collapses to `<Ability>Carrier[...]`. The position-only views (`returnPinned` /
-  * `pinnedParameterIndices`) are derived from the entries. Body rows are excluded (the body is the runtime, not the
-  * declared signature); so are generic-parameter-bound rows (they are neither the value's ambient nor a value
-  * parameter).
+  * A **pinned** row (`{Throw[E] | Id} A`) named a carrier stack and has no v6 meaning; it is rejected at the desugar
+  * rather than recorded, so the three fields that carried its positions and entries are gone with it. Body rows are
+  * excluded (the body is the runtime, not the declared signature); so are generic-parameter-bound rows (they are
+  * neither the value's ambient nor a value parameter).
   *
   * @param returnEffects
   *   Open-row entries at the **return** position — the value's own declared ambient row (what §5.1's `derived ⊆
@@ -48,23 +41,6 @@ import cats.syntax.all.*
   *   the exact mirror of a row-typed *parameter* reference, and what makes wrap and apply cancel for a field read back
   *   at a rowed slot (`runThrow(body(b))`). The entries are what the read *performs*, so the scope check charges them
   *   at the call.
-  * @param returnPinnedEffects
-  *   The **return** position's pinned-row entries, in declared (leftmost-outermost = discharge) order, when the return
-  *   type is itself a *pinned* row (`def counter: {State[S] | Id} A`). Empty otherwise. Deliberately not deduplicated:
-  *   a pinned row is a stack, and multiplicity/order are meaningful.
-  * @param pinnedParameterEffects
-  *   One entry per value parameter whose declared type is itself a *pinned* row — the discharger/handler capture
-  *   domains (`catch`'s `computation: {Throw[E] | G} A`) — holding the parameter's index and the stack's entries in
-  *   declared order. Disjoint from `parameterEffects` by construction (a position's top-level type is either an open
-  *   row or a pinned row, never both). Empty when no parameter is a pinned carrier stack.
-  * @param aliasPinnedEffects
-  *   The entries of a **type-level definition whose body is itself a pinned row** (`type Test = {Writer[W] | Id}
-  *   Unit`), in declared order. This is the one place a *body* row is recorded, and it is recorded because for a type
-  *   alias the body **is** the declared type — the alias's own return position is the kind `Type`, so
-  *   `returnPinnedEffects` says nothing about it. It is kept apart from `returnPinnedEffects` precisely so that the
-  *   alias is never mistaken for a value returning a computation: a consumer resolving a *use* of the alias (`def
-  *   testCases: Test`) reads this tag through one level of alias expansion, which is what the elaborator's whitelist
-  *   (docs/effects-as-rows.md §3.2) sanctions. Empty for every other definition.
   * @tparam C
   *   The phase's ability-constraint representation: [[UnresolvedAbilityConstraint]] over the ast's and then the core's
   *   expression type, and from resolution onwards
@@ -73,20 +49,8 @@ import cats.syntax.all.*
 case class EffectRow[C](
     returnEffects: Seq[C] = Seq.empty[C],
     parameterEffects: Seq[EffectRow.ParameterEffects[C]] = Seq.empty[EffectRow.ParameterEffects[C]],
-    returnThunkEffects: Seq[C] = Seq.empty[C],
-    returnPinnedEffects: Seq[C] = Seq.empty[C],
-    pinnedParameterEffects: Seq[EffectRow.ParameterEffects[C]] = Seq.empty[EffectRow.ParameterEffects[C]],
-    aliasPinnedEffects: Seq[C] = Seq.empty[C]
+    returnThunkEffects: Seq[C] = Seq.empty[C]
 ) {
-
-  /** Position-only view: whether the return position's declared type is a pinned row. */
-  def returnPinned: Boolean = returnPinnedEffects.nonEmpty
-
-  /** Position-only view: whether this definition is a type alias whose body is a pinned row. */
-  def aliasPinned: Boolean = aliasPinnedEffects.nonEmpty
-
-  /** Position-only view: the value-parameter indices whose declared type is a pinned row. */
-  def pinnedParameterIndices: Set[Int] = pinnedParameterEffects.map(_.parameterIndex).toSet
 
   /** Convert every entry with a pure function, preserving positions — the pure fact-chain hops (ast→core,
     * resolve→matchdesugar) use this, mirroring their `paramConstraints` conversion.
@@ -95,10 +59,7 @@ case class EffectRow[C](
     EffectRow(
       returnEffects.map(f),
       parameterEffects.map(_.map(f)),
-      returnThunkEffects.map(f),
-      returnPinnedEffects.map(f),
-      pinnedParameterEffects.map(_.map(f)),
-      aliasPinnedEffects.map(f)
+      returnThunkEffects.map(f)
     )
 
   /** Convert every entry with an effectful function, preserving positions — the resolving fact-chain hops
@@ -108,10 +69,7 @@ case class EffectRow[C](
     (
       returnEffects.traverse(f),
       parameterEffects.traverse(_.traverse(f)),
-      returnThunkEffects.traverse(f),
-      returnPinnedEffects.traverse(f),
-      pinnedParameterEffects.traverse(_.traverse(f)),
-      aliasPinnedEffects.traverse(f)
+      returnThunkEffects.traverse(f)
     ).mapN(EffectRow.apply)
 }
 
