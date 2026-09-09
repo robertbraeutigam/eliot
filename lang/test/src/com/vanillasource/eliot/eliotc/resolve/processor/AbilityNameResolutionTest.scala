@@ -19,7 +19,7 @@ import com.vanillasource.eliot.eliotc.resolve.fact.ResolvedValue
 class AbilityNameResolutionTest extends ProcessorTest(LangProcessors()*) {
 
   "an ability name" should "resolve to the local declaration that took an ambient ability's name" in {
-    abilityModules("ability Console[F[_]] {\ndef beep: {Console} Unit\n}\ndef f: {Console} String = \"\"")
+    abilityModules("effect Console {\ndef beep: Unit\n}\ndef f: {Console} String = \"\"")
       .asserting(_ shouldBe Seq(testModuleName))
   }
 
@@ -29,11 +29,13 @@ class AbilityNameResolutionTest extends ProcessorTest(LangProcessors()*) {
   }
 
   it should "report an ability that is in no dictionary at all" in {
-    errorsOf("def f[G[_] ~ Nonexistent](g: G[String]): String = \"\"")
+    errorsOf("def f[G ~ Nonexistent](g: G): String = \"\"")
       .asserting(_ shouldBe Seq("Ability not found."))
   }
 
-  /** The modules of the carrier binder's resolved constraints, minus the `Effect` machinery every row synthesizes. */
+  /** The modules of the resolved constraints on the binder the row minted for its single entry (effects v6: a row
+    * entry is a phantom binder, and the constraint on it is what names the ability).
+    */
   private def abilityModules(source: String): IO[Seq[ModuleName]] =
     runGenerator(source, ResolvedValue.Key(fVfqn), systemImports).map { case (errors, facts) =>
       if (errors.nonEmpty) throw new Exception(s"Compilation errors: ${errors.map(_.message).mkString(", ")}")
@@ -41,8 +43,7 @@ class AbilityNameResolutionTest extends ProcessorTest(LangProcessors()*) {
         .collectFirst { case rv: ResolvedValue if rv.vfqn === fVfqn => rv }
         .get
         .paramConstraints
-        .getOrElse("F", Seq.empty)
-        .filterNot(_.abilityFQN.abilityName === "Effect")
+        .getOrElse("Impl", Seq.empty)
         .map(_.abilityFQN.moduleName)
     }
 

@@ -45,7 +45,7 @@ class PurityGuardTest extends AnyFlatSpec with Matchers {
   }
 
   "the purity guard" should "actually find the language's .els sources (so it cannot pass vacuously)" in {
-    elsFiles.map(_.getName) should contain("IO.els")
+    elsFiles.map(_.getName) should contain("Console.els")
   }
 
   /** Every `.els` file under any layer module's `eliot/` runtime root or `eliot-compiler/` compile-time overlay (the

@@ -285,32 +285,31 @@ object ProcessorTest {
     "ability TypeMatch[T] {\ntype Fields[R]\ndef typeMatch[R](value: Type, matched: Fields[R], notMatched: Function[Unit, R]): R\n}"
 
   /** `Console` effect stub, mirroring `stdlib/eliot/eliot/effect/Console.els`. The whole `eliot.effect` package is
-    * ambient (auto-imported in the weak prelude tier), so every full-prelude test carries this. The concrete JVM
-    * instance lives in the real jvm layer, not here.
+    * ambient (auto-imported in the weak prelude tier), so every full-prelude test carries this. The default
+    * implementation lives in the real jvm layer, not here — a stub declares the effect, never how it runs.
     */
   val consoleStubContent: String =
-    "ability Console[F[_]] {\ndef printLine(s: String): {Console} Unit\ndef readLine: {Console} String\n}"
+    "effect Console {\ndef printLine(s: String): Unit\ndef readLine: String\n}"
 
   /** `Log` effect stub, mirroring `stdlib/eliot/eliot/effect/Log.els` (ambient — see [[consoleStubContent]]); the
     * concrete JVM instance lives in the real jvm layer.
     */
-  val logStubContent: String = "ability Log[F[_]] {\ndef log(s: String): {Log} Unit\n}"
+  val logStubContent: String = "effect Log {\ndef log(s: String): Unit\n}"
 
   /** `Dep` effect stub, mirroring `stdlib/eliot/eliot/effect/Dep.els` (ambient — see [[consoleStubContent]]); this is
-    * just the reader `ability` (the `ask`) — the concrete carrier + `provide` discharge live in the jvm layer.
+    * just the reader operation (the `ask`) — the `provide` discharge lives in the jvm layer.
     */
-  val depStubContent: String = "ability Dep[X, F[_]] {\ndef dependency: {Dep[X]} X\n}"
+  val depStubContent: String = "effect Dep[X] {\ndef dependency: X\n}"
 
-  /** `Abort`/`Throw`/`State`/`Inf` effect stubs, mirroring their `stdlib/eliot/eliot/effect/` abilities (ambient — see
-    * [[consoleStubContent]]): the bare ability head + operations, no carriers or dischargers. Tests exercising a
+  /** `Abort`/`Throw`/`State`/`Inf` effect stubs, mirroring their `stdlib/eliot/eliot/effect/` declarations (ambient —
+    * see [[consoleStubContent]]): the bare `effect` head + its operations, no dischargers. Tests exercising a
     * discharge enrich the module via `ambientStubsWith`.
     */
-  val abortStubContent: String  = "ability Abort[F[_]] {\ndef abort[A]: {Abort} A\n}"
-  val throwStubContent: String  = "ability Throw[E, F[_]] {\ndef raise[A](err: E): {Throw[E]} A\n}"
-  val stateStubContent: String  =
-    "ability State[S, F[_]] {\ndef state: {State[S]} S\ndef putState(s: S): {State[S]} Unit\n}"
-  val infStubContent: String    = "ability Inf[F[_]] {\ndef forever(step: F[Unit]): {Inf} Unit\n}"
-  val writerStubContent: String = "ability Writer[W, F[_]] {\ndef tell(w: W): {Writer[W]} Unit\n}"
+  val abortStubContent: String  = "effect Abort {\ndef abort[A]: A\n}"
+  val throwStubContent: String  = "effect Throw[E] {\ndef raise[A](err: E): A\n}"
+  val stateStubContent: String  = "effect State[S] {\ndef state: S\ndef putState(s: S): Unit\n}"
+  val infStubContent: String    = "effect Inf {\ndef forever(step: {} Unit): Unit\n}"
+  val writerStubContent: String = "effect Writer[W] {\ndef tell(w: W): Unit\n}"
 
   /** The *legacy* ambient prelude a self-contained checker/monomorphize unit test relies on: value application
     * (`Function`), the primitive opaque types (`Unit`/`String`/`BigInteger`), and the Phase-6 literal desugar's

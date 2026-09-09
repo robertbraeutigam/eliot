@@ -7,81 +7,70 @@ import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier, Val
 import com.vanillasource.eliot.eliotc.plugin.LangProcessors
 import com.vanillasource.eliot.eliotc.resolve.fact.ResolvedValue
 
-/** An ability may require other abilities of its carrier (`ability Web[F[_] ~ Console & Log]`), and a use of it
-  * declares what it requires — the superability relation, and the one rule that lets a name stand for a set of
-  * effects (docs/effects-v5-one-carrier.md §7).
+/** An ability may require other abilities **of the parameter this use bound to this binder**, and a use of it declares
+  * what it requires — the superability relation (`ValueResolver.superConstraints`).
   *
-  * The constraints on a value's carrier binder are what *both* verifiers read as "declared"
-  * (`RowChecker.declaredRow`, `EffectAccountingProcessor.openRow`), so that is what these assert.
+  * Effects v6 narrowed what this is *for*, not how it works: naming a set of effects with it
+  * (`ability Web[F[_] ~ Console & Log]`) went with the carrier binder that spelled it (`docs/effects.md` §12, "not
+  * now"), and what stays is the closure over ordinary binders — a `~ Pretty[T]` bringing `Show[T]` with it. The
+  * closure lands in `resolveParamConstraints` only, so what these assert is the resolved constraints of the binder.
   */
 class AbilityRequirementTest extends ProcessorTest(LangProcessors()*) {
 
-  "a required ability" should "be declared by a row entry naming the ability that requires it" in {
-    carrierConstraints("ability Web[F[_] ~ Console & Log]\ndef f: {Web} String = \"\"")
-      .asserting(_ shouldBe Seq("Web", "Console", "Log"))
+  private val prelude =
+    "ability Show[A] { def show(a: A): String }\n" +
+      "ability Pretty[A ~ Show[A]] { def pretty(a: A): String }\n"
+
+  "a required ability" should "be inherited by a `~` constraint naming the ability that requires it" in {
+    constraintNames(prelude + "def f[T ~ Pretty[T]](x: T): String = pretty(x)")
+      .asserting(_ shouldBe Seq("Pretty", "Show"))
   }
 
-  it should "declare the same set as writing the entries out, plus the name itself" in {
-    carrierConstraints("ability Web[F[_] ~ Console & Log]\ndef f: {Web} String = \"\"")
-      .asserting(_.toSet.diff(Set("Web")) shouldBe Set("Console", "Log"))
-  }
-
-  it should "collapse what a sibling entry already names" in {
-    carrierConstraints("ability Web[F[_] ~ Console & Log]\ndef f: {Web, Console} String = \"\"")
-      .asserting(_ shouldBe Seq("Web", "Console", "Log"))
+  it should "collapse what the use already writes for itself" in {
+    constraintNames(prelude + "def f[T ~ Pretty[T] & Show[T]](x: T): String = pretty(x)")
+      .asserting(_ shouldBe Seq("Pretty", "Show"))
   }
 
   it should "close transitively through another requiring ability" in {
-    carrierConstraints(
-      "ability Loud[F[_] ~ Console & Log]\nability Web[F[_] ~ Loud & Abort]\ndef f: {Web} String = \"\""
-    ).asserting(_ shouldBe Seq("Web", "Loud", "Abort", "Console", "Log"))
+    constraintNames(
+      prelude + "ability Report[A ~ Pretty[A]] { def report(a: A): String }\n" +
+        "def f[T ~ Report[T]](x: T): String = report(x)"
+    ).asserting(_ shouldBe Seq("Report", "Pretty", "Show"))
   }
 
   it should "substitute the ability's parameters with the arguments the use wrote" in {
-    constraintArguments(
-      "ability Fallible[E, F[_] ~ Throw[E, F] & Console]\ndef f: {Fallible[String]} String = \"\""
-    ).asserting(
-      _ shouldBe Seq(
-        ("Fallible", Seq("eliot.lang.String::String^Type", "F")),
-        ("Throw", Seq("eliot.lang.String::String^Type", "F")),
-        ("Console", Seq("F"))
-      )
-    )
+    constraintArguments(prelude + "def f[T ~ Pretty[T]](x: T): String = pretty(x)")
+      .asserting(_.map(_._1) shouldBe Seq("Pretty", "Show"))
   }
 
-  it should "be inherited by a hand-written `~` constraint too, not just a row" in {
-    carrierConstraints("ability Web[F[_] ~ Console & Log]\ndef f[G[_] ~ Web](g: G[String]): String = \"\"", "G")
-      .asserting(_ shouldBe Seq("Web", "Console", "Log"))
-  }
-
+  // `Show` is required of `Keyed`'s *first* parameter, which the use binds to `String` — not to `T`, so it must not
+  // join `T`'s constraints, where it would read as a requirement on the wrong type.
   it should "stay on the parameter it was declared for, never landing on an unrelated binder" in {
-    // `Show` is required of `Fallible`'s *first* parameter, which the use binds to `String` — not to the carrier,
-    // so it must not join the carrier's constraints (where it would read as a declared effect).
-    carrierConstraints(
-      "ability Fallible[E ~ Show, F[_] ~ Throw[E, F]]\ndef f: {Fallible[String]} String = \"\""
-    ).asserting(_ shouldBe Seq("Fallible", "Throw"))
+    constraintNames(
+      prelude + "ability Keyed[K ~ Show[K], A] { def key(a: A): K }\n" +
+        "def f[T ~ Keyed[String, T]](x: T): String = show(key(x))"
+    ).asserting(_ shouldBe Seq("Keyed"))
   }
 
   it should "close rather than loop when two abilities require each other" in {
-    carrierConstraints(
-      "ability A[F[_] ~ B & Console]\nability B[F[_] ~ A & Log]\ndef f: {A} String = \"\""
-    ).asserting(_.toSet shouldBe Set("A", "B", "Console", "Log"))
+    constraintNames(
+      "ability A[X ~ B[X]] { def a(x: X): String }\nability B[X ~ A[X]] { def b(x: X): String }\n" +
+        "def f[T ~ A[T]](x: T): String = a(x)"
+    ).asserting(_.toSet shouldBe Set("A", "B"))
   }
 
   it should "leave an ability that requires nothing exactly as it was" in {
-    carrierConstraints("def f: {Console} String = \"\"").asserting(_ shouldBe Seq("Console"))
+    constraintNames(prelude + "def f[T ~ Show[T]](x: T): String = show(x)").asserting(_ shouldBe Seq("Show"))
   }
 
-  private def carrierConstraints(source: String, binder: String = "F"): IO[Seq[String]] =
-    resolvedValue(source).map(
-      _.paramConstraints.getOrElse(binder, Seq.empty).map(_.abilityFQN.abilityName).filterNot(_ === "Effect")
-    )
+  /** The abilities constrained on the binder `T` of the resolved value. */
+  private def constraintNames(source: String, binder: String = "T"): IO[Seq[String]] =
+    resolvedValue(source).map(_.paramConstraints.getOrElse(binder, Seq.empty).map(_.abilityFQN.abilityName))
 
-  private def constraintArguments(source: String, binder: String = "F"): IO[Seq[(String, Seq[String])]] =
+  private def constraintArguments(source: String, binder: String = "T"): IO[Seq[(String, Seq[String])]] =
     resolvedValue(source).map(
       _.paramConstraints
         .getOrElse(binder, Seq.empty)
-        .filterNot(_.abilityFQN.abilityName === "Effect")
         .map(c => (c.abilityFQN.abilityName, c.typeArgs.map(_.render)))
     )
 

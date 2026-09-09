@@ -49,13 +49,16 @@ class ImplementationBindingTest extends AnyFlatSpec with Matchers {
     ImplementationBinding.fromGround(GroundValue.Type) shouldBe None
   }
 
-  "split" should "take a trailing Default off the pattern arguments" in {
-    ImplementationBinding.split(Seq(string, ImplementationBinding.defaultGround)) shouldBe
+  // The binding is the **leading** ability-level type argument, not the trailing one. It had to be: a type-argument
+  // list applies positionally, and an ordinary ability call's pattern arguments (`show(x)`, `a ++ b`) are exactly what
+  // no declaration determines, so nothing could reach a binding written behind them.
+  "split" should "take a leading Default off the pattern arguments" in {
+    ImplementationBinding.split(Seq(ImplementationBinding.defaultGround, string)) shouldBe
       ((Seq(string), Some(ImplementationBinding.Default)))
   }
 
-  it should "take a trailing implementation off the pattern arguments" in {
-    ImplementationBinding.split(Seq(string, int, implementation)) shouldBe
+  it should "take a leading implementation off the pattern arguments" in {
+    ImplementationBinding.split(Seq(implementation, string, int)) shouldBe
       ((Seq(string, int), Some(ImplementationBinding.Implementation(marker, Seq(string)))))
   }
 
