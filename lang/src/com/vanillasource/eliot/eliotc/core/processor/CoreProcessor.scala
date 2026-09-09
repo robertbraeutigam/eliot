@@ -87,7 +87,11 @@ class CoreProcessor
     // follow a private one. Runs on the desugared named values (not the source AST) so `def`/`type`/`data`/`ability`/
     // `implement` all answer to one rule with no per-construct arms. See VisibilityOrderChecker.
     val visibilityErrors = VisibilityOrderChecker.check(coreAstData.namedValues)
-    (positivityErrors ++ rowErrors ++ visibilityErrors)
+    // A `{ … }` block in a *signature*: only bodies are block-desugared, so one written in a type position used to
+    // reach match desugaring un-lowered and crash the compiler. See SignatureBlockChecker for why it is reported
+    // rather than lowered.
+    val signatureErrors  = coreAstData.namedValues.flatMap(SignatureBlockChecker.check)
+    (positivityErrors ++ rowErrors ++ visibilityErrors ++ signatureErrors)
       .traverse_(message => Sourced.compilerError(message)) >>
       debug[CompilerIO](
         s"Core functions in ${key.uri}: ${coreAstData.namedValues.map(_.render).mkString(", ")}"

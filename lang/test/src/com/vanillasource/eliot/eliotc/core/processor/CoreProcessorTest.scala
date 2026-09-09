@@ -873,6 +873,24 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
       nv.qualifiedName.value.name == name && nv.qualifiedName.value.qualifier.isInstanceOf[Qualifier.AbilityImplementation]
     }
 
+  // --- a `{ … }` block in a signature (SignatureBlockChecker) ---
+
+  it should "reject an effect row written inside a type argument" in {
+    // Type arguments are parsed by the value expression parser, where a leading `{` is always a block, so
+    // `List[{Console} Unit]` reads as a block juxtaposed with `Unit` and reached match desugaring un-lowered —
+    // an IllegalStateException. It is a located error now; lowering it instead would silently mean `List[Unit]`.
+    errorsOf("def gathered: List[{Console} Unit] = empty")
+      .asserting(_ shouldBe Seq("A `{ … }` block may not appear in a type. An effect row is written on a " +
+        "definition's return type, or on a parameter's or field's type — never inside a type argument."))
+  }
+
+  it should "accept a block in a runtime body" in {
+    namedValue("def f: A = { val x = b\n x }").asserting(_.runtime.isDefined shouldBe true)
+  }
+
+  private def errorsOf(source: String): IO[Seq[String]] =
+    runGenerator(source, CoreAST.Key(file)).map { case (errors, _) => errors.map(_.message) }
+
   private def namedValue(source: String, name: QualifiedName = QualifiedName("f", Qualifier.Default)): IO[NamedValue] =
     runEngineForCoreAST(source).map(_.namedValues.find(_.qualifiedName.value == name).get)
 

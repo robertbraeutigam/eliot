@@ -120,9 +120,9 @@ their *evidence* is historical, though the claim above each still holds (§2).
 | The sugar is unchanged | `PluginRegistry.els` still prints `60`; the collected order is asserted in `NamedValuesIntegrationTest` |
 | Every fail-safe is a located error | non-literal name, lambda algebra, under-applied call, bare reference — `NamedValuesRewriteProcessorTest` and `NamedValuesIntegrationTest` |
 
-## 8. Found on the way, not fixed here
+## 8. Found on the way — **FIXED 2026-09-09**
 
-A row nested in a **type argument** crashes the compiler instead of being rejected:
+A row nested in a **type argument** crashed the compiler instead of being rejected:
 
 ```eliot
 def gathered: List[{Console} Unit] = empty
@@ -131,8 +131,18 @@ def gathered: List[{Console} Unit] = empty
 IllegalStateException: BlockExpression should not exist after block desugaring
 ```
 
-**Still reproduces under effects v6** (re-checked 2026-09-09). Only a *top-level* parameter or `data`-field row
-lowers (to a thunk); a row in a type argument matches no rule and falls through to this crash. It deserves a
-located diagnostic — the v5 advice "pin it with `| G`" is now wrong, since there are no pinned rows; the honest
-message names the position ("an effect row may not appear in a type argument"). It is the first thing someone hits
-when trying to store an effectful value, and it is independent of the fold.
+The cause is one line up from where it looked: a type argument is parsed by the **value** expression parser (types
+are values), where a leading `{` is always a block — so `{Console}` was read as a block juxtaposed with `Unit`, the
+effect-row parser never saw it, and `BlockDesugaringProcessor` lowers blocks only in a value's *runtime body*.
+
+It is a located error now (`core/processor/SignatureBlockChecker`), pointing at the brace:
+
+```
+A `{ … }` block may not appear in a type. An effect row is written on a definition's return type,
+or on a parameter's or field's type — never inside a type argument.
+```
+
+**Reported rather than lowered, deliberately.** Desugaring signatures too would make it *compile*: `{Console} Unit`
+lowers to `(_ -> Unit)(Console)`, which evaluates to `Unit`, so `List[{Console} Unit]` would silently mean
+`List[Unit]` — an effect annotation quietly discarded, which is exactly the failure direction standing rule 8
+forbids.
