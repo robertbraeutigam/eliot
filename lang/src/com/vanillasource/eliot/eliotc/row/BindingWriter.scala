@@ -61,8 +61,16 @@ object BindingWriter {
 
   case class Violation(message: Sourced[String], help: Seq[String] = Seq.empty)
 
-  /** A binding in scope: an implementation for one ability, and the term naming it. */
-  private case class Binding(ability: AbilityFQN, term: OperatorResolvedExpression)
+  /** A binding in scope: an implementation for one ability, and the term naming it.
+    *
+    * @param byWith
+    *   Whether a `with` **chose** this implementation here — in a body, or on a slot's type, the construct's two
+    *   positions. False for a binding this definition merely *forwards*: its own received binder, and the `Default` a
+    *   slot supplies. The difference matters in exactly one place, [[Writer.chargeStored]]: a stored computation's
+    *   calls were bound where it was constructed, so a `with` over a *read* of one has nothing left to bind (rule 3),
+    *   while forwarding a declaration over it is an honest description of what running it performs.
+    */
+  private case class Binding(ability: AbilityFQN, term: OperatorResolvedExpression, byWith: Boolean = false)
 
   /** The lexical environment at one point. `bindings` is innermost-first, so a nearer `with` shadows an outer one for
     * the same ability; `thunks` are the row-typed parameters in scope, whose references apply.
@@ -83,8 +91,9 @@ object BindingWriter {
     def defaulting(abilities: Seq[AbilityFQN], at: Sourced[?]): Scope =
       abilities.foldLeft(this)((acc, ability) => acc.bind(Binding(ability, defaultBinding(at))))
 
-    def lookup(ability: AbilityFQN): Option[OperatorResolvedExpression] =
-      bindings.find(_.ability == ability).map(_.term)
+    def binding(ability: AbilityFQN): Option[Binding] = bindings.find(_.ability == ability)
+
+    def lookup(ability: AbilityFQN): Option[OperatorResolvedExpression] = binding(ability).map(_.term)
   }
 
   /** Writes both halves of a definition, because both hold references: the **body**, and the **signature**.
@@ -301,7 +310,7 @@ object BindingWriter {
         case WithBinding(subject, implementation) =>
           abilityOf(implementation.value, universe) match {
             case Some(ability) =>
-              walk(subject, scope.bind(Binding(ability, boundImplementation(implementation, scope))))
+              walk(subject, scope.bind(Binding(ability, boundImplementation(implementation, scope), byWith = true)))
             case None          =>
               violations += Violation(implementation.as("This name is not an implementation."))
               walk(subject, scope)
@@ -353,9 +362,35 @@ object BindingWriter {
         case _ => call
       }
 
-    /** Require a covering declaration for an effect this reference performs but writes no binding for. */
+    /** Require a covering declaration for an effect this reference performs but writes no binding for.
+      *
+      * A `with` is **not** such a declaration. Reading a stored computation writes no binding — the calls inside it
+      * were bound where the value was constructed — so a `with` covering the read would absorb the charge without
+      * changing what runs: the effect stops propagating outward while the thunk still runs on the implementation it
+      * was built with. That is rule 3's "a `with` applied to it afterwards is an error, not a rebinding — there is
+      * nothing left to bind" (§1, §7.6), and it is rejected here in both of the construct's positions, since a slot's
+      * `with` chooses an implementation for its argument exactly as a body's does.
+      *
+      * What stays legal is what merely *describes* the read: this definition's own declared row (the effect
+      * propagates to its caller, which is true), and the `Default` a slot supplies (the same implementation the
+      * construction bound, and the frame a discharger installs is entered by the thunk at runtime — `runThrow(step(t))`).
+      */
     private def chargeStored(ability: AbilityFQN, at: Sourced[?], scope: Scope): Unit =
-      if (scope.lookup(ability).isEmpty) reportUncovered(ability, at, scope)
+      scope.binding(ability) match {
+        case None                            => reportUncovered(ability, at, scope)
+        case Some(binding) if binding.byWith =>
+          violations += Violation(
+            at.as(
+              s"This reads a stored computation, whose effect '${ability.abilityName}' was bound where the value " +
+                "was constructed; `with` cannot rebind it."
+            ),
+            Seq(
+              s"Bind the implementation where the value is constructed, or declare '${ability.abilityName}' here " +
+                "and let it propagate."
+            )
+          )
+        case Some(_)                         => ()
+      }
 
     /** One actual, at the callee's parameter `index`. A row-typed slot is a thunk, so the actual is wrapped — and the
       * entries that slot *supplies* are bound inside it, which is resolution-order step 3.
@@ -395,7 +430,13 @@ object BindingWriter {
         .flatMap(marker => abilityOf(marker.value, universe).map(_ -> marker))
         .toMap
       slot.filterNot(rides).foldLeft(scope) { (acc, ability) =>
-        acc.bind(Binding(ability, declared.get(ability).fold(defaultBinding(anchor))(slotImplementation(_, acc))))
+        acc.bind(
+          declared
+            .get(ability)
+            .fold(Binding(ability, defaultBinding(anchor)))(marker =>
+              Binding(ability, slotImplementation(marker, acc), byWith = true)
+            )
+        )
       }
     }
 

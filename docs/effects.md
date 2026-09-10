@@ -220,6 +220,13 @@ nothing can dangle — a frame is installed by a discharger's call and left when
 The accessor's return is the field *as stored*, deliberately not a return row: a return row would mint a
 phantom binder and claim the accessor performs those effects.
 
+Because the read binds nothing, a `with` covering one of the field's entries **at the read** is an error, not a
+rebinding — in both of `with`'s positions, a body's and a slot's type, since it is one construct. It would
+otherwise absorb the charge without changing what runs: the effect stops propagating outward while the thunk goes
+on running the implementation it was built with. What stays legal over a read is what merely *describes* it — this
+definition's own declared row, which propagates the effect to its caller, and the `Default` a discharging slot
+supplies, whose frame the thunk enters at runtime (`runThrow(step(t))`).
+
 ### 2.4 Naming a set of effects
 
 **There is no spelling for one, deliberately** (§12, "not now"). v5's `ability Web[F[_] ~ Console & Log]`
@@ -484,6 +491,10 @@ write's own walk (§3.1), so this is a spec of `row/BindingWriter` rather than o
 - **a `with`** binds its ability for its subject's text, and crosses a def boundary only through a
   declaration. A `with` whose subject contains no covered use and no call to a declaring def is a hard error
   naming the fix, never a silent no-op.
+- **a stored read is charged, never bound**: a saturated call to a `data` field accessor whose field declares a
+  row runs the thunk, so the field's entries are charged there (§2.3). They need a covering *declaration* — this
+  definition's row, or a slot's supply — and a `with` in scope for one of them is the error at the read, in either
+  of `with`'s positions.
 - **a clause row is charged at the binding site**: `greeting("Bob") with recordingConsole` performs
   `Writer[String]` there, because the name's clauses declare it, and the binding for it comes from the same
   order.
@@ -596,7 +607,7 @@ Each is stated, fail-safe, and either has a plan entry or is a deliberate trade.
    project wrapping such a word restates the row. §12, "not now".
 6. **A stored computation's binding is fixed where it is constructed.** Deciding the handler before storing is
    unambiguous and easier to understand; losing first-classness is the accepted price. A `with` applied to a
-   stored computation later is an error, never a rebinding.
+   stored computation later is an error, never a rebinding — rejected at the read, in both of `with`'s positions.
 
 ---
 
@@ -1622,6 +1633,17 @@ and do not land a narrowed version (standing rule 2).
   saturated and costs nothing). The same shape for an ordinary *native* is supported, so this is a gap in the backend
   rather than a rule of the language; closing it means reaching the inline emission from a closure frame, whose
   operands are already on the stack, or emitting the intrinsic's full-arity method beside its inline uses.
+
+- **A11 — a `with` over a read of a stored computation is rejected. FIXED 2026-09-10.** Rule 3's second half was
+  stated everywhere and enforced nowhere: `runWriterToLog(run(held) with recordingConsole)` compiled, printed to the
+  real console and handed back an empty transcript. The read charges the field's entries and writes no binding, so
+  `chargeStored` was satisfied by *any* covering binding — the `with` included — which is exactly the silent
+  acceptance the rule exists to prevent. A binding now records whether a `with` **chose** it
+  (`BindingWriter.Binding.byWith`), and a stored read accepts only a binding this definition forwards: its own
+  received binder, or the `Default` a slot supplies. Both of `with`'s positions are covered, since a slot's `with`
+  chooses an implementation for its argument exactly as a body's does. Found by probing the tree against Part I while
+  rewriting the user docs site for v6; the sibling divergences that probe found are separate. All 45 example jars stay
+  byte-identical — no example wrote one.
 
 - **A8 — a guarded return cannot carry its author's message**, because the compile-track `Throw` went with the
   carrier (the reversal recorded at F5). Accepted 2026-09-09 rather than fixed; the route back is keying `Throw`'s

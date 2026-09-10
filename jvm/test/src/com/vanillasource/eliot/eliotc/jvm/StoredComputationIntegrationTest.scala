@@ -81,4 +81,49 @@ class StoredComputationIntegrationTest extends FullIntegrationTest {
       |def main: {Console} Unit = printLine(leak(Task(failing, "bad")))""".stripMargin)
       .asserting(_ should include("performs the effect 'Throw' but does not declare it"))
   }
+
+  /** Rule 3's second half — "a `with` applied to it afterwards is an error, not a rebinding" (`docs/effects.md` §1,
+    * §7.6). Both of these ran silently on the *default* implementation until the check landed: the `with` absorbed the
+    * charge at the read, so the effect stopped propagating outward while the thunk went on running what it was built
+    * with. The transcript came back empty and the text went to the real console.
+    *
+    * `with` has two positions and is one construct, so both are rejected — a body's `with` over the read, and a slot's
+    * `with` over an argument that is one.
+    */
+  private val consolePrelude =
+    """import eliot.effect.Console
+      |import eliot.effect.Writer
+      |
+      |data Job(run: {Console} Unit, name: String)
+      |
+      |implement recordingConsole: Console {
+      |   def printLine(s: String): {Writer[String]} Unit = tell(s ++ ";")
+      |
+      |   def readLine: Option[String] = None
+      |}
+      |
+      |def held: Job = Job(printLine("inside"), "j")
+      |
+      |""".stripMargin
+
+  "a `with` over a read of a stored computation" should "be rejected rather than silently ignored" in {
+    compileForErrors(consolePrelude + """
+      |def transcript: String = runWriterToLog(run(held) with recordingConsole)
+      |def main: {Console} Unit = printLine(transcript)""".stripMargin)
+      .asserting(_ should include("whose effect 'Console' was bound where the value was constructed"))
+  }
+
+  "a slot's `with` over a read of a stored computation" should "be rejected the same way" in {
+    compileForErrors(consolePrelude + """
+      |def transcriptOf(program: {Console} Unit with recordingConsole): String = runWriterToLog(program)
+      |def main: {Console} Unit = printLine(transcriptOf(run(held)))""".stripMargin)
+      .asserting(_ should include("whose effect 'Console' was bound where the value was constructed"))
+  }
+
+  "declaring the stored effect over a read" should "stay legal, since it only describes what running it performs" in {
+    compileAndRun(consolePrelude + """
+      |def announce: {Console} Unit = run(held)
+      |def main: {Console} Unit = announce""".stripMargin)
+      .asserting(_ shouldBe "inside")
+  }
 }
