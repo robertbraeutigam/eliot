@@ -46,15 +46,14 @@ monomorphize/
 │   ├── RefinementChannelProcessor.scala (post-pass flow analysis over MonomorphicValue: ^Meta transfers/merges,
 │   │                                     ^Where precondition demands)
 │   ├── RefinementTable.scala   (per-node meta values keyed by source position; read by reconcile/backend/LSP)
-│   ├── EffectAccountingProcessor.scala (the post-mono effect verifier: received bindings consulted ⊆ declared row
-│   │                            per mono key — a MEASURED strict subset of the pre-mono scope check's coverage
-│   │                            (D7). Also rejects a supplied row entry whose argument nothing determines, which is
-│   │                            nobody's shadow. A codegen precondition)
-│   ├── EffectAccounting.scala  (its fact: the derived row per (vfqn, typeArgs))
+│   ├── SuppliedRowArgumentsProcessor.scala (a codegen precondition: every supplied row entry at every call knows
+│   │                            what it supplies. NOT an effect verifier — the post-mono one retired with D7,
+│   │                            measured a strict subset of the pre-mono scope check's coverage)
+│   ├── SuppliedRowArguments.scala (its fact: a pass/fail witness per (vfqn, typeArgs))
 │   ├── WovenRecheck.scala      (the re-check at the seam)
 │   ├── WovenValue.scala        (the fact codegen consumes)
-│   └── WovenValueProcessor.scala (the seam; demands EffectAccounting and MetaTransferAccounting, so an undeclared
-│                                effect or an unstated leaf transfer blocks codegen)
+│   └── WovenValueProcessor.scala (the seam; demands SuppliedRowArguments and MetaTransferAccounting, so an
+│                                undetermined supplied argument or an unstated leaf transfer blocks codegen)
 ├── unify/
 │   ├── Unifier.scala           (pattern unification; pure definitional equality; higherKindedMetas map; flushPostponed)
 │   ├── UnifyResult.scala       (Unified / Contradiction)
@@ -107,8 +106,9 @@ and **one** semantic domain (`SemValue`) shared by types and values — never a 
 **Effects are *not* in this package.** The upstream `row/` phase writes each reference's **implementation** as an
 ordinary leading type argument (`docs/effects.md` §3.1), so the checker receives fully explicit code in which an
 effect is a nullary ability and a binding is a type argument like any other — there is no carrier, no monad, and
-**no effect rule in the checker at all**. What is left here is the post-mono accounting verifier (a codegen
-precondition, `channel/`) and `AbilityResolver` reading the written argument back. **Adding an effect decision — a
+**no effect rule in the checker at all**, and since D7 not even a post-mono effect verifier. What is left here is
+one codegen precondition that is *not* one — `channel/SuppliedRowArgumentsProcessor`, a supplied row entry's
+arguments must be determined — and `AbilityResolver` reading the written argument back. **Adding an effect decision — a
 bind, a `pure`, a lift, a carrier — back into the checker is a reversal of this design**; see the anti-patterns.
 
 ## How NbE works
@@ -407,7 +407,7 @@ the JVM backend decodes machine widths from it, the LSP hover shows value ranges
 
 ### The effect channel (`channel/`) — the other post-pass
 
-Authoritative design: `docs/effects.md` (§1 the user rules, §3 the mechanism, §3.3 the two verifiers). Same template as the refinement channel: a
+Authoritative design: `docs/effects.md` (§1 the user rules, §3 the mechanism, §3.3 the one verifier). Same template as the refinement channel: a
 rider on `MonomorphicValue`, strictly downstream of typing.
 
 - **The implementation is written, not inferred.** `row/BindingWriter` writes each phantom binder's implementation
@@ -416,12 +416,12 @@ rider on `MonomorphicValue`, strictly downstream of typing.
   carrier, pinned to `Either[E]` post hoc.
 - **The checker holds no effect rule at all.** `EffectLifter` went with the carrier its pure-wrap arm needed, and the
   resolution ladder is now instantiate → unify → mismatch.
-- **Verification is post-mono** — and it is the *second* of two verifiers, with a **measured strict subset** of the
-  first's coverage (D7). `EffectAccountingProcessor` reads each mono'd value's *received bindings forwarded to a
-  declaring callee* and requires that set ⊆ the declared row; `WovenValueProcessor` demands that fact, so an
-  undeclared effect blocks codegen. The first verifier is the pre-mono **scope check**, which is the write's own walk
-  and reports at the reference; both emit the same message. Accounting also owns the rejection of a supplied row
-  entry whose argument nothing determines, which is nobody's shadow.
+- **Verification is *not* post-mono** — it is the pre-mono **scope check**, the write's own walk, reporting at the
+  reference. A post-mono verifier lived here until D7 retired it (2026-09-10) on the measurement that its derivation
+  saw only propagation through a *declaring callee*, never a direct operation call, whose row `AbilityResolver` has
+  by then rewritten away: a strict subset with no case of its own. Do not grow it back. What stays at the seam is
+  `SuppliedRowArgumentsProcessor` — a supplied row entry whose argument nothing determines is rejected before
+  codegen, and that one genuinely needs ground arguments.
 - **There is nothing to invert when printing.** The carrier inverter went with the carrier; `fact/GroundValueRenderer`
   and `unify/SemValuePrinter` print a type as the user wrote it. What follows was the rule while an inverter existed,
   kept because it is the durable half: recognizing something **by name is sanctioned for rendering only** —
@@ -615,7 +615,7 @@ Tests live under `lang/test/src/com/vanillasource/eliot/eliotc/monomorphize/`:
   unifier unit tests (construct `SemValue`s directly; `AnyFlatSpec`).
 
 The write side lives with its own phase, not here: the effect suites under `jvm/test/.../` (`EffectCorpus`,
-`EffectShapeCompileTest`, `CarrierSlotCompileTest`, `CatchShapeMatrixTest`, `EffectAccountingDerivationTest`,
+`EffectShapeCompileTest`, `CarrierSlotCompileTest`, `CatchShapeMatrixTest`, `SuppliedRowArgumentsWiringTest`,
 `StoredComputationIntegrationTest`) compile and run real programs, since the write's output is only meaningful
 end-to-end.
 

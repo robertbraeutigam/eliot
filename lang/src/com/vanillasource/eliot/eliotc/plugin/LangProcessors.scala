@@ -19,9 +19,9 @@ import com.vanillasource.eliot.eliotc.module.processor.{
   UnifiedModuleValueProcessor
 }
 import com.vanillasource.eliot.eliotc.monomorphize.channel.{
-  EffectAccountingProcessor,
   MetaTransferAccountingProcessor,
   RefinementChannelProcessor,
+  SuppliedRowArgumentsProcessor,
   WovenValueProcessor
 }
 import com.vanillasource.eliot.eliotc.namedvalues.processor.{NamedValuesIndexProcessor, NamedValuesRewriteProcessor}
@@ -76,9 +76,8 @@ import com.vanillasource.eliot.eliotc.used.UsedNamesProcessor
   *   - `isRunBoundary` — whether a value is a platform **run boundary**, the place where every effect's chain ends, so
   *     the write binds an uncovered effect to the two-site default instead of reporting it
   *     ([[com.vanillasource.eliot.eliotc.row.RunBoundaryFunctions]]). `LangPlugin` passes the disjunction of what the
-  *     platform plugins registered through
-  *     [[com.vanillasource.eliot.eliotc.row.RunBoundaryFunctions.configKey]]; constantly false in a lang-only build
-  *     (and in tests), where no value is a boundary.
+  *     platform plugins registered through [[com.vanillasource.eliot.eliotc.row.RunBoundaryFunctions.configKey]];
+  *     constantly false in a lang-only build (and in tests), where no value is a boundary.
   */
 object LangProcessors {
   def apply(
@@ -120,7 +119,7 @@ object LangProcessors {
     MonomorphicTypeCheckProcessor(),
     CompilerMonomorphicTypeCheckProcessor(),
     RefinementChannelProcessor(),
-    EffectAccountingProcessor(),
+    SuppliedRowArgumentsProcessor(),
     // R2 meta-transfer accounting. Landed but not yet armed: nothing demands its fact in a normal build, so it is
     // dormant until wired as a `WovenValue` precondition (docs/total-meta-transfers.md §P2).
     MetaTransferAccountingProcessor(),

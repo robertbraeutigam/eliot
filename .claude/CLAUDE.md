@@ -139,10 +139,11 @@ subset of its data.
       measured, not assumed (`docs/effects.md` §12, "do not re-propose"): `verifyCarrierKinds` is the only thing
       rejecting a `[F[_]]` binder instantiated at a fully-applied proper type, and with it off that program silently
       compiles. It is a *kind* system living next door.
-    - **verification is not here either** — `derived ⊆ declared` is checked twice outside it (phase 11's scope check
-      pre-mono, and `channel/EffectAccountingProcessor` post-mono, whose coverage is a *measured strict subset* of the
-      scope check's; it also owns the rejection of a supplied row entry whose argument nothing determines, which is
-      nobody's shadow). The checker holds no effect diagnostic.
+    - **verification is not here either** — it is phase 11's scope check, pre-mono and complete before
+      monomorphization, and it is the *only* effect verifier: the post-mono re-derivation retired with D7 on the
+      measurement that it could only ever see a strict subset of the same thing. What is left at the codegen seam is
+      `channel/SuppliedRowArgumentsProcessor`, rejecting a supplied row entry whose argument nothing determines,
+      which was never that check's shadow. The checker holds no effect diagnostic.
     - the **compile track** keeps its mid-spine default ladder and deferred slots *by design* (`Track.Compiler`,
       `Checker.resolveDeferredSlot`) — the sole live reader of the `Unifier`'s higher-kinded-meta record.
     - other non-equality collaborators, each hooked from `TypeStackLoop.runPostDrainResolution`:
@@ -150,7 +151,7 @@ subset of its data.
       formerly `CalculatedReturnResolver`, whose calculated-return half was removed with the `auto`/implicit-generics
       feature), `check/AbilityResolver`.
     - riders on `MonomorphicValue`: `channel/RefinementChannelProcessor` (Int ranges),
-      `channel/EffectAccountingProcessor` (effects) — both post-mono channels — and
+      `channel/SuppliedRowArgumentsProcessor` (a supplied row entry's arguments are determined) and
       `channel/MetaTransferAccountingProcessor` (meta transfers: R2 a leaf must state, R3 nothing else may). The
       last two are `WovenValue` codegen preconditions.
 14. **used** — collects used value names starting from a `main`
@@ -486,17 +487,18 @@ of two shapes, which also separates the frames for free.
 **interpretation effects** (`Console`, `Log`, `FileSystem`, `Process`, `Environment`) and every ability are what
 `with` and a naming slot are for. The families are a description, not a bit in the language: nothing keys on it.
 
-**Rows are the user surface and the verifiers' vocabulary — they never flow back into types.** `EffectRow` is
+**Rows are the user surface and the verifier's vocabulary — they never flow back into types.** `EffectRow` is
 declaration metadata (like `paramConstraints`), consumed by the desugar; verification is a separate **channel**
-with **two verifiers speaking one vocabulary**: the pre-mono **scope check**, which is the write's own walk and is
-complete before monomorphization, and the post-mono `monomorphize/channel/EffectAccountingProcessor`, wired as a
-**codegen precondition** via `getFactOrAbort`. Both emit "This value performs the effect 'X' but does not declare
-it…". *Forward what is declared, derive what is done* — a forwarded per-operation verdict would be a checker
-self-report and is rejected, as is any negative-effect surface. The post-mono check's coverage is a **measured
-strict subset** of the scope check's (it sees propagation through a declaring callee, not a direct operation call,
-whose row `AbilityResolver` has already rewritten away); the measurement is pinned in
-`jvm/…/EffectAccountingDerivationTest`. The processor nonetheless has a second job that is nobody's shadow — the
-supplied-argument rejection above — so retiring the subset check would not retire the processor.
+with **one verifier**: the pre-mono **scope check**, which is the write's own walk, is complete before
+monomorphization and emits "This value performs the effect 'X' but does not declare it…" at the reference.
+*Forward what is declared, derive what is done* — a forwarded per-operation verdict would be a checker self-report
+and is rejected, as is any negative-effect surface. There was a post-mono second verifier until **D7 retired it
+(2026-09-10)** on the measurement that its "performs X" could only see propagation through a declaring callee, never
+a direct operation call (`AbilityResolver` has rewritten that into an implementation method, which declares no row)
+— a strict subset of the scope check, with no case of its own. **Do not grow a second effect verifier.** What stays
+at the codegen seam is `monomorphize/channel/SuppliedRowArgumentsProcessor`, a `getFactOrAbort` precondition
+rejecting a supplied row entry whose type argument nothing determines; it needs ground arguments, so it cannot move
+earlier, and it is not the retired check's shadow.
 
 **The checker holds no effect rule at all.** What lives next door and must **not** be deleted as effect machinery
 is `check/CarrierKindChecker`: `verifyCarrierKinds` is the only thing rejecting a `[F[_]]` binder instantiated at a

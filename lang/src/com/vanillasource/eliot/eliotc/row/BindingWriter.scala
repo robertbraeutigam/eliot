@@ -182,12 +182,11 @@ object BindingWriter {
     * The result is always a contiguous prefix from index 0, because a type-argument list applies positionally and the
     * write is a prefix write; [[nonPrefixPhantom]] reports the declaration shapes that would break that.
     *
-    * Public because it is also the reading the post-mono effect accounting needs: a mono key's arguments at these
-    * indices are the implementations that instantiation *received*
-    * ([[com.vanillasource.eliot.eliotc.monomorphize.channel.EffectAccountingProcessor]]). One definition of where a
-    * binding sits, read by the writer and by the verifier.
+    * Private, and the only definition of where a binding sits. It was public while the post-mono accounting read it
+    * back to re-derive an instantiation's effects; that derivation retired with D7 (`docs/effects.md` §11), and the
+    * write's own walk — which is the scope check — is now the only reader.
     */
-  def phantoms(orv: OperatorResolvedValue): Seq[(Int, AbilityFQN)] = prefixOf(allPhantoms(orv))
+  private def phantoms(orv: OperatorResolvedValue): Seq[(Int, AbilityFQN)] = prefixOf(allPhantoms(orv))
 
   /** Every binding this definition takes, in index order and before the prefix cut: an ability member's own binding
     * slot at index 0, then whatever the declaration mints.

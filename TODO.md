@@ -60,8 +60,8 @@ The effect system has **one** document, `docs/effects.md`. **Effects v6 shipped 
 carrier — an effect is an ability declared with the `effect` keyword, an implementation is a **name** bound by
 `with` and forwarded lexically from `main` inward, and a row entry is a phantom compile-time binder written at
 every reference. Part I is that design; Part II is how it was decided and landed (§9 the model and its
-reasoning, §10 the steps, §11 the decisions still open — only **D3** (`~`/`&` in user space) and **D7**
-(retiring the post-mono verifier) remain — and §12's list of things closed by measurement or decision, which
+reasoning, §10 the steps, §11 the decisions still open — only **D3** (`~`/`&` in user space) remains, D7 having
+retired the post-mono verifier on 2026-09-10 — and §12's list of things closed by measurement or decision, which
 must not be re-proposed); Part III is provenance for source comments citing retired documents.
 Nothing effect-related is tracked here; add it there.
 

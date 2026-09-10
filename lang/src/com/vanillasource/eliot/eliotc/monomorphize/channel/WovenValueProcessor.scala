@@ -7,15 +7,16 @@ import com.vanillasource.eliot.eliotc.processor.common.TransformationProcessor
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.source.content.Sourced.compilerAbort
 
-/** The **`WovenValue` codegen seam** — the step between checking and code generation that everything downstream
-  * (`used` / `uncurry` / the jvm backend) reads instead of [[MonomorphicValue]].
+/** The **`WovenValue` codegen seam** — the step between checking and code generation that everything downstream (`used`
+  * / `uncurry` / the jvm backend) reads instead of [[MonomorphicValue]].
   *
   * Since effects v6 it *rewrites* nothing. The Id-normalization it was built for — erasing the identity carrier `Id`
   * and the `pure`/`flatMap`/`runId` machinery the elaborator wrote at pure boundaries — has no subject: there is no
   * carrier, so no machinery is inserted and no pure code pays for one. What is left is the seam's other job, which is
   * to be the place three **preconditions** are checked before any bytecode is emitted:
   *
-  *   - **effect accounting** — the bindings a value forwards are ones it declares ([[EffectAccountingProcessor]]);
+  *   - **supplied row arguments** — every supplied row entry at every call knows what it supplies
+  *     ([[SuppliedRowArgumentsProcessor]]);
   *   - **meta-transfer accounting** — a native leaf producing a meta-carrying type states what it does to it
   *     ([[MetaTransferAccountingProcessor]]);
   *   - **the woven re-check** — the body is type-checked once more on ground types, with no metavariables and no
@@ -34,9 +35,11 @@ class WovenValueProcessor()
       mv: MonomorphicValue
   ): CompilerIO[WovenValue] = {
     for {
-      // Effect accounting as a **codegen precondition**: a value forwarding an implementation it does not declare
-      // fails accounting, whose abort here blocks its `WovenValue` and so its codegen — a leak never reaches bytecode.
-      _ <- getFactOrAbort(EffectAccounting.Key(mv.vfqn, mv.typeArguments))
+      // Supplied row arguments as a **codegen precondition**: a call supplying a row entry nothing determines fails
+      // the check, whose abort here blocks its `WovenValue` and so its codegen — a discharger never reaches bytecode
+      // installing a frame the computation it discharges will not exit to. (Effects themselves are verified before
+      // monomorphization, by the scope check the write performs; D7 retired this seam's post-mono shadow of it.)
+      _ <- getFactOrAbort(SuppliedRowArguments.Key(mv.vfqn, mv.typeArguments))
       // Meta-transfer accounting (R2) as the same kind of codegen precondition (docs/total-meta-transfers.md §P2): a
       // native leaf producing a meta-carrying type without stating what it does to the meta-information fails
       // accounting, whose abort here blocks its `WovenValue` and so its codegen. Without it such a leaf silently

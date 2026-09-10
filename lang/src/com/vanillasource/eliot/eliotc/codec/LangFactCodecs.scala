@@ -383,10 +383,10 @@ object LangFactCodecs {
       : FactCodec[com.vanillasource.eliot.eliotc.namedvalues.fact.NamedValuesRewrittenValue] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_namedvalues_fact_NamedValuesRewrittenValue_Key
       : FactCodec[com.vanillasource.eliot.eliotc.namedvalues.fact.NamedValuesRewrittenValue.Key] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_monomorphize_channel_EffectAccounting
-      : FactCodec[com.vanillasource.eliot.eliotc.monomorphize.channel.EffectAccounting] = FactCodec.derived
-  given codec_com_vanillasource_eliot_eliotc_monomorphize_channel_EffectAccounting_Key
-      : FactCodec[com.vanillasource.eliot.eliotc.monomorphize.channel.EffectAccounting.Key] = FactCodec.derived
+  given codec_com_vanillasource_eliot_eliotc_monomorphize_channel_SuppliedRowArguments
+      : FactCodec[com.vanillasource.eliot.eliotc.monomorphize.channel.SuppliedRowArguments] = FactCodec.derived
+  given codec_com_vanillasource_eliot_eliotc_monomorphize_channel_SuppliedRowArguments_Key
+      : FactCodec[com.vanillasource.eliot.eliotc.monomorphize.channel.SuppliedRowArguments.Key] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_monomorphize_channel_MetaTransferAccounting
       : FactCodec[com.vanillasource.eliot.eliotc.monomorphize.channel.MetaTransferAccounting] = FactCodec.derived
   given codec_com_vanillasource_eliot_eliotc_monomorphize_channel_MetaTransferAccounting_Key
@@ -484,8 +484,8 @@ object LangFactCodecs {
     codec_com_vanillasource_eliot_eliotc_module_fact_UnifiedModuleNames
   val unifiedModuleValueCodec: FactCodec[com.vanillasource.eliot.eliotc.module.fact.UnifiedModuleValue]                =
     codec_com_vanillasource_eliot_eliotc_module_fact_UnifiedModuleValue
-  val effectAccountingCodec: FactCodec[com.vanillasource.eliot.eliotc.monomorphize.channel.EffectAccounting]           =
-    codec_com_vanillasource_eliot_eliotc_monomorphize_channel_EffectAccounting
+  val suppliedRowArgumentsCodec: FactCodec[com.vanillasource.eliot.eliotc.monomorphize.channel.SuppliedRowArguments]   =
+    codec_com_vanillasource_eliot_eliotc_monomorphize_channel_SuppliedRowArguments
   val metaTransferAccountingCodec
       : FactCodec[com.vanillasource.eliot.eliotc.monomorphize.channel.MetaTransferAccounting] =
     codec_com_vanillasource_eliot_eliotc_monomorphize_channel_MetaTransferAccounting
@@ -570,7 +570,7 @@ object LangFactCodecs {
     FactKeyCodecs.of(codec_com_vanillasource_eliot_eliotc_row_fact_RowElaboratedValue_Key),
     FactKeyCodecs.of(codec_com_vanillasource_eliot_eliotc_namedvalues_fact_NamedValuesIndex_Key),
     FactKeyCodecs.of(codec_com_vanillasource_eliot_eliotc_namedvalues_fact_NamedValuesRewrittenValue_Key),
-    FactKeyCodecs.of(codec_com_vanillasource_eliot_eliotc_monomorphize_channel_EffectAccounting_Key),
+    FactKeyCodecs.of(codec_com_vanillasource_eliot_eliotc_monomorphize_channel_SuppliedRowArguments_Key),
     FactKeyCodecs.of(codec_com_vanillasource_eliot_eliotc_monomorphize_channel_MetaTransferAccounting_Key),
     FactKeyCodecs.of(codec_com_vanillasource_eliot_eliotc_monomorphize_channel_RefinementTable_Key),
     FactKeyCodecs.of(codec_com_vanillasource_eliot_eliotc_monomorphize_channel_WovenValue_Key),

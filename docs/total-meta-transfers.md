@@ -180,7 +180,7 @@ The declaration-time check for the monomorphic case is then a nicety that report
 not a second mechanism.
 
 Diagnostics need care: the use-site error must point at the **leaf's declaration** while being raised from
-a monomorphization — the reporting shape `EffectAccountingProcessor` already needs.
+a monomorphization — the reporting shape the post-mono channel processors already need.
 
 ---
 
@@ -606,7 +606,7 @@ list and eyeball it.
 **P1/P2 mechanism — LANDED, and ARMED (S5).** The leaf predicate turned out to be exactly the body test the
 mono fact already carries — `MonomorphicValue.runtime.isEmpty` (no need for the two-track/`NativeBinding`
 detection §2/§3 sketch). The R2 check rides each `MonomorphicValue` as
-`monomorphize/channel/MetaTransferAccountingProcessor` (on the `EffectAccountingProcessor` template): a
+`monomorphize/channel/MetaTransferAccountingProcessor` (on the `SuppliedRowArgumentsProcessor` template): a
 body-less value whose **declared** return head is a concrete meta-carrying type and which declares no `^Meta`
 companion is reported at the value. A **type-parameter return head** (`foldLeftInternal : F[B]`)
 is exempt — the meta is forwarded, not originated, so it is the §6 higher-order case, not this one. Proven

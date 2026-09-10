@@ -548,7 +548,7 @@ Iteration is the inference path for **user-written** folds that declare nothing,
 
 Verification lands post-monomorphization in the existing refinement channel
 (`monomorphize/channel/RefinementChannelProcessor`), at ground instantiations where the bound and the
-algebra are both concrete — the same use-site stance `EffectAccountingProcessor` takes for effects.
+algebra are both concrete — the same use-site stance the *Use-Site Verification* cornerstone states.
 
 ### Prerequisite: sizes
 

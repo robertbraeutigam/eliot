@@ -24,10 +24,10 @@ import scala.annotation.tailrec
   * @param runtime
   *   The optional monomorphized runtime body
   *
-  * The `ambientCarriers` field went with the carrier (effects v6, F6). What the post-mono effect accounting reads
-  * instead is the **implementations this instantiation received** — its own phantom binders' arguments, which are
-  * already here in [[typeArguments]] — so nothing needs forwarding
-  * ([[com.vanillasource.eliot.eliotc.monomorphize.channel.EffectAccountingProcessor]]).
+  * The `ambientCarriers` field went with the carrier (effects v6, F6), and nothing replaced it: the implementations an
+  * instantiation received are its own phantom binders' arguments, already here in [[typeArguments]], and effects are
+  * verified before monomorphization by the scope check the write performs
+  * ([[com.vanillasource.eliot.eliotc.row.BindingWriter]]).
   */
 case class MonomorphicValue(
     vfqn: ValueFQN,

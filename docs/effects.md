@@ -353,35 +353,33 @@ not desugaring, and is still prohibited; a decision that cannot be made from a d
 The fail-safe direction is built in: a missing write is an aborted definition with a violation at its own
 position, never a binding silently taken from the platform's default.
 
-### 3.3 Two verifiers, one vocabulary
+### 3.3 One verifier, and one precondition
 
 Checking a runtime term yields a **payload type** (the existing NbE judgment, which never sees an effect)
 and a **row** (a second output, exactly as an `Int`'s range lives in the refinement channel beside the type,
 not inside it). Row constraints are set-shaped: union for sequencing, inclusion for boundaries
 (`derived ⊆ declared`) — commutative and order-independent, so no argument-order sensitivity can exist.
 
-- **Pre-mono**, per definition: the **scope check**, which is not a separate pass but the write's own walk
-  (§3.1). An operation or a rowed callee needs a covering declaration, and the only places one can come from
-  are the enclosing def's row or constraints, an enclosing `with`, or a slot's row. It is complete before
-  monomorphization, since nothing about it is instantiation-dependent, and it owns the diagnostic for a `with`
-  whose subject contains no covered use.
-- **Post-mono**, at ground instantiations: `monomorphize/channel/EffectAccountingProcessor`, wired as a
-  **codegen precondition** via `getFactOrAbort`. Under names "performs X" is "a reference that forwards a
-  **received** binding to a callee declaring X as a row entry", read off the value's own type arguments, and
-  the check is that set ⊆ the declared row.
+**The verifier is the scope check**, per definition, pre-monomorphization: not a separate pass but the write's
+own walk (§3.1). An operation or a rowed callee needs a covering declaration, and the only places one can come
+from are the enclosing def's row or constraints, an enclosing `with`, or a slot's row. It is complete before
+monomorphization, since nothing about it is instantiation-dependent; it emits *"This value performs the effect
+'X' but does not declare it…"* at the reference, and it owns the diagnostic for a `with` whose subject contains
+no covered use. *Forward what is declared, derive what is done* — a forwarded per-operation verdict would be a
+checker self-report and is rejected, as is any negative-effect surface.
 
-Both emit the same message: *"This value performs the effect 'X' but does not declare it…"*.
-*Forward what is declared, derive what is done* — a forwarded per-operation verdict would be a checker
-self-report and is rejected, as is any negative-effect surface.
+There **was** a second one, post-monomorphization, re-deriving each ground instantiation's row and checking it
+against the declaration. D7 (§11) retired it, on the measurement it asked for rather than on the argument: under
+names its "performs X" could only mean "a reference forwards a **received** binding to a callee declaring X as a
+row entry", which sees propagation through a *declaring callee* but never a direct operation call — by then
+`AbilityResolver` has rewritten `printLine` into the implementation method, which declares no row. Its coverage
+was therefore a strict subset of the scope check's with no case of its own, and a second place to maintain one
+diagnostic. **Do not reintroduce a post-mono effect verifier**: what a monomorphic body can still say about
+effects is strictly less than what the declaration walk already said.
 
-**The post-mono check's coverage is a strict subset of the scope check's, and that is measured, not assumed**
-(D7, `jvm/…/EffectAccountingDerivationTest` pins it). It sees propagation through a *declaring callee* —
-`main` calling `{Inf, Console} loopForever` forwards both — and does **not** see a direct operation call, since
-`AbilityResolver` has by then rewritten `printLine` into the implementation method, which declares no row.
-That is not a hole: the scope check reports an uncovered effect at the reference for an operation and a
-declaring callee alike. The processor nonetheless has a **second job that is nobody's shadow** — rejecting a
-supplied row entry whose argument nothing determines (§2.2) — so retiring the subset check would not retire
-the processor.
+What survives at that seam is **not** its shadow: `monomorphize/channel/SuppliedRowArgumentsProcessor`, wired as
+a **codegen precondition** via `getFactOrAbort`, rejecting a supplied row entry whose type argument nothing
+determines (§2.2). That check needs ground arguments and so cannot move earlier.
 
 ### 3.4 The three primitives
 
@@ -1546,7 +1544,13 @@ and do not land a narrowed version (standing rule 2).
   and A8.
 - **A4 — D4 dissolves. DONE** (any effect is storable and suppliable); the v5 limitation D5 answered dissolved
   with it (§9.4).
-- **A5 — retire the post-mono accounting verifier** under the §8 method (D7).
+- **A5 — retire the post-mono accounting verifier. DONE 2026-09-10**, on D7's measurement rather than on the
+  argument, which is what the §8 method asked for. The subset check, the derivation behind it and the fact's
+  `derivedRow` payload are gone, and so is `EffectAccountingDerivationTest`, which existed to hold the measurement
+  while the decision was open. What stayed is the supplied-argument rejection — never that check's shadow — so the
+  processor and its fact are renamed for what they now do: `monomorphize/channel/SuppliedRowArgumentsProcessor` and
+  `SuppliedRowArguments`, still a `WovenValue` codegen precondition, still keyed per instantiation. Part II's earlier
+  citations of `EffectAccountingProcessor` name that file before the rename.
 - **A6 — the write fills a supplied row entry's own arguments. DONE 2026-09-09.** A parameter row lowers to a thunk,
   which erases the entry's arguments from the type, so `catch[E, A](computation: {Throw[E]} A, onError: E => {} A)`
   leaves `E` to the handler — and a handler that ignores its error determines nothing. It was written at the call
@@ -1651,26 +1655,25 @@ it performs. It is now stated in Part I as the third bullet of rule 4, rather th
 
 ### D7 — can the post-mono accounting verifier retire?
 
-Under names the post-mono check is "received bindings consulted ⊆ declared row", a subset of the mono key
-that the pre-mono scope check already establishes lexically. The expectation is **yes, after the flag day**
-(A5), by the §8 method: keep it through the flag day as the codegen precondition, trace it, retire it when
-it fires on nothing. Not before, and not on the argument alone.
+**Closed 2026-09-10, yes — retired** (A5). The §8 method was: keep it through the flag day as the codegen
+precondition, trace it, retire it when the trace says it fires on nothing. The trace (F6) was read, and the answer
+was sharper than "fires on nothing": under names its "performs X" can only mean *a reference forwards a **received**
+binding to a callee that declares X as a row entry*. That catches **propagation through a declaring callee** —
+`main` calling `{Inf, Console} loopForever` forwards both — and never a **direct operation call**, because by
+monomorphization `AbilityResolver` has rewritten `printLine` into the *implementation* method and an implementation
+method declares no row. So `loopForever`, whose whole body is `forever(printLine(…))`, derived nothing, and neither
+did a `main` performing `Console` directly.
 
-**The trace is armed** (F6, 2026-09-09): `EffectAccountingProcessor` logs every non-empty derivation, so the question
-is now answered by reading a build rather than by argument. One thing to weigh when it is: the processor has since
-gained a **second** job — A6's rejection of a supplied row entry whose argument nothing determines — and that one is
-not a shadow of anything. Retiring the subset check does not retire the processor.
+That made its coverage a **strict subset** of the pre-mono scope check's, with no case of its own — the scope check
+reports an uncovered effect at the reference for an operation and a declaring callee alike, and is complete before
+monomorphization because nothing about it is instantiation-dependent. A second place to maintain one diagnostic, for
+strictly less reach. It is deleted; the effects channel has one verifier (§3.3), and §12 carries the prohibition on
+growing a second.
 
-**Measured 2026-09-09, and it is weaker than the argument above assumes.** The derivation sees a *reference that
-forwards a received binding to a callee declaring that ability as a row entry*, which catches **propagation through a
-declaring callee** — `main` calling `{Inf, Console} loopForever` at its own bindings forwards both. It does **not** see
-a **direct operation call**: by the time a body is monomorphic, `AbilityResolver` has rewritten `printLine` into the
-*implementation* method, and an implementation method declares no row — the row is on the ability's member, which is no
-longer what the body names. So `loopForever`, whose whole body is `forever(printLine(…))`, derives nothing, and neither
-does a `main` that performs `Console` directly. That is not a hole (the pre-mono scope check reports an uncovered
-effect at the reference, for an operation and a declaring callee alike, and is complete before monomorphization), but
-it does mean the remaining coverage is a strict subset of the scope check's, with no case of its own. The measurement
-is pinned as assertions in `jvm/…/EffectAccountingDerivationTest` so it cannot drift while the decision is open.
+The processor was not deleted with it: its **second job is nobody's shadow** — A6's rejection of a supplied row
+entry whose argument nothing determines, which needs ground arguments and so cannot move earlier. It is now named
+for that job alone (`SuppliedRowArgumentsProcessor`), and `SuppliedRowArgumentsWiringTest` covers it, having
+inherited the wiring suite's parity case. `EffectAccountingDerivationTest` is gone with the question it measured.
 
 ### D13 — can every `eliot-test` case be built with its handlers already applied?
 
@@ -1686,6 +1689,12 @@ is pinned as assertions in `jvm/…/EffectAccountingDerivationTest` so it cannot
   one failure: a carrier metavariable captured by first-contact unification. Under v6 the class is still
   prohibited in its restated form (§9.9): a binding is filled by `with`, declaration, slot or default, never
   joined.
+- **A second, post-monomorphization effect verifier.** Retired 2026-09-10 by measurement (D7): what a
+  monomorphic body can still say about effects is strictly less than what the declaration walk already said, because
+  an operation call is by then a call to an implementation method, which declares no row. Verification belongs where
+  the declarations are — the write's own walk, before monomorphization. A post-mono re-derivation buys no case and
+  splits one diagnostic across two files. (This is not about the *precondition* that stayed at that seam: a supplied
+  row entry's arguments genuinely need ground types.)
 - **The carrier as the injection point** (§6's strategy as the *final* form). It chose an interpretation by
   instantiating a type, and every §6/§7 limitation was a symptom. Superseded by §9.
 - **An implementation as a runtime value (a record whose fields are the operations).** Measured 2026-09-07:
