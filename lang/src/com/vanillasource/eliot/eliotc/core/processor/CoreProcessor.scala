@@ -64,12 +64,19 @@ class CoreProcessor
       sourceAstData.functionDefinitions.map(_ -> RoleHint.NoHint) ++
         desugaredFromData ++ desugaredMetaConstructors ++ desugaredMetaTransfers ++ desugaredWhereCompanions ++
         desugaredNamedImplementations ++ desugaredEffects
+    // A **row alias** (`type Git[A] = {Process, FileSystem} A`) used as a definition's return type is spliced in
+    // here, before anything else runs, so the binder minting below and every phase after it see the definition the
+    // user could have written by hand. File-local, because the module dictionary does not exist until `module`.
+    // See RowAliasExpander for why this is an expansion and not an η-expanded application.
+    val rowAliases    = RowAliasExpander.rowAliases(allFunctions.map(_._1))
     val coreAstData   = CoreASTData(
       sourceAstData.importStatements,
       // Effect-set sugar (`{E} A`) is collapsed onto a single inferable carrier before the function is converted, so
       // everything downstream sees ordinary HKT-constrained generics (see EffectSugarDesugarer). Each definition splits
       // at birth into its `Runtime` twin and its `Signature` twin (see [[transformFunction]]).
-      allFunctions.flatMap { case (fd, hint) => transformFunction(EffectSugarDesugarer.desugar(fd), hint) }
+      allFunctions.flatMap { case (fd, hint) =>
+        transformFunction(EffectSugarDesugarer.desugar(RowAliasExpander.expand(rowAliases, fd)), hint)
+      }
     )
 
     // Strict-positivity check (termination precondition #2): reject any `data` whose own type constructor appears in a
@@ -82,7 +89,10 @@ class CoreProcessor
     // definitions still lowered (see EffectSugarDesugarer) so other checks proceed.
     val rowErrors        =
       sourceAstData.typeDefinitions.flatMap(EffectSugarDesugarer.rowErrors) ++
-        sourceAstData.functionDefinitions.flatMap(EffectSugarDesugarer.rowErrors)
+        sourceAstData.functionDefinitions.flatMap(EffectSugarDesugarer.rowErrors) ++
+        // A row alias used anywhere but a return type: a parameter row is *supplied* and thunked, which a spliced
+        // type cannot express, so it is reported rather than silently widened away.
+        allFunctions.flatMap { case (fd, _) => RowAliasExpander.errors(rowAliases, fd) }
     // Visibility-order check: a file's public API must be a prefix of its declarations, so no public declaration may
     // follow a private one. Runs on the desugared named values (not the source AST) so `def`/`type`/`data`/`ability`/
     // `implement` all answer to one rule with no per-construct arms. See VisibilityOrderChecker.
