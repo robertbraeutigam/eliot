@@ -32,7 +32,6 @@ class OperatorResolverProcessor
       resolvedRuntime,
       resolvedSignature,
       resolvedConstraints,
-      desugaredValue.inferableArity,
       desugaredValue.roleHint,
       platform = desugaredValue.platform,
       effectRow = resolvedEffectRow

@@ -39,15 +39,18 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   *     to hold an unrun computation. Only a *top-level* row thunks; a row in an arrow codomain (`onError: E => {} A`)
   *     is the callback's own row and lowers to the bare payload, exactly as a return row does.
   *
-  * **Minted binders are a leading prefix**, because `ValueReference.typeArgs` applies positionally and the write is a
-  * prefix write. [[mintAt]] moves that prefix for an ability member, whose leading binders are the ability's own and
-  * whose binding must stay the *last* ability-level type argument
-  * ([[com.vanillasource.eliot.eliotc.ast.fact.AbilityMembers]]).
+  * **Every minted binder carries the mark** as its declared type — `Impl: Implementation[Console]`,
+  * [[com.vanillasource.eliot.eliotc.ast.fact.GenericParameter.implementationMark]] — which is the one place the fact
+  * "this binder is a binding" is written down, and what [[com.vanillasource.eliot.eliotc.row.BindingWriter]] reads.
+  * Minted binders are still *placed* together, but nothing requires them to be a prefix any more: the write merges
+  * them by index.
+  * [[mintAt]] places a member's own binders past the whole ability-level run, because the *ability's* binding must
+  * stay the first of the ability-level type arguments ([[com.vanillasource.eliot.eliotc.ast.fact.AbilityMembers]]).
   *
   * **Idempotent**, because [[CoreProcessor]] applies it uniformly to every definition including the ability members
   * [[com.vanillasource.eliot.eliotc.ast.fact.AbilityMembers]] has already lowered: a definition with no remaining rows
-  * and no unprocessed constraint is returned unchanged, and a constraint is "processed" once its last type argument
-  * refers to one of this definition's inferable binders — a shape only this desugar writes.
+  * and no unprocessed constraint is returned unchanged, and a constraint is "processed" once its first type argument
+  * refers to one of this definition's **marked** binders — a shape only this desugar writes.
   *
   * A **pinned** row (`{E | T} A`) has no v6 meaning — there is no carrier stack to name — and is rejected by
   * [[rowErrors]] rather than silently read as an open row.
@@ -91,8 +94,7 @@ object EffectSugarDesugarer {
         GenericParameter(
           binder,
           GenericParameter.implementationMark(anchor, entry.abilityName),
-          Seq(UnresolvedAbilityConstraint(entry.abilityName, binder.as(typeExpr(binder)) +: entry.typeArgs.map(bare))),
-          inferable = true
+          Seq(UnresolvedAbilityConstraint(entry.abilityName, binder.as(typeExpr(binder)) +: entry.typeArgs.map(bare)))
         )
       }
       // One unconstrained binder per `~` constraint, appended to that constraint in place. The constraint keeps the
@@ -110,8 +112,7 @@ object EffectSugarDesugarer {
               mintedHere :+ GenericParameter(
                 binder,
                 GenericParameter.implementationMark(anchor, constraint.abilityName),
-                Seq.empty,
-                inferable = true
+                Seq.empty
               ),
               kept :+ constraint.copy(typeArgs = binder.as(typeExpr(binder)) +: constraint.typeArgs.map(bare))
             )
@@ -140,8 +141,8 @@ object EffectSugarDesugarer {
 
   /** Where the minted binders go in the generic list: `0` for an ordinary definition, and for an **ability member**
     * past the whole run of [[GenericParameter.abilityLevel]] binders
-    * [[com.vanillasource.eliot.eliotc.ast.fact.AbilityMembers]] contributes — so a member's own phantom binders never
-    * land inside the ability-level prefix, whose first argument must stay the binding.
+    * [[com.vanillasource.eliot.eliotc.ast.fact.AbilityMembers]] contributes — so a member's own binding binders never
+    * land inside the ability-level prefix, whose first argument must stay the ability's own binding.
     */
   private def mintAt(function: FunctionDefinition): Int =
     function.genericParameters.lastIndexWhere(_.abilityLevel) + 1
@@ -152,15 +153,17 @@ object EffectSugarDesugarer {
   ): Seq[UnresolvedAbilityConstraint[Sourced[Expression]]] =
     function.genericParameters.flatMap(_.abilityConstraints).filterNot(isProcessed(_, function))
 
-  /** Whether a constraint already carries its phantom binder: its **first** type argument is a bare reference to one of this
-    * definition's *inferable* binders, which is the one shape [[desugar]] writes and no source can.
+  /** Whether a constraint already carries its phantom binder: its **first** type argument is a bare reference to one of
+    * this definition's binders that carries the **implementation mark**
+    * ([[com.vanillasource.eliot.eliotc.ast.fact.GenericParameter.isBinding]]), which is the one shape [[desugar]]
+    * writes and no source can.
     */
   private def isProcessed(
       constraint: UnresolvedAbilityConstraint[Sourced[Expression]],
       function: FunctionDefinition
   ): Boolean = constraint.typeArgs.headOption.exists(_.value match {
     case FunctionApplication(None, name, None, Seq()) =>
-      function.genericParameters.exists(gp => gp.name.value === name.value && gp.inferable)
+      function.genericParameters.exists(gp => gp.name.value === name.value && GenericParameter.isBinding(gp))
     case _                                            => false
   })
 

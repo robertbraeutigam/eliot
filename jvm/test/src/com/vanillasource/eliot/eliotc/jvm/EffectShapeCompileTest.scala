@@ -180,6 +180,37 @@ class EffectShapeCompileTest extends AsyncFlatSpec with AsyncIOSpec with Matcher
     compileClasses(twoDepsSource).asserting(_ should not be empty)
   }
 
+  // A member of a **parameterised** ability declaring effects of its own: `Describe[T]`'s binding sits at type-argument
+  // index 0, the block's `T` at 1, and the member's own `{Console}` binding at 2. This is the shape the prefix write
+  // could not express at all — it was rejected at the declaration — and the merge (`docs/effects.md` §9.3 step 3)
+  // writes both bindings around whatever the call determines for `T`.
+  private val parameterisedAbilityMemberRow =
+    """ability Describe[T] {
+      |   def describe(t: T): {Console} String
+      |}
+      |
+      |implement Describe[String] {
+      |   def describe(t: String): {Console} String = {
+      |      printLine("describing")
+      |      t
+      |   }
+      |}
+      |
+      |def main: {Console} Unit = printLine(describe[String]("x"))
+      |""".stripMargin
+
+  it should "compile a parameterised ability's member declaring a row of its own" in {
+    compileClasses(parameterisedAbilityMemberRow).asserting(_ should not be empty)
+  }
+
+  // The other half of that shape, and why the declaration-level rejection became a call-level one: a type-argument
+  // list has no hole, so a call that leaves `T` to inference leaves the `{Console}` binding at index 2 unreachable.
+  // Dropping it silently would run the member on the platform's default with no error at all.
+  it should "reject a call to such a member that leaves its type argument to inference" in {
+    compileErrors(parameterisedAbilityMemberRow.replace("describe[String](", "describe("))
+      .asserting(_.mkString should include("Cannot pass the implementation of 'Console' to 'describe'"))
+  }
+
   it should "report a payload-slot mismatch (pure actual not fitting, no capture)" in {
     // `printLine(true)` — `Bool` into the `String` domain — reaches `uniformCaptureSlot`'s mismatch leaf (not doomed, no
     // whole-type capture), which commits the mismatch directly. The reported errors must be non-empty.

@@ -40,7 +40,6 @@ class MatchDesugaringProcessor
       convertParamConstraints(blockDesugaredValue.paramConstraints),
       blockDesugaredValue.fixity,
       blockDesugaredValue.precedence,
-      blockDesugaredValue.inferableArity,
       blockDesugaredValue.roleHint,
       blockDesugaredValue.platform,
       convertEffectRow(blockDesugaredValue.effectRow)

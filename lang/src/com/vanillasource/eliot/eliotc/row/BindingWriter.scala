@@ -16,9 +16,9 @@ import scala.collection.mutable
   * `runId` to insert and no discharge stack to derive: an operation call is an ordinary call, and the only thing
   * missing from it is which implementation it runs on. Three jobs, one walk:
   *
-  *   1. **write the bindings.** At each reference the callee's phantom binders are read off its declaration, and each
-  *      is given a value by the resolution order below, as a leading positional prefix. A binder is never left to a
-  *      metavariable.
+  *   1. **write the bindings.** At each reference the callee's binding binders are read off the **marks** its
+  *      declaration carries — `Impl: Implementation[Console]` — and each is given a value by the resolution order
+  *      below, merged by index with whatever else the call determines. A binder is never left to a metavariable.
   *   2. **thunk and apply.** A row-typed slot lowered to `Unit => A` (§9.4 step 2), so an actual delivered there is
   *      wrapped in a lambda, and a reference to one of *this* definition's row-typed parameters is applied to `unit`.
   *      Doing both unconditionally is what makes a pass-through (`runAbort(computation)`,
@@ -174,93 +174,28 @@ object BindingWriter {
     orv.effectRow.parameterEffects.flatMap(pe => valueParamNames.lift(pe.parameterIndex)).toSet
   }
 
-  /** A definition's **phantom binders**, as `(index, ability)` pairs in index order, read off its declaration alone.
+  /** A definition's **binding binders**, as `(index, ability)` pairs in index order — read off the **marks** its own
+    * declaration carries, and off nothing else.
     *
-    * Two shapes, each keyed on something the compiler owns:
+    * A binder the desugar mints for a row entry, for a `~` constraint or for an `ability` block's implementation slot
+    * is declared `Impl: Implementation[Console]`
+    * ([[com.vanillasource.eliot.eliotc.ast.fact.GenericParameter.implementationMark]]), and that mark both says "this
+    * binder is a binding" and names the ability it binds. Nothing is re-derived here: there is no non-occurrence test,
+    * no constraint whose first type argument gives the ability away, and no special case for an ability member's own
+    * slot — that slot carries the mark like every other binding (`docs/effects.md` §9.3 step 3).
     *
-    *   - an **ability member** (`Qualifier.Ability`) carries its block's binding slot at index 0
-    *     ([[com.vanillasource.eliot.eliotc.ast.fact.AbilityMembers]]), for the ability whose module it lives in, and
-    *     then whatever its **own row** mints — because "a member's row lists what it performs beyond the ability it
-    *     belongs to" (§9.3), which is exactly how `effect FileSystem { def readFile(p: Path): {Throw[IoError]} String }`
-    *     says that reading a file can fail;
-    *   - any other definition's minted binders are its leading binders that occur in **no parameter and no return
-    *     type** — which is what "in no type" means — *and* are the **first** type argument of one of its own ability
-    *     constraints. Requiring the second half is what keeps a merely unused type parameter from being taken for a
-    *     binding.
-    *
-    * The result is always a contiguous prefix from index 0, because a type-argument list applies positionally and the
-    * write is a prefix write; [[nonPrefixPhantom]] reports the declaration shapes that would break that.
+    * The marked indices are **not** required to be a prefix. A member of a *parameterised* ability declaring effects of
+    * its own (`ability Show[T] { def show(t: T): {Log} String }`) has its bindings at indices 0 and 2 with the
+    * ability's `T` between them; [[Writer.writeBindings]] merges them with what the call determines for that `T`.
     *
     * Private, and the only definition of where a binding sits. It was public while the post-mono accounting read it
     * back to re-derive an instantiation's effects; that derivation retired with D7 (`docs/effects.md` §11), and the
     * write's own walk — which is the scope check — is now the only reader.
     */
-  private def phantoms(orv: OperatorResolvedValue): Seq[(Int, AbilityFQN)] = prefixOf(allPhantoms(orv))
-
-  /** Every binding this definition takes, in index order and before the prefix cut: an ability member's own binding
-    * slot at index 0, then whatever the declaration mints.
-    */
-  private def allPhantoms(orv: OperatorResolvedValue): Seq[(Int, AbilityFQN)] =
-    orv.name.value.qualifier match {
-      case ResolveQualifier.Ability(name) =>
-        (0 -> AbilityFQN(orv.vfqn.moduleName, name)) +: mintedPhantoms(orv)
-      case _                              => mintedPhantoms(orv)
+  private def phantoms(orv: OperatorResolvedValue): Seq[(Int, AbilityFQN)] =
+    SignatureView.of(orv.signature).binders.zipWithIndex.flatMap { case (binder, index) =>
+      binder.parameterType.flatMap(declared => markedAbility(declared.value)).map(index -> _)
     }
-
-  /** The leading run whose indices are 0, 1, 2, … — all of them for anything the desugar produced, since it mints at
-    * the front. Anything past a gap is unreachable by a positional write and is reported by [[nonPrefixPhantom]].
-    */
-  private def prefixOf(minted: Seq[(Int, AbilityFQN)]): Seq[(Int, AbilityFQN)] =
-    minted.zipWithIndex.takeWhile { case ((index, _), position) => index === position }.map(_._1)
-
-  private def mintedPhantoms(orv: OperatorResolvedValue): Seq[(Int, AbilityFQN)] = {
-    val view      = SignatureView.of(orv.signature)
-    val mentioned = (view.parameters :+ view.returnType).flatMap(t => referencedParameters(t.value)).toSet
-    view.binders.zipWithIndex.flatMap { case (binder, index) =>
-      Option
-        .when(!mentioned.contains(binder.name.value))(binder.name.value)
-        .flatMap(name => constraintStartingWith(orv, name))
-        .map(index -> _)
-    }
-  }
-
-  /** A binding sitting behind a binder no declaration determines, so a positional prefix write cannot reach it.
-    *
-    * The one shape that hits this is a member of a **parameterised** ability declaring effects of its own
-    * (`ability Show[T] { def show(t: T): {Log} String }`): the block's `T` sits between the binding and the member's
-    * own, and `T` is inferred from the argument at every call, not written. A **nullary** effect's members are
-    * unaffected — the binding is the whole ability-level prefix, so `{Throw[IoError]}` on a `FileSystem` member lands
-    * at index 1 and is written like any other. Reported rather than mis-written.
-    */
-  private def nonPrefixPhantom(orv: OperatorResolvedValue): Option[Sourced[String]] = {
-    val all = allPhantoms(orv)
-    Option.when(prefixOf(all).size =!= all.size)(
-      orv.name.value.qualifier match {
-        case ResolveQualifier.Ability(_) =>
-          orv.name.as(
-            s"The member '${orv.vfqn.name.name}' declares effects of its own, which an ability with type parameters " +
-              "does not support: its parameters are inferred at each call and stand between the two bindings. Move " +
-              "it out of the block and give it its own row."
-          )
-        case _                           =>
-          orv.name.as(
-            s"Cannot write the implementations of '${orv.vfqn.name.name}': one of its binders is behind a type " +
-              "parameter no declaration determines."
-          )
-      }
-    )
-  }
-
-  /** The ability of the definition's own constraint whose **first** type argument is exactly this binder — where the
-    * desugar writes a phantom binder, and where an ability's marker declares its binding slot.
-    */
-  private def constraintStartingWith(orv: OperatorResolvedValue, binderName: String): Option[AbilityFQN] =
-    orv.paramConstraints.values.flatten
-      .find(_.typeArgs.headOption.exists {
-        case ParameterReference(name) => name.value === binderName
-        case _                        => false
-      })
-      .map(_.abilityFQN)
 
   /** The ability a binder's declared type **marks** it as binding, if it is marked at all — the head of the declared
     * type is [[WellKnownTypes.implementationTypeFQN]] and its single argument names an ability
@@ -283,17 +218,6 @@ object BindingWriter {
         }
       case _                                                                                              => None
     }
-
-  private def referencedParameters(expr: OperatorResolvedExpression): Seq[String] = expr match {
-    case ParameterReference(name)             => Seq(name.value)
-    case FunctionApplication(target, arg)     =>
-      referencedParameters(target.value) ++ referencedParameters(arg.value)
-    case ValueReference(_, typeArgs)          => typeArgs.flatMap(ta => referencedParameters(ta.value))
-    case FunctionLiteral(_, paramType, body)  =>
-      paramType.toSeq.flatMap(pt => referencedParameters(pt.value)) ++ referencedParameters(body.value)
-    case WithBinding(subject, _)              => referencedParameters(subject.value)
-    case _: IntegerLiteral | _: StringLiteral => Seq.empty
-  }
 
   /** The implementations a slot's type binds, outermost `with` last, as written. */
   private def slotBindings(tpe: OperatorResolvedExpression): Seq[Sourced[ValueFQN]] = tpe match {
@@ -517,8 +441,15 @@ object BindingWriter {
     private def rowSlot(orv: OperatorResolvedValue, index: Int): Option[Seq[AbilityFQN]] =
       orv.effectRow.parameterEffects.find(_.parameterIndex === index).map(_.effects.map(_.abilityFQN))
 
-    /** Write the callee's type arguments this call determines, as a leading positional prefix: first its **phantom
-      * binders** — one implementation each — and then the ordinary binders a **supplied row slot** settles (A6).
+    /** Write the callee's type arguments this call determines, **merged by index**: a binder the callee's declaration
+      * marks as a **binding** takes the implementation the resolution order gives it, and every other binder takes, in
+      * order, what this call determines for it — the caller's own explicit `typeArgs` where it spelled any, else what
+      * a **supplied row slot** settles (A6).
+      *
+      * Type-argument application is positional, so what is written is the run from index 0 that every slot below it
+      * fills. A binder past the first gap is left to the checker, which is always the fail-safe direction — except
+      * for a **binding**, which the checker has no way to solve and would silently ground to the platform's default;
+      * that one is reported ([[unreachableBinding]]).
       */
     private def writeBindings(
         reference: Sourced[OperatorResolvedExpression],
@@ -530,21 +461,75 @@ object BindingWriter {
       universe.lookup(callee) match {
         case None      => reference
         case Some(orv) =>
-          nonPrefixPhantom(orv).foreach(message => violations += Violation(message))
-          val effects    = orv.effectRow.returnEffects.map(_.abilityFQN).toSet
-          val theirs     = phantoms(orv)
-          val prefix     = theirs.map { case (_, ability) =>
-            reference.as(bindingFor(ability, effects.contains(ability), reference, scope))
+          val effects          = orv.effectRow.returnEffects.map(_.abilityFQN).toSet
+          val marks            = phantoms(orv).toMap
+          val determined       = if (existing.isEmpty) suppliedArguments(orv, args, marks.keySet) else existing
+          val (written, reach) = mergeTypeArguments(
+            SignatureView.of(orv.signature).binders.size,
+            marks,
+            determined,
+            ability => reference.as(bindingFor(ability, effects.contains(ability), reference, scope))
+          )
+          marks.toSeq.filter(_._1 >= reach).sortBy(_._1).foreach { case (_, ability) =>
+            violations += unreachableBinding(orv, ability, reference)
           }
-          val determined =
-            if (existing.isEmpty) suppliedArguments(orv, args, theirs.size) else Seq.empty
-          if (prefix.isEmpty && determined.isEmpty) reference
-          else reference.as(ValueReference(nameOf(reference), prefix ++ determined ++ existing))
+          if (written.isEmpty) reference
+          else reference.as(ValueReference(nameOf(reference), written))
       }
 
-    /** The leading run of the callee's *ordinary* binders — those past its phantom prefix — that this call's
-      * **declarations** determine, written explicitly so the checker never mints a metavariable where a declaration
-      * already says what belongs there (A6, `docs/effects.md` §3.1's second determination source).
+    /** Merge the bindings with what the call determines, slot by slot: index `i` is `binding(ability)` where the
+      * declaration marks it, and the next undetermined value otherwise.
+      *
+      * Returns the arguments to write and how many of the callee's binders they reach. Anything left over once every
+      * binder has a value is appended — an over-spelled explicit list is the caller's to answer for, not this write's
+      * to truncate — and cannot be a gap, because the fillers run out before a gap can open.
+      */
+    private def mergeTypeArguments(
+        binderCount: Int,
+        marks: Map[Int, AbilityFQN],
+        determined: Seq[Sourced[OperatorResolvedExpression]],
+        binding: AbilityFQN => Sourced[OperatorResolvedExpression]
+    ): (Seq[Sourced[OperatorResolvedExpression]], Int) = {
+      val (slots, leftover) = (0 until binderCount).foldLeft(
+        (Seq.empty[Option[Sourced[OperatorResolvedExpression]]], determined)
+      ) { case ((acc, rest), index) =>
+        marks.get(index) match {
+          case Some(ability) => (acc :+ Some(binding(ability)), rest)
+          case None          => (acc :+ rest.headOption, rest.drop(1))
+        }
+      }
+      val reached = slots.takeWhile(_.isDefined).flatten
+      (reached ++ leftover, reached.size)
+    }
+
+    /** A binding this call cannot reach: it sits at a type-argument index behind a binder nothing here determines, and
+      * a type-argument list applies positionally.
+      *
+      * The shape is a member of a **parameterised** ability declaring effects of its own
+      * (`ability Show[T] { def show(t: T): {Log} String }`): the block's `T` stands between the two bindings, and `T`
+      * is inferred from the argument at every call rather than written. Spelling the call's type arguments
+      * (`show[String](x)`) reaches past it; nothing else does, so writing the short prefix silently would leave the
+      * second binding on the platform's default.
+      */
+    private def unreachableBinding(
+        orv: OperatorResolvedValue,
+        ability: AbilityFQN,
+        at: Sourced[?]
+    ): Violation =
+      Violation(
+        at.as(
+          s"Cannot pass the implementation of '${ability.abilityName}' to '${orv.vfqn.name.name}': it stands behind " +
+            "a type parameter this call does not determine."
+        ),
+        Seq(
+          "Spell this call's type arguments explicitly, or move the member out of the parameterised ability block " +
+            "and give it its own row."
+        )
+      )
+
+    /** The run of the callee's *unmarked* binders — those its declaration does not mark as bindings — that this
+      * call's **declarations** determine, written explicitly so the checker never mints a metavariable where a
+      * declaration already says what belongs there (A6, `docs/effects.md` §3.1's second determination source).
       *
       * A parameter row lowers to a thunk (`{Throw[E]} A` ⤳ `Unit => A`), which **erases the entry's own arguments from
       * the type**. So `catch[E, A](computation: {Throw[E]} A, onError: E => {} A)` leaves `E` to the handler alone, and
@@ -560,12 +545,13 @@ object BindingWriter {
     private def suppliedArguments(
         orv: OperatorResolvedValue,
         args: Seq[Sourced[OperatorResolvedExpression]],
-        phantomCount: Int
+        marked: Set[Int]
     ): Seq[Sourced[OperatorResolvedExpression]] =
       SignatureView
         .of(orv.signature)
         .binders
-        .drop(phantomCount)
+        .zipWithIndex
+        .collect { case (binder, index) if !marked.contains(index) => binder }
         .map(binder => suppliedDetermination(orv, args, binder.name.value))
         .takeWhile(_.isDefined)
         .flatten

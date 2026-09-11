@@ -15,15 +15,15 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   * [[com.vanillasource.eliot.eliotc.monomorphize.check.AbilityResolver]] slices off. So `effect Console` declares
   * `Console[Impl]` and `effect Throw[E]` declares `Throw[Impl, E]`.
   *
-  * It goes first because a type-argument list applies positionally and the write is a prefix write: an ordinary
-  * ability call (`show(x)`, `a ++ b`, `sort(xs)`) has its pattern arguments *inferred*, and no declaration determines
-  * them, so a binding behind them could never be written at all. First, the write is one element long and everything
-  * after it is inferred exactly as before. See `ImplementationBinding` for why this reverses §10.1 step 6.
+  * It goes first because a type-argument list applies positionally: an ordinary ability call (`show(x)`, `a ++ b`,
+  * `sort(xs)`) has its pattern arguments *inferred*, and no declaration determines them, so a binding behind them
+  * could not be written unless the call spelled those arguments itself. First, the write is one element long and
+  * everything after it is inferred exactly as before. See `ImplementationBinding` for why this reverses §10.1 step 6.
   *
-  * The binder is *not* `inferable`: it is always written by the `row` phase, never inferred. It is flagged
-  * [[GenericParameter.abilityLevel]], as are the block's own parameters, so
-  * [[com.vanillasource.eliot.eliotc.core.processor.EffectSugarDesugarer]] knows to mint a member's *own* phantom
-  * binders after it rather than in front of the ability's.
+  * The binder is declared with the [[GenericParameter.implementationMark]], which is what the `row` phase reads to
+  * know it is a binding at all. It is also flagged [[GenericParameter.abilityLevel]], as are the block's own
+  * parameters, so [[com.vanillasource.eliot.eliotc.core.processor.EffectSugarDesugarer]] knows to mint a member's
+  * *own* binding binders after it rather than in front of the ability's.
   *
   * The implementation side is unchanged: an `implement` marker still takes one argument per *pattern* element and no
   * binding, which is exactly what the two-site search matches against once the binding is sliced off.

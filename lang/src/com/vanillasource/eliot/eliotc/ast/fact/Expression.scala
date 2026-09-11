@@ -45,10 +45,10 @@ object Expression {
 
   /** The effect-row sugar `{ E1, E2, … } A` written in a type position, in two forms distinguished by `tail`:
     *
-    * **Open row** (`tail == None`) — `{Console} A`: the unordered set of `effects` the computation *performs*, over a
-    * caller-chosen carrier. Pure, type-information-free — they never survive past the core processor, where
-    * [[core.processor.EffectSugarDesugarer]] collapses every `{…} A` occurrence in a signature to `F[A]` under one
-    * shared inferable carrier `F[_]` (each becoming an `F ~ Ei` constraint).
+    * **Open row** (`tail == None`) — `{Console} A`: the unordered set of `effects` the computation *performs*, on
+    * implementations its caller binds. Pure, type-information-free — they never survive past the core processor,
+    * where [[core.processor.EffectSugarDesugarer]] turns each entry into one **binding binder** marked
+    * `Implementation[Console]` and erases the row from the type (effects v6, `docs/effects.md` §3.1).
     *
     * **Pinned row** (`tail == Some(base)`) — `{Throw[E] | G} A`: a *concrete type*, the canonical carrier stack
     * realizing exactly these effects over the base `tail`. Entries are **ordered** (leftmost = outermost = discharged

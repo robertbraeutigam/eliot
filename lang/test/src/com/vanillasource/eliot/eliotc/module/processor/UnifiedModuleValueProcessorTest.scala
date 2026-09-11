@@ -32,16 +32,6 @@ class UnifiedModuleValueProcessorTest extends ProcessorTest(LangProcessors(syste
     runEngineForErrors("def a: A", "nonexistent").asserting(_ shouldBe Seq("Could not find 'nonexistent'." at ""))
   }
 
-  // There is no user surface for inferable binders (the `auto` keyword was retired), so a user-written type or function
-  // carries a zero inferable arity; the effect carrier — the one inferable binder — is synthesized in the core phase.
-  it should "carry a zero inferable arity for a user-written type parameter" in {
-    runEngineForType("type IO[A]", "IO").asserting(_.namedValue.inferableArity shouldBe 0)
-  }
-
-  it should "carry a zero inferable arity for a user-written function generic" in {
-    runEngineForValue("def f[A, B]: A", "f").asserting(_.namedValue.inferableArity shouldBe 0)
-  }
-
   private def runEngineForValue(source: String, name: String): IO[UnifiedModuleValue] =
     runEngineForName(source, QualifiedName(name, Qualifier.Default))
 

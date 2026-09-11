@@ -643,8 +643,9 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
     }
   }
 
-  it should "mark the minted binder inferable" in {
-    namedValue("def f(x: {Suspend} String): {Suspend} Unit").asserting(_.inferableArity shouldBe 1)
+  it should "record the binder as a binding in its declared type, and nowhere else" in {
+    namedValue("def f(x: {Suspend} String): {Suspend} Unit")
+      .asserting(binderMarks(_) shouldBe Seq("Impl" -> Some("Suspend")))
   }
 
   it should "constrain the binder by the row's ability, applied to itself" in {
@@ -684,15 +685,16 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
     }
   }
 
-  it should "mint an unconstrained binder for it" in {
-    namedValue("def f[T ~ Show[T]](x: T): String").asserting(_.inferableArity shouldBe 1)
+  it should "mint an unconstrained binder for it, marked for the constraint's ability" in {
+    namedValue("def f[T ~ Show[T]](x: T): String")
+      .asserting(binderMarks(_) shouldBe Seq("Impl" -> Some("Show"), "T" -> None))
   }
 
   // The **empty row** `{}` names no ability, so it mints nothing. What it still says is "a value or a computation":
   // a top-level parameter row thunks whether or not it has entries.
   "the empty effect row" should "mint no binder and add no constraint" in {
     namedValue("def f[A](x: {} A): A").asserting { nv =>
-      (nv.inferableArity, constraintShapes(nv)) shouldBe (0, Map.empty)
+      (binderMarks(nv), constraintShapes(nv)) shouldBe (Seq("A" -> None), Map.empty)
     }
   }
 
@@ -863,6 +865,23 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
 
   private def coreErrors(source: String): IO[Seq[String]] =
     runGenerator(source, CoreAST.Key(file)).map(_._1.map(_.message))
+
+  /** Each generic binder of a definition as `name -> the ability its mark names`, in order — `None` for an ordinary
+    * binder. The mark (`Impl: Implementation[Suspend]`) is the one record that a binder is a **binding**, so this is
+    * how a test asks which binders the desugar minted.
+    */
+  private def binderMarks(nv: NamedValue): Seq[(String, Option[String])] = {
+    def peel(structure: ExprStructure): Seq[(String, Option[String])] = structure match {
+      case Lambda(name, paramType, body) =>
+        val marked = paramType match {
+          case App(QualRef("Implementation", "eliot.lang.Implementation"), Ref(ability, _, _)) => Some(ability)
+          case _                                                                              => None
+        }
+        (name -> marked) +: peel(body)
+      case _                             => Seq.empty
+    }
+    peel(nv.signature.value.structure)
+  }
 
   private def constraintShapes(nv: NamedValue): Map[String, Seq[(String, Seq[ExprStructure])]] =
     nv.paramConstraints.view
