@@ -59,10 +59,10 @@ notes.
 The effect system has **one** document, `docs/effects.md`. **Effects v6 shipped 2026-09-09**: there is no
 carrier — an effect is an ability declared with the `effect` keyword, an implementation is a **name** bound by
 `with` and forwarded lexically from `main` inward, and a row entry is a phantom compile-time binder written at
-every reference. Part I is that design; Part II is how it was decided and landed (§9 the model and its
-reasoning, §10 the steps, §11 the decisions still open — only **D3** (`~`/`&` in user space) remains, D7 having
-retired the post-mono verifier on 2026-09-10 — and §12's list of things closed by measurement or decision, which
-must not be re-proposed); Part III is provenance for source comments citing retired documents.
+every reference. Part I is that design; Part II is what is left (§8 the tree's divergences from Part I, §9 the next
+change — a binding binder marked by its declared type, decided 2026-09-11, not built — §10 the gate, §11 the open
+decisions D3/D17/D18/D19); Part III is §12's list of things closed by measurement or decision, which must not be
+re-proposed, and provenance for source comments citing retired documents or the retired v6 plan record.
 Nothing effect-related is tracked here; add it there.
 
 ## Syntax sugar & ergonomics

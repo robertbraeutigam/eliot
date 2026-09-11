@@ -395,8 +395,10 @@ The user writes **effect rows** (`def main: {Console} Unit`); the compiler turns
 syntax-directed pass. Rows and implementations are two different things on purpose, and keeping them apart is
 what makes effects free of special cases. Authoritative design: `docs/effects.md` — Part I states the shipped
 design (§1 the four user rules, §2 the surface, §3 the mechanism, §4 the scope check, §5 the standing rules,
-§6 testing, §7 the live limitations); Part II is how it was decided and landed, including §12's
-**do-not-re-propose** list. **There is no carrier, no monad, no `Id`, and nothing to infer** — if you are
+§6 testing, §7 the live limitations); Part II is what is left (§8 where the tree diverges from Part I, §9 the
+next change — a binding binder marked by its declared type `Implementation[A]`, decided 2026-09-11 and not yet
+built, §10 the gate and method, §11 the open decisions); Part III holds §12's **do-not-re-propose** list and the
+provenance for a comment citing a retired document or the retired v6 plan record (§13). **There is no carrier, no monad, no `Id`, and nothing to infer** — if you are
 reading code or a comment that mentions one, it is history.
 
 **Four user rules, and the fourth outranks the other three** (§1):
