@@ -48,6 +48,22 @@ object WellKnownTypes {
   val defaultImplementationFQN: ValueFQN =
     ValueFQN(ModuleName(defaultSystemPackage, "Implementation"), QualifiedName("Default", Qualifier.Type))
 
+  /** The **mark** a binding binder carries as its declared type — `type Implementation[A] = Type` in
+    * `eliot.lang.Implementation`, beside [[defaultImplementationFQN]] (`docs/effects.md` §9.2).
+    *
+    * A binder the desugar mints for a row entry, a `~` constraint or an `ability` block's implementation slot is
+    * declared `Impl: Implementation[Console]`, and that declaration is the *only* place the fact "this binder is a
+    * binding" is written down: [[com.vanillasource.eliot.eliotc.row.BindingWriter]] reads the marks off the
+    * operator-resolved signature, where an alias is not yet expanded, and the ability off the mark's argument.
+    * Recognised by this FQN exactly as [[abilityCombinatorFQN]] is, and reduced to `Type` by definitional equality, so
+    * the checker makes no decision on it.
+    */
+  val implementationTypeFQN: ValueFQN =
+    ValueFQN(
+      ModuleName(defaultSystemPackage, "Implementation"),
+      QualifiedName("Implementation", Qualifier.Type)
+    )
+
   /** The ability-constraint combinator `&` — `infix left type &[A, B]` in `eliot.lang.Ability`, the one name the `~`
     * constraint syntax resolves rather than recognises (`docs/effects-syntax-userspace.md` §4 stage 1).
     *

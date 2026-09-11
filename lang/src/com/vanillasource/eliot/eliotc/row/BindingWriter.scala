@@ -262,6 +262,28 @@ object BindingWriter {
       })
       .map(_.abilityFQN)
 
+  /** The ability a binder's declared type **marks** it as binding, if it is marked at all — the head of the declared
+    * type is [[WellKnownTypes.implementationTypeFQN]] and its single argument names an ability
+    * ([[com.vanillasource.eliot.eliotc.ast.fact.GenericParameter.implementationMark]]).
+    *
+    * The mark is read off the *operator-resolved* signature, where the alias is still unexpanded: the evaluator
+    * reduces `Implementation[A]` to `Type` at monomorphization, so this is the last phase that can see it — and the
+    * phase that erases it ([[Writer.unmarked]]).
+    */
+  private def markedAbility(declaredType: OperatorResolvedExpression): Option[AbilityFQN] =
+    spine(declaredType) match {
+      case (ValueReference(head, _), Seq(argument)) if head.value === WellKnownTypes.implementationTypeFQN =>
+        argument.value match {
+          case ValueReference(ability, _) =>
+            ability.value.name.qualifier match {
+              case Qualifier.Ability(name) => Some(AbilityFQN(ability.value.moduleName, name))
+              case _                       => None
+            }
+          case _                          => None
+        }
+      case _                                                                                              => None
+    }
+
   private def referencedParameters(expr: OperatorResolvedExpression): Seq[String] = expr match {
     case ParameterReference(name)             => Seq(name.value)
     case FunctionApplication(target, arg)     =>
@@ -300,9 +322,22 @@ object BindingWriter {
     ): Sourced[OperatorResolvedExpression] =
       expr.value match {
         case FunctionLiteral(paramName, paramType, body) if remaining > 0 =>
-          expr.as(FunctionLiteral(paramName, paramType, walkDefinition(body, scope, remaining - 1)))
+          expr.as(FunctionLiteral(paramName, paramType.map(unmarked), walkDefinition(body, scope, remaining - 1)))
         case _                                                           => walk(expr, scope)
       }
+
+    /** Erase a binding binder's **mark**: `Impl: Implementation[Console]` becomes the ordinary `Impl: Type` it is
+      * definitionally equal to (`docs/effects.md` §9.2).
+      *
+      * The mark is written by the desugar and read here ([[phantoms]]), and nothing downstream of this phase has a
+      * question it answers, so it is dropped along with the `with` nodes rather than carried into the checker. That is
+      * what keeps the promise that a marked binder is an ordinary binder of kind `Type`: the checker is handed the
+      * same signature it was handed before the mark existed, and is never asked what kind an ability standing in a
+      * type argument has — it has one per ability arity, and the mark takes them all.
+      */
+    private def unmarked(paramType: Sourced[OperatorResolvedExpression]): Sourced[OperatorResolvedExpression] =
+      if (markedAbility(paramType.value).isDefined) paramType.as(ValueReference(paramType.as(WellKnownTypes.typeFQN)))
+      else paramType
 
     def walk(expr: Sourced[OperatorResolvedExpression], scope: Scope): Sourced[OperatorResolvedExpression] =
       expr.value match {

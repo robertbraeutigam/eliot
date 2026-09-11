@@ -10,3 +10,15 @@
  * type argument, and a type argument has to name something.
  */
 type Default
+
+/**
+ * The **mark** on a binding binder: a binder the compiler mints for an effect row entry, a `~` constraint or an
+ * `ability` block's implementation slot is declared `Impl: Implementation[A]`, `A` being the ability it binds
+ * (`docs/effects.md` §9).
+ *
+ * It is an alias for `Type` — a binding *is* an ordinary type argument, carrying an implementation name or
+ * [[Default]] — so definitional equality reduces it away and no type decision is made on it. Only the compiler
+ * writes it: it exists so that "which of these binders are bindings?" is read off one declaration instead of being
+ * re-derived from the shape of a signature.
+ */
+type Implementation[A] = Type

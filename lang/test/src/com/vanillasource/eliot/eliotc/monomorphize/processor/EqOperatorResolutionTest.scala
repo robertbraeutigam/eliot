@@ -72,6 +72,9 @@ class EqOperatorResolutionTest
         "Bool",
         "type Bool\ndef true: Bool\ndef false: Bool\ninfix def &&(a: Bool, b: Bool): Bool\ndef fold[A](condition: Bool, whenTrue: A, whenFalse: A): A"
       ) ++
+      // The `Eq` block declares a binding binder, whose `Implementation[A]` mark and `Default` sentinel the compiler
+      // writes module-qualified — so this module is in every pool.
+      compilerScan(Seq("eliot", "lang"), "Implementation", ProcessorTest.implementationStubContent) ++
       compilerScan(Seq("eliot", "lang"), "Eq", eqContent)
 
   private def eqFqn(name: String) =

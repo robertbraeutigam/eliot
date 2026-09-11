@@ -69,6 +69,9 @@ class AbilityGuardDischargeTest
         "type Function[A, B]\ndef apply[A, B](f: Function[A, B], a: A): B"
       ) ++
       compilerScan(Seq("eliot", "lang"), "String", "type String") ++
+      // Every `ability` block and every effect row declares a binding binder, whose `Implementation[A]` mark and
+      // `Default` sentinel the compiler writes module-qualified — so this module is in every pool.
+      compilerScan(Seq("eliot", "lang"), "Implementation", ProcessorTest.implementationStubContent) ++
       // A row-typed slot lowers to a thunk `Unit -> A`, and the compile-time `fold` applies the arm it selects to
       // `eliot.lang.Unit::unit` — so both the `Unit` type (the thunk's parameter type) and that value must be
       // loadable, and the `{}` row's synthesised constraint resolves at `eliot.carrier.Effect`.

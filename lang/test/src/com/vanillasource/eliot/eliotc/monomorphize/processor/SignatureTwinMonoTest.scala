@@ -91,6 +91,9 @@ class SignatureTwinMonoTest extends ProcessorTest(LangProcessors(systemModules =
       compilerScan(Seq("eliot", "lang"), "Function", "type Function[A, B]\ndef apply[A, B](f: Function[A, B], a: A): B") ++
       compilerScan(Seq("eliot", "lang"), "String", "type String") ++
       compilerScan(Seq("eliot", "lang"), "Bool", "type Bool\ndef true: Bool\ndef false: Bool") ++
+      // Every `ability` block and every effect row declares a binding binder, whose `Implementation[A]` mark and
+      // `Default` sentinel the compiler writes module-qualified — so this module is in every pool.
+      compilerScan(Seq("eliot", "lang"), "Implementation", ProcessorTest.implementationStubContent) ++
       compilerScan(
         Seq("eliot", "lang"),
         "Eq",

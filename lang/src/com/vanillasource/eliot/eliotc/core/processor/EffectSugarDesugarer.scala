@@ -90,7 +90,7 @@ object EffectSugarDesugarer {
         val binder = anchor.as(names.fresh(binderPrefix))
         GenericParameter(
           binder,
-          typeKind(anchor),
+          GenericParameter.implementationMark(anchor, entry.abilityName),
           Seq(UnresolvedAbilityConstraint(entry.abilityName, binder.as(typeExpr(binder)) +: entry.typeArgs.map(bare))),
           inferable = true
         )
@@ -107,7 +107,12 @@ object EffectSugarDesugarer {
           else {
             val binder = anchor.as(names.fresh(binderPrefix))
             (
-              mintedHere :+ GenericParameter(binder, typeKind(anchor), Seq.empty, inferable = true),
+              mintedHere :+ GenericParameter(
+                binder,
+                GenericParameter.implementationMark(anchor, constraint.abilityName),
+                Seq.empty,
+                inferable = true
+              ),
               kept :+ constraint.copy(typeArgs = binder.as(typeExpr(binder)) +: constraint.typeArgs.map(bare))
             )
           }
@@ -321,8 +326,6 @@ object EffectSugarDesugarer {
 
   private def constraintKey(ac: UnresolvedAbilityConstraint[Sourced[Expression]]): String =
     UnresolvedAbilityConstraint.key(ac)
-
-  private def typeKind(anchor: Sourced[?]): Sourced[Expression] = anchor.as(typeExpr(anchor.as("Type")))
 
   private def typeExpr(name: Sourced[String], genericArgs: Seq[Sourced[Expression]] = Seq.empty): Expression =
     FunctionApplication(None, name, Option.when(genericArgs.nonEmpty)(genericArgs), Seq.empty)

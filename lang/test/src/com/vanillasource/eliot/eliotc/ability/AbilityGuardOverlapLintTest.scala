@@ -71,6 +71,9 @@ class AbilityGuardOverlapLintTest
         "import eliot.lang.Function\ntype Bool\ndef true: Bool\ndef false: Bool\ndef fold[A](cond: Bool, whenTrue: {} A, whenFalse: {} A): A"
       ) ++
       compilerScan(Seq("eliot", "lang"), "Unit", "type Unit\ndef unit: Unit") ++
+      // Every `ability` block and every effect row declares a binding binder, whose `Implementation[A]` mark and
+      // `Default` sentinel the compiler writes module-qualified — so this module is in every pool.
+      compilerScan(Seq("eliot", "lang"), "Implementation", ProcessorTest.implementationStubContent) ++
       compilerScan(Seq("eliot", "carrier"), "Effect", "ability Effect[F] { }")).collect { case f: CompilerFact => f }
 
   private val moduleName = ModuleName(Seq("test"), "M")

@@ -64,7 +64,7 @@ abstract class ProcessorTest(val processors: CompilerProcessor*) extends AsyncFl
     // The `Default` binding sentinel. Effects v6 writes it as an ordinary type argument at every reference whose
     // implementation nothing names, and saturation then demands the value it names — so a snippet calling *any*
     // ability method needs this module present, exactly as the real `stdlib/eliot/eliot/lang/Implementation.els` is.
-    SystemImport("Implementation", "type Default"),
+    SystemImport("Implementation", ProcessorTest.implementationStubContent),
     SystemImport("Bool", ProcessorTest.boolImportContent),
     SystemImport("Numeric", ProcessorTest.numericStubContent),
     SystemImport("Compare", ProcessorTest.compareAbilityStubContent),
@@ -192,6 +192,16 @@ object ProcessorTest {
   /** Declarations for the built-in opaque `Bool` type and its compile-time predicates, mirroring
     * `lang/eliot/eliot/lang/Bool.els`. The reductions are supplied by `SystemNativesProcessor`.
     */
+  /** `eliot.lang.Implementation`, which every snippet declaring an effect row, a `~` constraint or an `ability` block
+    * needs — the compiler writes both of its names into such a declaration, module-qualified, so neither depends on
+    * the snippet's imports. `Default` is the sentinel a reference carries when no `with` names an implementation (and
+    * saturation then demands the value it names); `Implementation[A]` is the **mark** a binding binder carries as its
+    * declared type (`docs/effects.md` §9.2). A pool without this module fails with "Qualified named value not
+    * available." at the declaration, so it is part of every stub prelude, exactly as the real
+    * `stdlib/eliot/eliot/lang/Implementation.els` is part of every layer.
+    */
+  val implementationStubContent: String = "type Default\ntype Implementation[A] = Type"
+
   val boolImportContent: String =
     "type Bool\ndef true: Bool\ndef false: Bool\ninfix def &&(a: Bool, b: Bool): Bool"
 

@@ -33,7 +33,8 @@ class MonomorphicTypeCheckProcessorTest
     SystemImport("Runtime", ProcessorTest.runtimeStubContent),
     // A synthesized `implement`/`data` marker's default `true` guard resolves to `eliot.lang.Bool::true`
     // (ability-guards §2.3), so Bool must be loadable — as it always is in a real layer.
-    SystemImport("Bool", ProcessorTest.boolImportContent)
+    SystemImport("Bool", ProcessorTest.boolImportContent),
+    SystemImport("Implementation", ProcessorTest.implementationStubContent)
   )
 
   private def dummySourced[T](v: T) = Sourced[T](file, PositionRange.zero, v)

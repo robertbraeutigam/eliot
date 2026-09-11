@@ -7,6 +7,7 @@ import com.vanillasource.eliot.eliotc.ast.fact.ASTComponent.component
 import com.vanillasource.eliot.eliotc.ast.fact.Primitives.*
 import com.vanillasource.eliot.eliotc.ast.parser.Parser
 import com.vanillasource.eliot.eliotc.ast.parser.Parser.{acceptIf, acceptIfAll, anyTimes, optional, or}
+import com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.token.Token
 
@@ -38,6 +39,31 @@ case class GenericParameter(
 )
 
 object GenericParameter {
+
+  /** The **mark** every minted binding binder carries as its declared type — `Impl: Implementation[Console]`
+    * (`docs/effects.md` §9.2).
+    *
+    * It is the one place the fact "this binder is a binding" is written down, and it names the ability the binding is
+    * for; [[com.vanillasource.eliot.eliotc.row.BindingWriter]] reads it instead of re-deriving a binder's role from
+    * the shape of a signature. Minted in two places, for the same three kinds of binding: an effect-row entry and a
+    * `~` constraint ([[com.vanillasource.eliot.eliotc.core.processor.EffectSugarDesugarer]]), and an `ability` block's
+    * implementation slot ([[AbilityMembers]]).
+    *
+    * The head is module-qualified because the mark is compiler-written and must not depend on the file's imports; the
+    * ability is named bare, exactly as the constraint beside it names it, so it resolves in the scope that constraint
+    * resolves in. [[WellKnownTypes.implementationTypeFQN]] is an alias for `Type`, so a marked binder is an ordinary
+    * binder of kind `Type` to everything that does not look for the mark.
+    */
+  def implementationMark(anchor: Sourced[?], abilityName: Sourced[String]): Sourced[Expression] =
+    anchor.as(
+      Expression.FunctionApplication(
+        Some(anchor.as(WellKnownTypes.implementationTypeFQN.moduleName.show)),
+        anchor.as(WellKnownTypes.implementationTypeFQN.name.name),
+        Some(Seq(abilityName.as(Expression.FunctionApplication(None, abilityName, None, Seq.empty)))),
+        Seq.empty
+      )
+    )
+
   val signatureEquality: Eq[GenericParameter] = (x: GenericParameter, y: GenericParameter) =>
     x.name.value === y.name.value && x.typeRestriction.value.render === y.typeRestriction.value.render
 

@@ -17,6 +17,7 @@ import com.vanillasource.eliot.eliotc.core.fact.{
 }
 import com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes.{
   abilityCombinatorFQN,
+  implementationTypeFQN,
   typeFQN,
   patternMatchAbilityName,
   typeMatchAbilityName
@@ -110,6 +111,38 @@ class ValueResolver
       // no resolution: the marker *is* what a `with` looks up, so it carries its own name and nothing else.
       case CoreQualifier.Implementation(n)                     => (Qualifier.Implementation(n): Qualifier).pure[ScopedIO]
     }
+
+  /** The argument of a binding binder's **mark** (`Impl: Implementation[Console]`,
+    * [[com.vanillasource.eliot.eliotc.ast.fact.GenericParameter.implementationMark]]) — `Some` exactly when this
+    * application is a mark, and then the ability's own marker value.
+    *
+    * The mark names an **ability**, and an ability resolves by [[resolveAbilityName]] and by nothing else (§2.5): it
+    * is not in the type namespace, so the ordinary value path would find it only through the ability fallback, would
+    * miss the fixed-FQN ones entirely, and would report a mistyped effect as "Name not defined." rather than "Ability
+    * not found.". Recognised by the well-known FQN of its head, exactly as `&` is recognised.
+    */
+  private def markedAbility(
+      resolvedTarget: Expression,
+      argument: Sourced[CoreExpression]
+  ): Option[ScopedIO[Sourced[Expression]]] = (resolvedTarget, argument.value) match {
+    case (Expression.ValueReference(head, _), NamedValueReference(name, None, Seq()))
+        if head.value === implementationTypeFQN =>
+      Some(
+        resolveAbilityName(name.map(_.name)).map(ability =>
+          argument.as(
+            Expression.ValueReference(
+              argument.as(
+                ValueFQN(
+                  ability.moduleName,
+                  CoreQualifiedName(ability.abilityName, CoreQualifier.Ability(ability.abilityName))
+                )
+              )
+            )
+          )
+        )
+      )
+    case _                                      => None
+  }
 
   private def resolveAbilityName(name: Sourced[String]): ScopedIO[AbilityFQN] =
     getAbility(name.value).flatMap {
@@ -359,7 +392,9 @@ class ValueResolver
       case FunctionApplication(target, arg)                          =>
         for {
           resolvedTarget <- resolveExpression(target.value, runtime).map(target.as)
-          resolvedArg    <- resolveExpression(arg.value, runtime).map(arg.as)
+          resolvedArg    <- markedAbility(resolvedTarget.value, arg).getOrElse(
+                              resolveExpression(arg.value, runtime).map(arg.as)
+                            )
         } yield Expression.FunctionApplication(resolvedTarget, resolvedArg)
       case FunctionLiteral(paramName, paramType, body)               =>
         for {

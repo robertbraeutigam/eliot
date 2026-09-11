@@ -627,16 +627,17 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
     }
   }
 
-  // Effects v6 (`docs/effects.md` §9.4 step 2): a row entry and a `~` constraint each become **one phantom generic
-  // binder** of kind `Type`, occurring in the generic list and in no type — so rows still never flow into types. The
-  // binder's value, written later by the `row` phase, is an implementation. Three rewrites and nothing else: the
-  // return row vanishes onto a binder, a `~` constraint gains that binder as its **first** type argument, and a
-  // top-level row in a parameter or a `data` field thunks to `Unit => A`.
-  "effect-row sugar" should "mint one phantom binder for the row and thunk a rowed parameter" in {
+  // Effects v6 (`docs/effects.md` §9): a row entry and a `~` constraint each become **one phantom generic binder**,
+  // declared `Implementation[A]` — the **mark** that says it is a binding and names the ability it binds (§9.2) — and
+  // occurring in no type, so rows still never flow into types. The binder's value, written later by the `row` phase,
+  // is an implementation. Three rewrites and nothing else: the return row vanishes onto a binder, a `~` constraint
+  // gains that binder as its **first** type argument, and a top-level row in a parameter or a `data` field thunks to
+  // `Unit => A`.
+  "effect-row sugar" should "mint one marked binder for the row and thunk a rowed parameter" in {
     namedValue("def f(x: {Suspend} String): {Suspend} Unit").asserting { nv =>
       nv.signature.value.structure shouldBe Lambda(
         "Impl",
-        Ref("Type", T),
+        App(QualRef("Implementation", "eliot.lang.Implementation"), Ref("Suspend", T)),
         App(App(Ref("Function", T), thunk(Ref("String", T))), Ref("Unit", T))
       )
     }

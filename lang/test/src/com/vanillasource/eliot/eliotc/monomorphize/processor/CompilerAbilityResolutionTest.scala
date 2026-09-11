@@ -48,7 +48,7 @@ class CompilerAbilityResolutionTest extends ProcessorTest(LangProcessors(systemM
       compilerScan(Seq("eliot", "lang"), "Function", "type Function[A, B]\ndef apply[A, B](f: Function[A, B], a: A): B") ++
       compilerScan(Seq("eliot", "lang"), "String", "type String") ++
       compilerScan(Seq("eliot", "lang"), "Bool", "type Bool\ndef true: Bool\ndef false: Bool") ++
-      compilerScan(Seq("eliot", "lang"), "Implementation", "type Default") ++
+      compilerScan(Seq("eliot", "lang"), "Implementation", ProcessorTest.implementationStubContent) ++
       compilerScan(
         Seq("test"),
         "M",

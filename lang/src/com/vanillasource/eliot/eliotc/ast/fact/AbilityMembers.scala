@@ -44,7 +44,7 @@ object AbilityMembers {
     val qualifier     = Qualifier.Ability(name.value)
     val bindingBinder = GenericParameter(
       name.as(freshName("Impl", commonGenericParameters.map(_.name.value).toSet)),
-      name.as(typeExpr(name.as("Type"))),
+      GenericParameter.implementationMark(name, name),
       Seq.empty,
       abilityLevel = true
     )

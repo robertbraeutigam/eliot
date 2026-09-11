@@ -6,6 +6,7 @@ import com.vanillasource.eliot.eliotc.ProcessorTest
 import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.module.fact.{ValueFQN, ModuleName as ModuleName2}
 import OperatorResolvedExpressionMatchers.*
+import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.{FunctionApplication, SignatureView}
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
 import com.vanillasource.eliot.eliotc.plugin.LangProcessors
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -317,13 +318,13 @@ class OperatorResolverProcessorTest
   // --- effect-set sugar `{E} A` (effects v6 §9.4 step 2). There is no hand-written equivalent to compare against any
   // more — the carrier form this pair used to mirror is gone — so the shape is asserted directly. ---
 
-  "effect-set sugar" should "mint one Type-kinded binder per row entry, thunk a row parameter, and leave the return bare" in {
+  "effect-set sugar" should "mark the minted binder with the ability it binds, thunk a row parameter, and leave the return bare" in {
     val source =
       "data Str\ndata Unt\nability Suspend[F[_]] { def delay(value: Str): F[Str] }\n" +
         "def sugar(x: {Suspend} Str): {Suspend} Unt"
     runEngineForResolvedValue(source, "sugar").asserting { sugar =>
       (signatureShow(sugar), constraintShow(sugar)) shouldBe (
-        "(eliot.compiler.Type::Type^Type :: Impl) -> " +
+        "(eliot.lang.Implementation::Implementation^Type(Test::Suspend^Suspend) :: Impl) -> " +
           "eliot.lang.Function::Function^Type(" +
           "eliot.lang.Function::Function^Type(eliot.lang.Unit::Unit^Type)(Test::Str^Type))(Test::Unt^Type)",
         Map("Impl" -> List(("Suspend", List("Impl"))))
@@ -331,16 +332,34 @@ class OperatorResolverProcessorTest
     }
   }
 
-  it should "resolve {Suspend, Abort} and {Abort, Suspend} to the same signature and the same effect set" in {
+  it should "resolve {Suspend, Abort} and {Abort, Suspend} to the same effect set and the same payload" in {
     // The *set* is what a row means; which minted binder carries which entry follows declaration order and is not part
-    // of it — the binders are phantom, written positionally at each reference and named by nothing.
+    // of it. Since §9.2 that assignment is written down — each binder's mark names its ability — so the two signatures
+    // differ in their marks and agree on everything else: the same abilities, and the same payload once the binders
+    // are peeled off. The marks are erased at the `row` phase, so the checker sees the two as identical.
     val source =
       "data Str\nability Suspend[F[_]] { def s(value: Str): F[Str] }\nability Abort[F[_]] { def a(value: Str): F[Str] }\n" +
         "def ab(x: Str): {Suspend, Abort} Str\ndef ba(x: Str): {Abort, Suspend} Str"
     (runEngineForResolvedValue(source, "ab"), runEngineForResolvedValue(source, "ba")).mapN { (ab, ba) =>
-      (signatureShow(ab), abilitySet(ab)) shouldBe (signatureShow(ba), abilitySet(ba))
+      (abilitySet(ab), markedAbilitySet(ab), payloadShow(ab)) shouldBe
+        (abilitySet(ba), markedAbilitySet(ba), payloadShow(ba))
     }
   }
+
+  /** The abilities the signature's binders are **marked** with, as a set (`docs/effects.md` §9.2) — the row as the
+    * declaration itself records it, with the order of the entries abstracted away.
+    */
+  private def markedAbilitySet(rv: OperatorResolvedValue): Set[String] =
+    SignatureView
+      .of(rv.signature)
+      .binders
+      .flatMap(_.parameterType)
+      .collect { case Sourced(_, _, FunctionApplication(_, ability)) => ability.value.render }
+      .toSet
+
+  /** A signature with its generic binders peeled off: the parameter/return chain alone. */
+  private def payloadShow(rv: OperatorResolvedValue): String =
+    SignatureView.of(rv.signature).copy(binders = Seq.empty).toExpression.render
 
   /** The abilities a value's constraints name, as a set — the row, with the binder assignment abstracted away. */
   private def abilitySet(rv: OperatorResolvedValue): Set[String] =
