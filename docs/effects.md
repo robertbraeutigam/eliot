@@ -687,6 +687,10 @@ ability block's binding slot — is declared with the type `Implementation[A]`, 
 and every phase that needs to know which binders are bindings reads that declared type and nothing else.
 Abilities and effects are one mechanism here, so one marker serves both.
 
+**Where the tree is (2026-09-11).** Steps 1–2 of §9.3 are built: every binding binder now carries its mark, and
+nothing reads it yet. §9.2 records the two corrections that step measured. Steps 3–4 — the write reading marks,
+and the four dead encodings going — are next, under the same byte-identity gate.
+
 ### 9.1 What the tree does today, and what it costs
 
 Part I §3.1 states it: nothing marks a phantom binder past the AST, and the same fact is encoded four times —
@@ -730,12 +734,35 @@ readings:
   ```
 
   in `eliot.lang.Implementation`, beside `Default`, with its FQN in `WellKnownTypes`; the desugar mints
-  `Impl: Implementation[Console]`. Definitional equality normalises `Implementation[Console]` to `Type`, so
-  **the checker changes nothing**: the marker names and `Default` keep their `Type` typing and the kind check
-  of a binder against what is passed is unchanged. The write reads the operator-resolved signature, where an
-  alias is not yet expanded (the evaluator expands it at monomorphization), so the syntactic head
-  `Implementation` is what it pattern-matches — recognition by a well-known FQN, exactly as `&` is recognised
-  (§2.5). No case class changes.
+  `Impl: Implementation[Console]`, module-qualified so the mark never depends on the file's imports. **The
+  checker changes nothing**: the marker names and `Default` keep their `Type` typing and the kind check of a
+  binder against what is passed is unchanged. The write reads the operator-resolved signature, where an alias
+  is not yet expanded (the evaluator expands it at monomorphization), so the syntactic head `Implementation`
+  is what it pattern-matches — recognition by a well-known FQN, exactly as `&` is recognised (§2.5). No case
+  class changes.
+
+**Two corrections, measured when steps 1–2 were built (2026-09-11). Do not re-propose the original readings.**
+
+- **The alias does not reduce away for the checker; the mark is erased at `row` instead.** The plan said
+  definitional equality normalises `Implementation[Console]` to `Type` and the checker therefore never sees a
+  mark. It does see one, and it **kind-checks the argument** before any reduction: an ability's marker has one
+  binder per ability parameter *plus* the binding slot, so its kind is `Type -> Type` and upwards, never
+  `Type` — `HelloWorld` failed at its own `{Console}` with "Type mismatch. Expected: Type, Actual: Type ->
+  Type". No declared kind for the alias's parameter accepts every ability, so the fix is not a better kind:
+  the mark is **dropped at the end of the `row` phase**, beside the `with` nodes that phase already erases
+  (`BindingWriter.Writer.unmarked` rewrites a marked binder's declared type back to `Type`). The mark
+  therefore lives between `core` and `row` and nowhere else, and "the checker changes nothing" holds *by
+  construction* — it is handed the signature it was handed before the mark existed — rather than by a
+  reduction. Nothing else about the chosen form moves.
+- **The mark's argument resolves as an ability, not as a type.** An ability name is not in the type namespace,
+  so the ordinary value path reached it only through the ability fallback, missed the fixed-FQN abilities
+  (`PatternMatch`/`TypeMatch`) entirely, and reported a mistyped effect as "Name not defined." instead of
+  "Ability not found.". `ValueResolver.markedAbility` recognises a mark by its head's FQN and sends the
+  argument through `resolveAbilityName` — the one lookup an ability name uses (§2.5) — yielding the ability's
+  own marker value. One consequence is worth stating, because it reaches every pool: the mark is written into
+  **every** row, `~` constraint and `ability` block, so `eliot.lang.Implementation` is now required wherever
+  any of those is declared. Every layer has it; a hand-built test pool must carry it
+  (`ProcessorTest.implementationStubContent`) or the declaration itself fails to resolve.
 
 The read side already is what a marked binder needs: the slot holds a *name* — a ground `Structure` headed by
 the implementation's marker FQN or by `Default` — and `ImplementationBinding` reads it back for `AbilityResolver`
@@ -743,11 +770,18 @@ to use directly or to search. Nothing there moves.
 
 ### 9.3 The work list
 
-1. **The alias and its FQN.** `type Implementation[A] = Type` in `stdlib/eliot/eliot/lang/Implementation.els`;
-   `WellKnownTypes.implementationTypeFQN`. (`ProcessorTest` stubs of that module grow the alias.)
-2. **Mint with the declared type.** `EffectSugarDesugarer` for a row entry and a `~` constraint,
-   `AbilityMembers` for the block's binding slot. `abilityLevel` keeps its other job — delimiting the
-   ability-level prefix that `AbilityResolver` slices and that a member's own binders follow.
+1. **The alias and its FQN — DONE (2026-09-11).** `type Implementation[A] = Type` in
+   `stdlib/eliot/eliot/lang/Implementation.els`; `WellKnownTypes.implementationTypeFQN`. Every stub prelude
+   grew it, not only the ones that had the module: the mark is written into every declaration that takes a
+   binding, so a pool without `eliot.lang.Implementation` no longer resolves (§9.2).
+2. **Mint with the declared type — DONE (2026-09-11).** `EffectSugarDesugarer` for a row entry and a `~`
+   constraint, `AbilityMembers` for the block's binding slot, both through the shared
+   `GenericParameter.implementationMark`. `abilityLevel` keeps its other job — delimiting the ability-level
+   prefix that `AbilityResolver` slices and that a member's own binders follow. Two things this step needed
+   that the plan did not foresee, both in §9.2: `BindingWriter.Writer.unmarked` erases the mark at the end of
+   `row`, and `ValueResolver.markedAbility` resolves its argument as an ability. Nothing reads the mark yet —
+   the write still derives a phantom binder the old way — so the gate is that the mark is **inert**: 45/45
+   example jars byte-identical, 1689 tests green.
 3. **The write reads marks.** `BindingWriter.phantoms` becomes "the binders whose declared type is headed by
    the marker, with the ability read off its argument", in index order. Deleted with it: `mintedPhantoms`'
    non-occurrence test, `constraintStartingWith`, `prefixOf`, `nonPrefixPhantom` and the `Qualifier.Ability`
