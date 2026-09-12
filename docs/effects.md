@@ -468,8 +468,15 @@ surviving a `raise` and not. There is no canonical form to fix and no ordering f
 
 A discharger may be called any way a function can be — v5's "a discharger must be called directly" rule has no
 subject, since a thunk is a plain value and passes through the dot's plain `T` as the value it is. A
-discharger's **handler may itself perform effects** (`onError: E => {} A`, bound where it is written), and a
-`val`-bound computation is dischargeable.
+discharger's **handler may itself perform effects** (`onError: E => {} A`, bound where it is written).
+
+**A `val` is a bind, and binds the value** (D17, decided 2026-09-12). A `val`'s right-hand side is a plain
+position, so rule 1 applies to it unchanged: `val x = lookupConfig("db.url")` *runs* the lookup there, charges
+the enclosing definition, and binds `x` to the `String`. There is nothing suspended left to discharge, so
+`val x = comp` followed by `x else fallback` is the error it looks like — reported on the right-hand side,
+where the effect was actually performed — and the discharge belongs on that right-hand side instead
+(`val x = lookupConfig("db.url") else "gave up!"`). A `val` is therefore **not** a new kind of position, which
+is what keeps rule 4's single predicate single.
 
 **Two families, and only one is rebindable.** The **control effects** — `Throw`, `Abort`, `State`, `Writer`,
 `Dep`, `Inf` — have exactly one implementation per platform, over the private primitives; `with` has nothing
@@ -604,6 +611,11 @@ Four properties fall out of the design rather than being added for testing.
 
 - **A double is one declaration.** It needs no type to hang on, no colocation with the ability or a carrier,
   and no coherence question: a named implementation is never searched, so it may freely overlap a default.
+  *Never searched* is now enforced rather than assumed: the two-site search and both coherence checks read
+  `ModuleAbilities.anonymousImplementationMethodsOf` / `anonymousMarkersOf`. Until 2026-09-12 they read the
+  unfiltered lists, and the rule held only because a double is not usually declared in the ability's own module —
+  one that *was* got picked up by an ordinary row naming nothing (§8 item 7). Colocation is allowed, so it had to
+  be safe.
 - **A double cannot cheat.** A user module cannot declare a native, and the platform's natives and primitives
   are private to its layer, so an implementation reaches the world only through effects **its own clauses
   declare** — which are charged, and bound, at the binding site.
@@ -650,20 +662,29 @@ Each is stated, fail-safe, and either has a plan entry or is a deliberate trade.
    stored computation later is an error, never a rebinding — rejected at the read, in both of `with`'s positions.
 7. **An undischarged control effect reaching `main` fails at runtime, not at the boundary.** The run boundary
    binds every entry of `main`'s row to the two-site default, and a control effect's single implementation then
-   exits into no frame. §3.1 asks for an error at the boundary naming the fix; telling a control effect from an
-   interpretation one needs a bit the language deliberately does not have (§3.5). Loud, so fail-safe; open as
-   D19 (§11).
+   exits into no frame. **Decided 2026-09-12: this must be a compile error** (D19, §11). The route is settled and
+   costed; the remaining question is which of the two costs to pay, and until it is paid the runtime failure
+   stands. Loud, so fail-safe.
 
 ---
 
 # Part II — What is left
 
-**Status (2026-09-12).** v6 landed on 2026-09-09 and its record — the reasoning, the flag-day log, the
-follow-ups — is no longer here: Part I states what it built, and git history holds how (Part III §13 says how
-to read a citation to it). This part holds only what is *not* done: where the tree still diverges from Part I
-(§8), the change §9 decided — **built in full on 2026-09-12**, and kept here for the corrections it measured and
-the one thing it did not move — the method any such change is run under (§10), and the decisions still open
-(§11). Every entry marked **decision** is Robert's.
+**Status (2026-09-12, second entry of the day).** v6 landed on 2026-09-09 and its record — the reasoning, the
+flag-day log, the follow-ups — is no longer here: Part I states what it built, and git history holds how
+(Part III §13 says how to read a citation to it). This part holds only what is *not* done: where the tree still
+diverges from Part I (§8), the change §9 decided — **built in full on 2026-09-12**, and kept here for the
+corrections it measured and the one thing it did not move — the method any such change is run under (§10), and
+the decisions still open (§11). Every entry marked **decision** is Robert's.
+
+**Two decisions were taken on 2026-09-12 and this part rewritten around them.** **D17** closed to rule 1 — a
+`val` is a bind — which turned out to need **no code at all**: the tree was right and §3.5 carried the wrong
+sentence (§8 item 3). **D19** closed to "it must be a compile error", and pursuing it found two silent defects
+that had nothing to do with `main` and are now fixed — a named implementation was answering the two-site search,
+and a slot's `with` was invisible to the layer merge (§8 items 7 and 8). D19's own fix is **not** landed: both
+routes to it are now measured rather than argued, and picking between their costs is the open half of that entry.
+Of the six divergences §8 opened the day with, **three are closed**; two more were found and closed in the same
+change; two remain open alongside the ones needing D18 and D19.
 
 ## 8. Where the tree diverges from Part I
 
@@ -680,18 +701,37 @@ fix. The silent ones come first, because a silent acceptance is the one failure 
    (§2.3); `task.step` is a type error where a value is expected and a **silent no-op** as a block statement
    (`job.run` printed nothing). The `.` operator lowers to the same saturated accessor call, so the read rule
    should fire there too, and does not.
-3. **`val x = comp` then `x else …` fails** with "performs Abort but does not declare". §3.5 says a
-   `val`-bound computation is dischargeable; rule 1 says a plain position runs its expression, and a `val`'s
-   right-hand side is a plain position. The two statements conflict *within* Part I, so this is **D17** (§11):
-   the fix is either to the tree or to §3.5, and the second is a reversal, not a fix.
+3. ~~**`val x = comp` then `x else …` fails**~~ — **closed 2026-09-12, and it was never a tree defect.**
+   **D17 is decided: a `val` is a bind**, so rule 1 was right and §3.5's "a `val`-bound computation is
+   dischargeable" was the wrong half; it is struck there and recorded as a reversal below. Measured before
+   deciding, on the real tree: `val x = lookupConfig(…)` inside a `{Abort}`-declaring definition compiles and
+   runs; the same `val` under a pure return reports at **5:12, the right-hand side** — the position the effect
+   is actually performed at; and moving the discharge onto that right-hand side
+   (`val x = lookupConfig(…) else "gave up!"`) compiles and prints the fallback. **No code changed.**
 4. **`runThrow("no failure")` is accepted.** §2.2 lists an actual that raises nothing among the shapes
    rejected for an argument nothing determines; the tree accepts it when the call spells the argument. Every
    case is loud (the argument is written by hand), so this is last.
 5. **An undischarged control effect reaching `main` fails at runtime**, not at the boundary (§7 item 7).
-   **D19** (§11).
+   **Decided 2026-09-12: it must be a compile error.** The mechanism was measured rather than argued and is
+   written up under **D19** (§11); one cost has to be chosen before it lands.
 6. **A row alias works in return position only, and only within its file** (§2.4). Interim by design. §9 step 5
    made the alias itself ordinary, but neither limit moved: both follow from the desugar reading the alias's
    declaration at `core`, and lifting them is **D18** (§9.5).
+7. ~~**A named implementation answered the two-site search.**~~ **Closed 2026-09-12.** §2 and §6 both say a named
+   implementation "is never searched" and "is not checked for overlap", and nothing enforced it: the search and
+   both coherence checks read `ModuleAbilities.implementationMethodsOf`, which returns *every* implementation in
+   a candidate module, named ones included. The rule held only by the accident of **where doubles usually live** —
+   a test's double is not in the ability's module, so it was not a candidate — and a double **colocated with its
+   own ability** was silently picked up by an ordinary row that named nothing. That is the silent-acceptance
+   family (standing rule 8), and it is exactly what D19 needs to be able to lean on. The search and the two
+   checks now read `anonymousImplementationMethodsOf` / `anonymousMarkersOf`; the unfiltered pair stays for the
+   marker lookups, which address an implementation by its full identity and must see named ones.
+8. ~~**A slot's `with` was not part of the signature the layer merge compares.**~~ **Closed 2026-09-12.**
+   `Expression.structuralEquality` had no `WithBinding` arm, so two *identical* copies of a signature carrying
+   `obj: {Abort} A with abortByEscape` fell to its `case _ => false` and the merge rejected them with "Has
+   multiple different definitions." A layer therefore could not body a discharger whose slot names an
+   implementation — which is the whole surface D19's route is built on. The catch-all is fail-safe by design
+   (an unrecognised shape reads as *different*), so this was a missing arm, not a wrong default.
 
 ## 9. Built: a binding binder is marked by its type
 
@@ -969,28 +1009,70 @@ blocker (the superability closure runs at resolve, before operators are structur
 is ever answered yes. Its half that asked "what does an ability denote as a value?" is answered under names by
 *nothing*: an implementation is not a value, so an ability denotes no type of values.
 
-### D17 — a `val`-bound computation: §3.5 or rule 1
-
-§3.5 says a `val`-bound computation is dischargeable; rule 1 and F9's own measurement say a `val`'s right-hand
-side runs where it stands and charges the enclosing definition (§8 item 3). One of the two is wrong, and only
-Robert can say which: closing the tree to §3.5 means a `val` becomes a suspended position, which is a new kind
-of slot; closing §3.5 to rule 1 is a reversal of a Part I sentence.
-
 ### D18 — a row alias at a parameter or a field: which phase reads the declaration
 
 §9.5. Whether the desugar stays at `core` and file-local, or the minting and thunking move after `resolve`.
 Needed before §9.3 step 5 leaves return position.
 
-### D19 — an undischarged control effect at `main`
+### D19 — an undischarged control effect at `main`: decided, and costed
 
-§7 item 7. The boundary binds every entry of `main`'s row to the two-site default, so a control effect reaching
-it resolves to its single implementation and exits into no frame at runtime. §3.1 asks for an error at the
-boundary naming the effect and the fix. Telling a control effect from an interpretation one needs a bit the
-language deliberately does not have (§3.5, "the families are a description"); the candidates are a property of
-the platform's *implementation* (one that only makes sense under a frame declares so) or accepting the runtime
-failure as the answer. Loud either way.
+**Decided 2026-09-12: it must be a compile error.** What is left is not *whether* but *which of two costs*, and
+that is the open half of this entry.
 
-**Closed, numbers kept so citations resolve.** **D4** (`Suspend`-riding effects: pinning and supplying)
+**The question was never a missing bit.** The compiler already hard-errors when the two-site search finds
+nothing — `No ability implementation found for ability 'Terminal' with type arguments []`, at the operation call.
+The reason `{Throw}` does not hit it is mundane: the jvm layer ships `implement[E] Throw[E]` **anonymously**, and
+anonymous *means* "this pattern's default". So the lever is which implementations are defaults, not a new
+property of effects. The earlier proposal — a marker keyword on the platform's `implement`, read at the boundary —
+was the wrong first guess and is kept below only as the costed alternative.
+
+**Route A — name the control implementations. No new surface.** Give each of the five a name
+(`abortByEscape`, `throwByEscape`, `stateByCell`, `writerByCell`, `depByCell`), **abstract in the base and bodied
+per platform** like the dischargers themselves, and let each discharger's slot name it:
+`def runAbort[A](obj: {Abort} A with abortByEscape): Option[A]`. That is `transcriptOf`'s shape (§6) applied to
+the dischargers, and it needs nothing the language does not have. An undischarged entry then reaches the boundary,
+finds no default, and is the error above.
+
+Two defects had to be closed before it could even be tried, and **both are landed** (§8 items 7 and 8): a named
+implementation was answering the default search, and a slot's `with` was not part of the signature the layer merge
+compares. Route A's own `.els` half is **not** landed.
+
+**What Route A costs, measured on the 45-example sweep** (`Abort` first, end to end and running; then the other
+four). 41 of 45 still compile; **4 break, in three distinct ways**:
+
+1. **Every user-written discharger must spell the implementation.** `TestSuite`'s
+   `runTest(name: String, test: {Throw[String]} Unit, rest: {} Unit): {Console} Unit` supplies `Throw` and
+   `catch`es it; with no default its slot has nothing to bind, so it must be written
+   `test: {Throw[String]} Unit with throwByEscape`. This is the route's standing price, and it is a language-feel
+   call: a discharger stops being an ordinary function and has to name a platform implementation.
+2. **A named double whose clauses perform a control effect can no longer be bound through a slot `with`.**
+   `EffectsTestFramework`'s `transcriptOf(program: {Console} Unit with recordingConsole)` fails, because
+   `BindingWriter.slotImplementation` writes the double's *clause-row* entries as `Default` **by design** — the
+   scope that covers them is the callee's (`runWriterToLog`, inside `transcriptOf`'s body), which the write cannot
+   see from the signature. With `Writer` no longer defaulted there is nothing for that `Default` to find, and the
+   language has no spelling for what is wanted. The nearest is chaining the slot's `with`
+   (`{Console} Unit with recordingConsole with writerByCell`), which needs `suppliedScope` to bind a `with` for an
+   ability the slot's row does not supply — a small, principled extension, but an extension.
+3. **An abstract `implement[W ~ Combine[W]] writerByCell: Writer[W]` in the base breaks codegen** — "Function not
+   implemented." at `Combine`'s *own* ability marker, in two examples. Undiagnosed. A constrained named
+   implementation is the one shape §2.5 warns about ("a named implementation … takes no parameters and closes over
+   nothing"), and a `~` constraint may be precisely that.
+
+**Route B — a declared mark on the platform's implementation.** "This implementation is only meaningful under a
+frame", read where `main` binds. It needs one piece of new surface **and** a boundary-only sentinel, because
+`Default` resolves to an implementation in the `ability` phase while "this came from the run boundary" is known
+only in `row` (`BindingWriter` writes one `Default` under `atBoundary`). In exchange it costs **nothing** to
+existing code: none of A's three items are paid. It does not reinstate the family bit §3.5 forbids — the mark is
+on the *implementation*, not the effect, so a platform shipping an unmarked `Throw` (log-and-continue) would
+legitimately reach `main` — but §3.5's sentence needs that refinement written down.
+
+**What is needed.** The choice. Route A charges every discharger a name and still owes two pieces of work (the
+slot-`with` clause row, and the `Combine` codegen bug); Route B charges one marker of surface and owes nothing.
+The experiment's diff is deliberately not kept in the tree — this entry is enough to rebuild it.
+
+**Closed, numbers kept so citations resolve.** **D17** (a `val`-bound computation) closed 2026-09-12: **a `val`
+is a bind**, rule 1 unchanged, §3.5's sentence struck as a reversal — the tree was already right and no code
+changed (§8 item 3). **D4** (`Suspend`-riding effects: pinning and supplying)
 dissolved at the flag day — a stored computation is a thunk bound where it is written. **D5** (a lambda body at
 a rowless arrow slot) closed 2026-09-08 as rule 4's third bullet. **D7** (the post-mono accounting verifier)
 closed 2026-09-10, retired by measurement — §3.3 and §12. **D13** (every `eliot-test` case built with its

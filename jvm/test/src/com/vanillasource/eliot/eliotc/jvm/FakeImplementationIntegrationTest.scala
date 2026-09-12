@@ -138,4 +138,41 @@ class FakeImplementationIntegrationTest extends FullIntegrationTest {
         |""".stripMargin
     ).asserting(_ should include("performs the effect 'Terminal' but does not declare it"))
   }
+
+  /** A named implementation colocated with its ability sits exactly where the two-site search looks, and must still
+    * not answer it: `with` is the only way to reach one (§2). The search reads anonymous implementations only, so this
+    * program reaches the run boundary with nothing bound and fails there — as if the double were not written at all.
+    * Until this was measured the search collected *every* implementation in a candidate module, so a `{Terminal}` row
+    * silently picked the double up and the "never searched" rule held only by the accident of where doubles usually
+    * live.
+    */
+  private val colocatedDouble =
+    """effect Terminal {
+      |   def write(line: String): Unit
+      |}
+      |
+      |implement recordingTerminal: Terminal {
+      |   def write(line: String): {Writer[String]} Unit = tell(line ++ ";")
+      |}
+      |
+      |def greet: {Terminal} Unit = write("hi")
+      |""".stripMargin
+
+  it should "not answer the default search, even colocated with its own ability" in {
+    compileForErrors(
+      s"""import eliot.effect.Console
+         |$colocatedDouble
+         |def main: {Terminal, Console} Unit = greet
+         |""".stripMargin
+    ).asserting(_ should include("No ability implementation found for ability 'Terminal'"))
+  }
+
+  it should "bind that same colocated double where a `with` names it" in {
+    compileAndRun(
+      s"""import eliot.effect.Console
+         |$colocatedDouble
+         |def main: {Console} Unit = printLine(runWriterToLog(greet with recordingTerminal))
+         |""".stripMargin
+    ).asserting(_ shouldBe "hi;")
+  }
 }

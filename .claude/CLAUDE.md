@@ -127,7 +127,9 @@ subset of its data.
     *Effects Are a Channel* cornerstone.
 12. **ability** — checks and returns a type-specific ability implementation. A reference whose binder was written to a
     named implementation uses it **directly** — no structural match, no `where` filter, no coherence question, which is
-    what lets a test's double freely overlap a default. Only the `Default` marker reaches the two-site search, where
+    what lets a test's double freely overlap a default. Only the `Default` marker reaches the two-site search, whose candidates are the
+    **anonymous** implementations alone (`ModuleAbilities.anonymousImplementationMethodsOf` — a named one is reached
+    only by `with`, and reading the unfiltered list is how a colocated double silently answered an ordinary row), where
     selection is structural (pattern match) and then filtered twice: by the candidate's `where` guard, and by
     **constraint-aware declination** — a candidate whose `~` constraints have no implementation at the matched bindings
     declines. Every step of the check is fail-safe *towards keeping*, so it can only remove a candidate that could not

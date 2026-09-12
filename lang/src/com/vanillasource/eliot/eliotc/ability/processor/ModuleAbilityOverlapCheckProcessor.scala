@@ -38,7 +38,7 @@ class ModuleAbilityOverlapCheckProcessor
   ): CompilerIO[ModuleAbilityOverlapCheck] = {
     // Every marker function for this ability in this module. The marker's local name equals the ability name and its
     // qualifier carries the impl's index, which uniquely identifies the implementation.
-    val markers: Seq[ValueFQN] = impls.markersOf(key.abilityName)
+    val markers: Seq[ValueFQN] = impls.anonymousMarkersOf(key.abilityName)
     for {
       signatures <- markers.traverse(loadMarkerSignature(_, key.platform))
       resolved    = markers.zip(signatures).collect { case (vfqn, Some(sig)) => (vfqn, sig) }

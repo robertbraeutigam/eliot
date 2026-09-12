@@ -128,7 +128,7 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
       abilityLocalName: String,
       platform: Platform
   ): CompilerIO[Seq[ValueFQN]] =
-    getFactOrAbort(ModuleAbilities.Key(moduleName, platform)).map(_.implementationMethodsOf(abilityLocalName))
+    getFactOrAbort(ModuleAbilities.Key(moduleName, platform)).map(_.anonymousImplementationMethodsOf(abilityLocalName))
 
   private def findImplementationsInModule(
       moduleName: ModuleName,
@@ -137,7 +137,7 @@ class AbilityImplementationProcessor extends SingleKeyTypeProcessor[AbilityImple
       platform: Platform
   ): CompilerIO[Seq[ValueFQN]] =
     getFactOrAbort(ModuleAbilities.Key(moduleName, platform))
-      .map(_.namedImplementationMethodsOf(abilityLocalName, functionName))
+      .map(_.anonymousImplementationMethodsOf(abilityLocalName, functionName))
 
   private def verifyImplementation(
       vfqn: ValueFQN,

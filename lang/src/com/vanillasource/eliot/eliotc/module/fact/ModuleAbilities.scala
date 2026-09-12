@@ -48,6 +48,26 @@ case class ModuleAbilities(
   def markersOf(abilityName: String): Seq[ValueFQN] =
     namedImplementationMethodsOf(abilityName, abilityName)
 
+  /** Every method of every **anonymous** implementation of `abilityName` — the two-site search's candidate set
+    * (`docs/effects.md` §2): an anonymous `implement` is its pattern's default, a named one is reached only by `with`,
+    * so a named implementation is never searched and never checked for overlap. Reaching for the unfiltered
+    * [[implementationMethodsOf]] in a search or a coherence check is the defect this pair exists to keep out.
+    */
+  def anonymousImplementationMethodsOf(abilityName: String): Seq[ValueFQN] =
+    implementations.filter(impl => impl.abilityName == abilityName && impl.implementationName.isEmpty).map(_.vfqn)
+
+  /** [[anonymousImplementationMethodsOf]] narrowed to the methods called `methodName`. */
+  def anonymousImplementationMethodsOf(abilityName: String, methodName: String): Seq[ValueFQN] =
+    implementations
+      .filter(impl =>
+        impl.abilityName == abilityName && impl.methodName == methodName && impl.implementationName.isEmpty
+      )
+      .map(_.vfqn)
+
+  /** The marker methods of the **anonymous** implementations of `abilityName` — what an overlap check compares. */
+  def anonymousMarkersOf(abilityName: String): Seq[ValueFQN] =
+    anonymousImplementationMethodsOf(abilityName, abilityName)
+
   /** The marker method of the implementation of `abilityName` with the given `pattern` key and implementation name (the
     * implementation's full identity, [[Qualifier.AbilityImplementation]]), if present.
     */

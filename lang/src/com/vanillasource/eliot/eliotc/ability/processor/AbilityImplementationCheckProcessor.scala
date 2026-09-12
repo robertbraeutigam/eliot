@@ -69,7 +69,7 @@ class AbilityImplementationCheckProcessor
   ): CompilerIO[Seq[ResolvedMethod]] =
     getFactOrAbort(ModuleAbilities.Key(moduleName, platform)).flatMap { impls =>
       impls
-        .implementationMethodsOf(abilityFQN.abilityName)
+        .anonymousImplementationMethodsOf(abilityFQN.abilityName)
         .traverse(vfqn => toResolvedMethod(vfqn, platform))
         .flatMap(_.traverseFilter { method =>
           method.name.value.qualifier match {
