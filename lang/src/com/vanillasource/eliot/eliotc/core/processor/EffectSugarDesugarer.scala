@@ -81,28 +81,15 @@ object EffectSugarDesugarer {
   def storedFieldEntries(field: Sourced[Expression]): Seq[UnresolvedAbilityConstraint[Sourced[Expression]]] =
     topLevelRowEntries(field)
 
-  /** Rewrite one function definition — see the object comment.
-    *
-    * @param contributedReturnEntries
-    *   Row entries a **row alias** naming this definition's return type hands over ([[RowAliases.returnEntries]]),
-    *   already substituted. They are minted and recorded exactly as entries written out in the return position are —
-    *   the alias itself is an ordinary type alias and its application stays in the signature, so nothing here knows
-    *   one was named.
-    */
-  def desugar(
-      function: FunctionDefinition,
-      contributedReturnEntries: Seq[UnresolvedAbilityConstraint[Sourced[Expression]]] = Seq.empty
-  ): FunctionDefinition =
-    if (
-      signatureAndBodyRows(function).isEmpty && unprocessedConstraints(function).isEmpty &&
-      contributedReturnEntries.isEmpty
-    ) function
+  /** Rewrite one function definition — see the object comment. */
+  def desugar(function: FunctionDefinition): FunctionDefinition =
+    if (signatureAndBodyRows(function).isEmpty && unprocessedConstraints(function).isEmpty) function
     else {
       val anchor                       = function.name
       val names                        = NameSource(function.genericParameters.map(_.name.value).toSet)
       // One binder per distinct entry of the declared (return) row, in declared order, each carrying its own
       // constraint with itself appended — `{Console, Log} Unit` mints `Impl ~ Console[Impl]` and `Impl0 ~ Log[Impl0]`.
-      val rowBinders                   = returnRowEntries(function, contributedReturnEntries).map { entry =>
+      val rowBinders                   = returnRowEntries(function).map { entry =>
         val binder = anchor.as(names.fresh(binderPrefix))
         GenericParameter(
           binder,
@@ -134,7 +121,7 @@ object EffectSugarDesugarer {
         (minted ++ gpMinted, done :+ gp.copy(typeRestriction = bare(gp.typeRestriction), abilityConstraints = constraints))
       }
       val (before, after)              = adapted.splitAt(mintAt(function))
-      val declared                     = declaredEffectRow(function, contributedReturnEntries)
+      val declared                     = declaredEffectRow(function)
 
       function.copy(
         genericParameters = before ++ rowBinders ++ constraintBinders ++ after,
@@ -194,11 +181,10 @@ object EffectSugarDesugarer {
     * a computation whose calls the caller's bindings cover (§9.4's resolution order reads exactly this).
     */
   private def declaredEffectRow(
-      function: FunctionDefinition,
-      contributedReturnEntries: Seq[UnresolvedAbilityConstraint[Sourced[Expression]]]
+      function: FunctionDefinition
   ): EffectRow[UnresolvedAbilityConstraint[Sourced[Expression]]] =
     EffectRow(
-      returnRowEntries(function, contributedReturnEntries),
+      (returnRowEntries(function) ++ namedRowEntries(function)).distinctBy(constraintKey),
       // A meta companion's parameters are not thunked ([[parameterType]]), so they must not be recorded as row
       // positions either: the row record is what tells the `row` phase to wrap an actual and to run a reference, and
       // doing that against a bare parameter is exactly the mismatch it would cause.
@@ -210,15 +196,42 @@ object EffectSugarDesugarer {
         }
     )
 
-  /** The distinct entries of a definition's **return row**: the ones written out in the return position, and the ones
-    * a [[RowAliases]] use there contributes. A return type is one or the other, never both, and neither reaches any
-    * *type*: a row is declaration metadata, so the return type lowers to its payload either way.
+  /** The distinct entries a definition writes out in its **return position** — the ones it mints a binding binder for.
+    * A row is declaration metadata, so the return type itself lowers to its payload.
     */
   private def returnRowEntries(
-      function: FunctionDefinition,
-      contributedReturnEntries: Seq[UnresolvedAbilityConstraint[Sourced[Expression]]]
+      function: FunctionDefinition
   ): Seq[UnresolvedAbilityConstraint[Sourced[Expression]]] =
-    (topLevelRowEntries(function.typeDefinition) ++ contributedReturnEntries).distinctBy(constraintKey)
+    topLevelRowEntries(function.typeDefinition).distinctBy(constraintKey)
+
+  /** The entries a **row alias** names (`type Git[A] = {Process, FileSystem} A`) — the row in the body of a definition
+    * that returns a `Type`.
+    *
+    * They are **declared and not minted**, which is the whole of what makes the alias an ordinary name. An alias does
+    * not *perform* the row: it names one, for a definition elsewhere to receive by naming the alias in its own return
+    * type. So the entries are recorded on this definition exactly as a written-out row records its own — where
+    * [[com.vanillasource.eliot.eliotc.resolve.processor.ValueResolver]] reads them back at a use, through the ordinary
+    * dictionary — and no binder is minted here.
+    *
+    * Minting one *was* the plan, and it is measured not to work (`docs/effects.md` §9.3 step 5): an alias's parameters
+    * are its **value** args, so a mark minted among them lands on an arrow domain, which
+    * [[com.vanillasource.eliot.eliotc.row.BindingWriter]] does not erase — it erases a *binder's* declared type — and
+    * the checker then meets an ability of kind `Type -> Type` inside `Implementation[…]`.
+    */
+  private def namedRowEntries(
+      function: FunctionDefinition
+  ): Seq[UnresolvedAbilityConstraint[Sourced[Expression]]] =
+    if (isTypeLevel(function)) function.body.toSeq.flatMap(topLevelRowEntries) else Seq.empty
+
+  /** Whether this definition's declared return type is the bare `Type` — it computes a type, so its body is a type
+    * expression and a row there names a row rather than performing one.
+    */
+  private def isTypeLevel(function: FunctionDefinition): Boolean =
+    function.typeDefinition.value match {
+      case FunctionApplication(None, name, genericArguments, Seq()) if genericArguments.forall(_.isEmpty) =>
+        name.value === "Type"
+      case _                                                                                              => false
+    }
 
   /** A slot's `with` chain wraps its row (`program: {Console} Unit with recordingConsole`), so both readers look
     * *through* it — exactly as [[thunked]] does. Reading the row off the outside instead would leave the slot

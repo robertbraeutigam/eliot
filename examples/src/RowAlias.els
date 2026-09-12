@@ -1,0 +1,28 @@
+import eliot.effect.Console
+import eliot.effect.Log
+import Talking
+
+/**
+ * Naming a row instead of writing it out, across a module boundary.
+ *
+ * `greet` declares no row of its own: it names [[Talking]]'s, and receives exactly what
+ * `def greet(name: String): {Console} Unit` would — the same binding binder, the same declared row, the same
+ * "performs but does not declare" check. Its *return type* stays `Talking[Unit]`, the name that was written, for the
+ * evaluator to reduce.
+ *
+ * `announce` shows that a named row and a written-out one compose: `{Log} Talking[Unit]` declares both, because the
+ * alias contributes to the return *position*, which is what a written-out row lowers to.
+ *
+ * ```sh
+ * ./mill examples.run jvm exe-jar examples/src/ -m RowAlias
+ * java -jar target/RowAlias.jar
+ * ```
+ */
+def greet(name: String): Talking[Unit] = printLine("Hello, " ++ name ++ "!")
+
+def announce(name: String): {Log} Talking[Unit] = {
+   log("announcing " ++ name)
+   greet(name)
+}
+
+def main: {Console, Log} Unit = announce("world")

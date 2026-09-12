@@ -5,8 +5,12 @@ package com.vanillasource.eliot.eliotc.jvm
   * The alias is an ordinary type alias and the use an ordinary application — only the row's *entries* cross the use
   * site, never its payload — so what has to hold at runtime is that a definition naming one behaves exactly as the
   * written-out row does: it receives the row from its caller, its operations run on the implementation the boundary
-  * binds, an entry's arguments follow the alias's own arguments, and an effect the alias does not carry is still the
-  * "performs but does not declare" error.
+  * binds, an entry's arguments follow the alias's own arguments, a row written out beside a named one adds to it, and
+  * an effect the alias does not carry is still the "performs but does not declare" error.
+  *
+  * The alias being an ordinary **name** — so that it crosses files and is shadowed like any other — is asserted where
+  * name resolution lives, in `resolve.processor.RowAliasesTest`; `examples/src/RowAlias.els` is the cross-module
+  * witness the example sweep runs.
   */
 class RowAliasIntegrationTest extends FullIntegrationTest {
 
@@ -42,6 +46,21 @@ class RowAliasIntegrationTest extends FullIntegrationTest {
       |def bad: Fallible[String, String] = raise("nope")
       |def main: {Console} Unit = printLine(bad catch (e -> combine("caught ", e)))""".stripMargin)
       .asserting(_ shouldBe "caught nope")
+  }
+
+  "a row written out beside a named one" should "declare and run both" in {
+    compileAndRun("""
+      |import eliot.effect.Console
+      |import eliot.effect.Log
+      |
+      |type Speaking[A] = {Console} A
+      |
+      |def greet: {Log} Speaking[Unit] = {
+      |   log("greeting")
+      |   printLine("hello")
+      |}
+      |def main: {Console, Log} Unit = greet""".stripMargin)
+      .asserting(_ shouldBe "[LOG] greeting\nhello")
   }
 
   "an effect the named row does not carry" should "still be reported at the reference" in {

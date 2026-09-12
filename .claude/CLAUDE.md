@@ -95,8 +95,8 @@ subset of its data.
 2. **token** — tokenizer
 3. **ast** — building the AST
 4. **core** — building the core language AST (desugars `data`, effect rows, meta transfers; a **row alias**
-   `type Git[A] = {Process} A` is an ordinary alias here, and `core/processor/RowAliases` hands a definition naming
-   one as its return type the alias's row *entries* — never its payload). Two checks ride the
+   `type Git[A] = {Process} A` is an ordinary alias here, and `EffectSugarDesugarer` records the row it names on
+   the alias's own declaration, minting nothing — a use of it is read at `resolve`, by ordinary name resolution). Two checks ride the
    desugared named values here: `StrictPositivityChecker` and `VisibilityOrderChecker` (a file's public API must be a
    *prefix* — no public declaration may follow a private one, C++'s `private:` section as an ordering rule). The
    visibility check runs post-desugar precisely so `def`/`type`/`data`/`ability`/`implement` need no per-construct
@@ -104,7 +104,9 @@ subset of its data.
    private in *every* name it mints.
 5. **module** — from modules to individual values; unifies same-named modules from different paths
 6. **resolve** — resolve identifiers to fully qualified names or parameters; also where a `~` constraint is closed
-   under what the named ability itself requires (`{Web}` ⤳ `Web, Console, Log`)
+   under what the named ability itself requires (`{Web}` ⤳ `Web, Console, Log`), and where a **row alias** named as a
+   definition's return type hands it that alias's declared row: the same reading, of the declaration a resolved name
+   resolved to, so an alias crosses files and is shadowed like any other name (`docs/effects.md` §2.4)
 7. **matchdesugar** — pattern matches into function applications; exhaustiveness, nested/constructor/wildcard patterns
 8. **operator** — infix operators by precedence and associativity, into structured applications
 9. **termination** — the recursion gate (see the *Total by Default* cornerstone)

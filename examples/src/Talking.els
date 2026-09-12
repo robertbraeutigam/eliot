@@ -1,0 +1,13 @@
+import eliot.effect.Console
+
+/**
+ * A **row alias**: a name for a row together with its payload. `Talking[A]` is an ordinary type alias — it lowers to
+ * `type Talking[A] = A`, since a row is declaration metadata and never a type — and what a definition naming it as its
+ * return type receives is the row's *entries*.
+ *
+ * It is an ordinary **name**, so it crosses files exactly like every other declaration: [[RowAlias]] imports this
+ * module and names `Talking` in a return type, and the row is resolved here, in the scope that declares it, before its
+ * arguments are substituted at the use. Nothing in this file is reachable on its own — see [[RowAlias]] for the run
+ * recipe.
+ */
+type Talking[A] = {Console} A
