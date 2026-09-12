@@ -523,7 +523,9 @@ named implementation is never searched and may freely overlap a default. **A dou
 module cannot declare a native and the platform's are private to its layer — an implementation reaches the world
 only through effects **its own clauses declare**, which are charged and bound at the binding site. **Interpretation
 is per effect, not per program**: `body with mockConsole with mockFileSystem` leaves everything else at its
-default. `eliot-test`'s `mocked` binds five doubles on its slot's type, so a unit test writes no fixture at all.
+default. `eliot-test` is the worked framework: a suite declares only its return type — the row alias
+`type Test = {Writer[List[TestResult]]} Unit`, widened where its cases perform — and an author's own discharge word
+binds the doubles on its body slot's type, so a faked case writes no fixture at all.
 
 **A set of effects has no name**, deliberately (§2.4): v5's `ability Web[F[_] ~ Console & Log]` required abilities
 *of the carrier*, and there is no carrier binder to hang the requirement on. What survives is the ordinary
