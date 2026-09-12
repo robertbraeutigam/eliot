@@ -115,7 +115,7 @@ their *evidence* is historical, though the claim above each still holds (§2).
 | …and declaring the effect does not rescue it | **v5**: `Expected: IO[Recorded[Unit]] / Actual: IO[Unit]`. Under v6 the gathering definition simply performs the effect, which is the wrong thing for a registry to do |
 | A `{}`-rowed slot leaves gathered tests to the caller's declarations | `NamedValuesIntegrationTest`, and the hand-written expansion `step("A", checkA, step("B", checkB, done))` |
 | A supplying slot discharges per test, with rows differing per test | `examples/src/TestSuite.els` — `{Throw[String]}` and `{Console, Throw[String]}` tests in one suite, runner declaring only `{Console}` |
-| A slot fixes gathered code to a test double | **v5** as a concrete carrier; under v6 the same thing is a `with` on the slot's type, which `eliot-test`'s `mocked` does for five doubles at once |
+| A slot fixes gathered code to a test double | **v5** as a concrete carrier; under v6 the same thing is a `with` on the slot's type, which `eliot-test`'s `onConsole` does for its doubles at once |
 | Heterogeneous element *types* through one algebra | `render[V ~ Show](name, v, acc)` over an `Int` and a `String`, `NamedValuesIntegrationTest` |
 | The sugar is unchanged | `PluginRegistry.els` still prints `60`; the collected order is asserted in `NamedValuesIntegrationTest` |
 | Every fail-safe is a located error | non-literal name, lambda algebra, under-applied call, bare reference — `NamedValuesRewriteProcessorTest` and `NamedValuesIntegrationTest` |

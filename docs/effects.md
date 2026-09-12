@@ -642,9 +642,11 @@ Four properties fall out of the design rather than being added for testing.
 - **Interpretation is per effect, not per program.** `body with mockConsole with mockFileSystem` binds two
   doubles and leaves everything else at its default; under v5 one type argument decided every effect at once.
 
-`eliot-test` is the worked framework: `mocked` binds five doubles on its slot's type, so a unit test writes no
-fixture at all and reads `"…" should "…" in mocked { … }`. `examples/src/EffectsNamedEffect.els` is the
-minimal version of the same thing, and `EffectsFakeConsole.els` does it for a stdlib effect.
+`eliot-test` is the worked framework: a suite's whole declaration is its return type — the row alias
+`type Test = {Writer[List[TestResult]]} Unit`, widened to `{Console} Test` where its cases perform for real — and an
+author's own discharge word binds the doubles on its body slot's type, so a faked case writes no fixture at all and
+reads `"…" should "…" in onConsole { … }`. `examples/src/EffectsNamedEffect.els` is the minimal version of the same
+thing, and `EffectsFakeConsole.els` does it for a stdlib effect.
 
 **What this deletes from v5's testing story**, all of it symptom rather than design: the fake carrier and its
 `Effect` instance; the rule that a fake gets no lifting because it has no `Suspend` (the n² cross-lift wall);
@@ -1137,7 +1139,7 @@ changed (§8 item 3). **D4** (`Suspend`-riding effects: pinning and supplying)
 dissolved at the flag day — a stored computation is a thunk bound where it is written. **D5** (a lambda body at
 a rowless arrow slot) closed 2026-09-08 as rule 4's third bullet. **D7** (the post-mono accounting verifier)
 closed 2026-09-10, retired by measurement — §3.3 and §12. **D13** (every `eliot-test` case built with its
-handlers already applied) closed 2026-09-08, yes — `Mock` is `with` on `mocked`'s slot type.
+handlers already applied) closed 2026-09-08, yes — `Mock` is `with` on a discharge word's slot type.
 
 ---
 
