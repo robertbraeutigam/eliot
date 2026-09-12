@@ -19,7 +19,6 @@ case class ResolvedValue(
     paramConstraints: Map[String, Seq[AbilityConstraint[Expression]]] = Map.empty,
     fixity: Fixity = Fixity.Application,
     precedence: Seq[PrecedenceDeclaration] = Seq.empty,
-    inferableArity: Int = 0,
     roleHint: RoleHint = RoleHint.NoHint,
     platform: Platform = Platform.Runtime,
     // The effects-as-channel declared effect row (effects-as-channel Phase 1, dark) — forwarded from [[NamedValue]]

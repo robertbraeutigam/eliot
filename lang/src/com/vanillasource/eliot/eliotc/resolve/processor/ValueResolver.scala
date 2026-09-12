@@ -79,7 +79,6 @@ class ValueResolver
       resolvedConstraints,
       namedValue.fixity,
       resolvedPrecedence,
-      namedValue.inferableArity,
       namedValue.roleHint,
       key.platform,
       resolvedEffectRow

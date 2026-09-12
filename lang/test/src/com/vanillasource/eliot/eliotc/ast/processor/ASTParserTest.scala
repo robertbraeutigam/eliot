@@ -686,10 +686,6 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
     )
   }
 
-  it should "leave type-constructor parameters non-inferable (there is no user surface for inferable binders)" in {
-    runEngineForFunctionArgInferable("type IO[A]").asserting(_ shouldBe Seq(("IO", Seq(false))))
-  }
-
   // --- effectful-signatures: the inline guard surface in the return-type position ---
   //
   // A guarded return type is written inline as `if(cond, T) else raise(msg)` (the `when`/`orError` combinator surface was
@@ -869,18 +865,6 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
       results.values
         .collect { case SourceAST(_, Sourced(_, _, AST(_, functions, _, _, _))) =>
           functions.map(f => (f.name.value.name, f.args.size))
-        }
-        .toSeq
-        .flatten
-    }
-
-  private def runEngineForFunctionArgInferable(source: String): IO[Seq[(String, Seq[Boolean])]] =
-    for {
-      results <- runEngine(source)
-    } yield {
-      results.values
-        .collect { case SourceAST(_, Sourced(_, _, AST(_, functions, _, _, _))) =>
-          functions.map(f => (f.name.value.name, f.args.map(_.inferable)))
         }
         .toSeq
         .flatten

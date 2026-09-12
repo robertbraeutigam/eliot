@@ -13,14 +13,11 @@ import com.vanillasource.eliot.eliotc.token.Token
 
 /** A generic-parameter binder, e.g. `MIN: BigInteger` in `type Int[MIN: BigInteger, MAX: BigInteger]`.
   *
-  * @param inferable
-  *   True when the binder is *omittable* at use sites: the compiler supplies it rather than the caller spelling it.
-  *   There is no user surface for this — it is set only internally, by
-  *   [[com.vanillasource.eliot.eliotc.core.processor.EffectSugarDesugarer]], to mark the **phantom binders** effects v6
-  *   mints for a row entry and a `~` constraint (`docs/effects.md` §9.4 step 2), which the `row` phase writes at every
-  *   reference so a caller never spells one. It is also what tells a minted binder from a user's, which is how the
-  *   desugar stays idempotent. The former `auto` keyword (for a user-written implicit-generics feature) was retired
-  *   together with the saturation machinery it fed.
+  * A binder the compiler mints for a binding says so in its **declared type** and nowhere else — see
+  * [[GenericParameter.implementationMark]] and [[GenericParameter.isBinding]]. There was a second, redundant record
+  * of the same fact (an `inferable` flag, collapsed to a count every later fact forwarded unread); it is gone
+  * (`docs/effects.md` §9.3 step 4).
+  *
   * @param abilityLevel
   *   True for every binder an `ability` or `effect` block contributes to each of its members ([[AbilityMembers]]): the
   *   implementation binding slot it mints, and its own generic parameters. The run of them is the member reference's
@@ -34,7 +31,6 @@ case class GenericParameter(
     name: Sourced[String],
     typeRestriction: Sourced[Expression],
     abilityConstraints: Seq[UnresolvedAbilityConstraint[Sourced[Expression]]],
-    inferable: Boolean = false,
     abilityLevel: Boolean = false
 )
 
@@ -63,6 +59,20 @@ object GenericParameter {
         Seq.empty
       )
     )
+
+  /** Whether this binder is one the compiler minted for a **binding** — i.e. whether it carries the
+    * [[implementationMark]] as its declared type.
+    *
+    * It is the desugar's idempotence test ("is this constraint's first type argument a binder I already minted?"), and
+    * it is the same question [[com.vanillasource.eliot.eliotc.row.BindingWriter]] asks of the operator-resolved
+    * signature — one fact, read from the one place it is written down.
+    */
+  def isBinding(parameter: GenericParameter): Boolean = parameter.typeRestriction.value match {
+    case Expression.FunctionApplication(Some(moduleName), name, Some(Seq(_)), Seq()) =>
+      moduleName.value === WellKnownTypes.implementationTypeFQN.moduleName.show &&
+        name.value === WellKnownTypes.implementationTypeFQN.name.name
+    case _                                                                           => false
+  }
 
   val signatureEquality: Eq[GenericParameter] = (x: GenericParameter, y: GenericParameter) =>
     x.name.value === y.name.value && x.typeRestriction.value.render === y.typeRestriction.value.render

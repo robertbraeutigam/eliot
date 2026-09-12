@@ -16,9 +16,9 @@ import com.vanillasource.eliot.eliotc.saturate.fact.SaturatedValue
   * parameter-position bare reference to an omittable (`auto`-marked) type constructor — e.g. a bare `Int` where
   * `Int[MIN, MAX]` was meant — into an explicit application over fresh generic binders. That machinery was removed when
   * its only intended target, a bounds-parameterized `Int`, became a single nullary type carrying its range as
-  * refinement-channel meta-information: no user surface mints an omittable binder any more, and the sole remaining
-  * `inferable` binder — the effect carrier — is a *leading* binder the row elaborator has already written explicitly by
-  * the time this phase runs, never a bare under-applied constructor reference. With nothing left to saturate the phase
+  * refinement-channel meta-information: no user surface mints an omittable binder any more, and the only binder the
+  * compiler still mints — a **binding** — is written explicitly at every reference by the `row` phase before this
+  * one runs, never left as a bare under-applied constructor reference. With nothing left to saturate the phase
   * is a pass-through; it is kept as its own fact only because feeding a rewrite back into the upstream
   * [[com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue]] would be a fact cycle.
   */

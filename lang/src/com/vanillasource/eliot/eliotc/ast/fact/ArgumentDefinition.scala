@@ -8,15 +8,8 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.token.Token
 import Parser.acceptIf
 
-/** A value-argument binder, e.g. `x: Int` in `def f(x: Int)`.
-  *
-  * @param inferable
-  *   Carries the `auto` marker for binders that originate as generic parameters but are represented as value arguments
-  *   of a (type-)constructor function — e.g. the `[auto MIN, auto MAX]` of `type Int[..]` become this function's args.
-  *   Plain value arguments are never `auto` (the marker is only written on generic-parameter binders). See
-  *   [[GenericParameter.inferable]].
-  */
-case class ArgumentDefinition(name: Sourced[String], typeExpression: Sourced[Expression], inferable: Boolean = false)
+/** A value-argument binder, e.g. `x: Int` in `def f(x: Int)`. */
+case class ArgumentDefinition(name: Sourced[String], typeExpression: Sourced[Expression])
 
 object ArgumentDefinition {
   val signatureEquality: Eq[ArgumentDefinition] = (x: ArgumentDefinition, y: ArgumentDefinition) =>

@@ -35,7 +35,7 @@ object TypeAliasDefinition {
       // e.g. `type Pred = A => Bool`.
       body                <- (symbol("=") *> sourced(Expression.typeRunParser)).optional()
     } yield {
-      val args      = genericParameters.map(gp => ArgumentDefinition(gp.name, gp.typeRestriction, gp.inferable))
+      val args      = genericParameters.map(gp => ArgumentDefinition(gp.name, gp.typeRestriction))
       val typeExpr  = name.as(Expression.FunctionApplication(None, name.map(_ => "Type"), None, Seq.empty))
       // Operators are never upper-case and are always referenced bare (no `[]`), so their references resolve in the
       // Default namespace (see `CoreExpressionConverter`). An operator-named alias must therefore live in the Default

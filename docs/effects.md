@@ -687,9 +687,10 @@ ability block's binding slot — is declared with the type `Implementation[A]`, 
 and every phase that needs to know which binders are bindings reads that declared type and nothing else.
 Abilities and effects are one mechanism here, so one marker serves both.
 
-**Where the tree is (2026-09-11).** Steps 1–2 of §9.3 are built: every binding binder now carries its mark, and
-nothing reads it yet. §9.2 records the two corrections that step measured. Steps 3–4 — the write reading marks,
-and the four dead encodings going — are next, under the same byte-identity gate.
+**Where the tree is (2026-09-11).** Steps 1–4 of §9.3 are built: every binding binder carries its mark, the write
+reads it and nothing else, and the four dead encodings are gone. §9.2 records the three corrections those steps
+measured. Steps 5–7 — the row alias becoming ordinary, its tests, and the documents — are next; step 5 needs D18
+(§9.5) before it goes past return position.
 
 ### 9.1 What the tree does today, and what it costs
 
@@ -741,7 +742,7 @@ readings:
   is what it pattern-matches — recognition by a well-known FQN, exactly as `&` is recognised (§2.5). No case
   class changes.
 
-**Two corrections, measured when steps 1–2 were built (2026-09-11). Do not re-propose the original readings.**
+**Three corrections, measured when steps 1–4 were built (2026-09-11). Do not re-propose the original readings.**
 
 - **The alias does not reduce away for the checker; the mark is erased at `row` instead.** The plan said
   definitional equality normalises `Implementation[Console]` to `Type` and the checker therefore never sees a
@@ -764,6 +765,18 @@ readings:
   any of those is declared. Every layer has it; a hand-built test pool must carry it
   (`ProcessorTest.implementationStubContent`) or the declaration itself fails to resolve.
 
+- **The prefix's diagnostic does not go with the prefix.** §9.3 step 3 said `nonPrefixPhantom` is deleted along with
+  the prefix rule, the merge simply writing a binding wherever it sits. It cannot: a type-argument list has **no
+  hole**. Index 1 of `ability Show[T] { def show(t: T): {Log} String }` is the block's `T`, inferred from the
+  argument and spelled by nothing, so a positional write that wants index 2 must put *something* at 1. The merge
+  therefore still stops at the first slot nothing fills — which is the fail-safe direction for an ordinary binder,
+  and is not for a binding, since a dropped binding grounds to the platform's default with no error at all. So the
+  diagnostic stays, moved and re-aimed: no longer a property of the *declaration* (where it rejected the shape
+  outright), but of the **call**, raised only when that call's own arguments leave a binding out of reach
+  (`BindingWriter.Writer.unreachableBinding`). What step 3 bought is what §9.1 asked for: the shape is writable now —
+  `show[String](x)` reaches the binding and compiles — where before no call to it could be written at all. Deleting
+  the check outright was the one thing not on offer.
+
 The read side already is what a marked binder needs: the slot holds a *name* — a ground `Structure` headed by
 the implementation's marker FQN or by `Default` — and `ImplementationBinding` reads it back for `AbilityResolver`
 to use directly or to search. Nothing there moves.
@@ -782,16 +795,21 @@ to use directly or to search. Nothing there moves.
    `row`, and `ValueResolver.markedAbility` resolves its argument as an ability. Nothing reads the mark yet —
    the write still derives a phantom binder the old way — so the gate is that the mark is **inert**: 45/45
    example jars byte-identical, 1689 tests green.
-3. **The write reads marks.** `BindingWriter.phantoms` becomes "the binders whose declared type is headed by
-   the marker, with the ability read off its argument", in index order. Deleted with it: `mintedPhantoms`'
-   non-occurrence test, `constraintStartingWith`, `prefixOf`, `nonPrefixPhantom` and the `Qualifier.Ability`
-   arm. The positional write becomes one merge: written names fill the marked indices, and a caller's explicit
-   `typeArgs` fill the unmarked ones in order (`suppliedArguments` reads "the unmarked binders" where it reads
-   `drop(phantomCount)` today). Type-argument application stays positional; only the prefix goes.
-4. **Delete the dead encodings.** `GenericParameter.inferable`, `ArgumentDefinition.inferable`, and
-   `inferableArity` on `NamedValue`, `ResolvedValue`, `BlockDesugaredValue`, `MatchDesugaredValue` and
-   `OperatorResolvedValue`, with every forward. The desugar's idempotence test ("is this binder one I minted?")
-   reads the mark instead.
+3. **The write reads marks — DONE (2026-09-11).** `BindingWriter.phantoms` is "the binders whose declared type is
+   headed by the marker, with the ability read off its argument", in index order. Deleted with it: `mintedPhantoms`'
+   non-occurrence test, `constraintStartingWith`, `prefixOf`, `nonPrefixPhantom`, the `Qualifier.Ability` arm and
+   `referencedParameters` — the non-occurrence test's only helper. The positional write is one merge
+   (`mergeTypeArguments`): written names fill the marked indices, and what the call determines — its explicit
+   `typeArgs`, else what a supplied row slot settles — fills the unmarked ones in order (`suppliedArguments` reads
+   "the unmarked binders" where it read `drop(phantomCount)`). Type-argument application stays positional; the
+   prefix goes, and with it the *declaration-level* rejection of a parameterised ability's member — but not the
+   diagnostic, which moves to the call (§9.2's third correction). The gate held: 45/45 example jars
+   byte-identical, every test green.
+4. **Delete the dead encodings — DONE (2026-09-11).** `GenericParameter.inferable`, `ArgumentDefinition.inferable`,
+   and `inferableArity` on `NamedValue`, `ResolvedValue`, `BlockDesugaredValue`, `MatchDesugaredValue` and
+   `OperatorResolvedValue`, with every forward. The desugar's idempotence test ("is this binder one I minted?") is
+   `GenericParameter.isBinding` — the mark read at the AST exactly as the write reads it at the operator-resolved
+   signature. One fact, one place it is written down, two readers.
 5. **The alias is ordinary.** `RowAliasExpander` and the splice in `CoreProcessor` are deleted. A row alias is
    a def with a return row, so the desugar mints its binders exactly as on any def
    (`type Git[I0: Implementation[Process], …, A] = A`). A use `def f(…): Git[X]` mints fresh marked binders on

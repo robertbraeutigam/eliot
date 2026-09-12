@@ -52,7 +52,7 @@ object DataDefinitionDesugarer {
         FunctionDefinition(
           definition.name.map(n => QualifiedName(n, Qualifier.Type)),
           Seq.empty,
-          definition.genericParameters.map(gp => ArgumentDefinition(gp.name, gp.typeRestriction, gp.inferable)),
+          definition.genericParameters.map(gp => ArgumentDefinition(gp.name, gp.typeRestriction)),
           typeExpr(definition.name.as("Type")),
           None
         ),

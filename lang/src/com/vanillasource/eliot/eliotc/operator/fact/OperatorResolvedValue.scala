@@ -19,7 +19,6 @@ case class OperatorResolvedValue(
     runtime: Option[Sourced[OperatorResolvedExpression]],
     signature: Sourced[OperatorResolvedExpression],
     paramConstraints: Map[String, Seq[AbilityConstraint[OperatorResolvedExpression]]] = Map.empty,
-    inferableArity: Int = 0,
     roleHint: RoleHint = RoleHint.NoHint,
     platform: Platform = Platform.Runtime,
     // The effects-as-channel declared effect row (effects-as-channel Phase 1, dark) — forwarded from

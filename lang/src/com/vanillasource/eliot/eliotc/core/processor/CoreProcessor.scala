@@ -71,9 +71,9 @@ class CoreProcessor
     val rowAliases    = RowAliasExpander.rowAliases(allFunctions.map(_._1))
     val coreAstData   = CoreASTData(
       sourceAstData.importStatements,
-      // Effect-set sugar (`{E} A`) is collapsed onto a single inferable carrier before the function is converted, so
-      // everything downstream sees ordinary HKT-constrained generics (see EffectSugarDesugarer). Each definition splits
-      // at birth into its `Runtime` twin and its `Signature` twin (see [[transformFunction]]).
+      // Effect-row sugar (`{E} A`) becomes one marked binding binder per entry before the function is converted, so
+      // everything downstream sees ordinary generics (see EffectSugarDesugarer). Each definition splits at birth into
+      // its `Runtime` twin and its `Signature` twin (see [[transformFunction]]).
       allFunctions.flatMap { case (fd, hint) =>
         transformFunction(EffectSugarDesugarer.desugar(RowAliasExpander.expand(rowAliases, fd)), hint)
       }
@@ -144,12 +144,6 @@ class CoreProcessor
       )
       .filter(_._2.nonEmpty)
       .toMap
-    // Leading `auto`-marked binder count, scanning curried binders front-to-back (generic-parameter prefix first, then
-    // value args) and stopping at the first non-`auto`. For `type Int[auto MIN, auto MAX]` (whose params are value
-    // args) this is 2; for `type IO[A]` it is 0.
-    val inferableArity = (function.genericParameters.map(_.inferable) ++ function.args.map(_.inferable))
-      .takeWhile(identity)
-      .size
     val precedence   = function.precedence.map(convertPrecedenceDeclaration)
     // Effects-as-channel Phase 1 (dark): forward the declared row, converting each entry's ability type-arguments
     // ast→core exactly as `constraints` above does.
@@ -164,7 +158,6 @@ class CoreProcessor
         precedence,
         function.visibility,
         roleHint,
-        inferableArity,
         effectRow
       )
     )

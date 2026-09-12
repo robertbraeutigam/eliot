@@ -442,8 +442,9 @@ enclosing `with`; (2) this definition's own binder for it, a **received** bindin
 actual at a row-typed slot, the entries that slot **supplies**; (4) `Default` — the two-site search — for an
 **ability**, while for an **effect** an uncovered use is the "performs but does not declare" error at that
 reference. **Effect-ness is read from one place only**: the callee's declared row. Nothing keys on a name or a
-shape. Minted binders are a leading prefix because `typeArgs` applies positionally; for an ability member the
-prefix moves, since the binding must stay the last ability-level type argument.
+shape. A minted binder says it is a binding in its **declared type** — `Impl: Implementation[Console]`, the mark
+`row/BindingWriter` reads and erases at the end of that phase — so bindings need not sit in a prefix: `typeArgs`
+still applies positionally, and the write merges the marked indices with what the call determines for the rest.
 
 **What that deletes, and what must not come back.** There is no carrier metavariable, no join solver, no lattice,
 no `Id`-headed judgment, no mode obligation, no post-drain mode resolver, and no elaborator whitelist to police
