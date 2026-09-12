@@ -64,18 +64,18 @@ class CoreProcessor
       sourceAstData.functionDefinitions.map(_ -> RoleHint.NoHint) ++
         desugaredFromData ++ desugaredMetaConstructors ++ desugaredMetaTransfers ++ desugaredWhereCompanions ++
         desugaredNamedImplementations ++ desugaredEffects
-    // A **row alias** (`type Git[A] = {Process, FileSystem} A`) used as a definition's return type is spliced in
-    // here, before anything else runs, so the binder minting below and every phase after it see the definition the
-    // user could have written by hand. File-local, because the module dictionary does not exist until `module`.
-    // See RowAliasExpander for why this is an expansion and not an η-expanded application.
-    val rowAliases    = RowAliasExpander.rowAliases(allFunctions.map(_._1))
+    // A **row alias** (`type Git[A] = {Process, FileSystem} A`) naming a definition's return type hands that
+    // definition its row *entries*, with the use's arguments substituted; the alias itself lowers to the ordinary
+    // `type Git[A] = A` and its application stays in the signature, for the evaluator to reduce. File-local, because
+    // the module dictionary does not exist until `module`. See RowAliases.
+    val rowAliases    = RowAliases.declaredIn(allFunctions.map(_._1))
     val coreAstData   = CoreASTData(
       sourceAstData.importStatements,
       // Effect-row sugar (`{E} A`) becomes one marked binding binder per entry before the function is converted, so
       // everything downstream sees ordinary generics (see EffectSugarDesugarer). Each definition splits at birth into
       // its `Runtime` twin and its `Signature` twin (see [[transformFunction]]).
       allFunctions.flatMap { case (fd, hint) =>
-        transformFunction(EffectSugarDesugarer.desugar(RowAliasExpander.expand(rowAliases, fd)), hint)
+        transformFunction(EffectSugarDesugarer.desugar(fd, RowAliases.returnEntries(rowAliases, fd)), hint)
       }
     )
 
@@ -90,9 +90,9 @@ class CoreProcessor
     val rowErrors        =
       sourceAstData.typeDefinitions.flatMap(EffectSugarDesugarer.rowErrors) ++
         sourceAstData.functionDefinitions.flatMap(EffectSugarDesugarer.rowErrors) ++
-        // A row alias used anywhere but a return type: a parameter row is *supplied* and thunked, which a spliced
-        // type cannot express, so it is reported rather than silently widened away.
-        allFunctions.flatMap { case (fd, _) => RowAliasExpander.errors(rowAliases, fd) }
+        // A row alias named anywhere but a definition's return type: a parameter row is *supplied* and thunked, and
+        // a type alias receives no row at all, so both are reported rather than silently widened away.
+        allFunctions.flatMap { case (fd, _) => RowAliases.errors(rowAliases, fd) }
     // Visibility-order check: a file's public API must be a prefix of its declarations, so no public declaration may
     // follow a private one. Runs on the desugared named values (not the source AST) so `def`/`type`/`data`/`ability`/
     // `implement` all answer to one rule with no per-construct arms. See VisibilityOrderChecker.

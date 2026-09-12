@@ -239,13 +239,22 @@ type Git[A] = {Process, FileSystem, Throw[IoError], Throw[GitError]} A
 def publishedTags(root: Path, id: PackageId): Git[List[TagRef]] = …
 ```
 
-Landed 2026-09-11 (`afd6d34c`) as a **splice**: `core/processor/RowAliasExpander` substitutes the alias's
-arguments into its row and puts the row where the alias stood, *before* the binders are minted, so every later
-phase sees the definition the user could have written by hand. Two limits, both interim and both lifted by
-Part II §9: it works in **return position only**, every other position being an error rather than a silent
-widening (before the splice a row in an alias body was erased with no diagnostic, so `type Printing = {Console}
-Unit` silently meant `Unit`); and it is **file-local**, because it runs at `core`, one phase before the module
-dictionary exists.
+The alias is an **ordinary type alias** and a use of it an **ordinary application**: `Git` lowers to
+`type Git[A] = A` — a row is declaration metadata and never a type (§3.3), so it is erased from the alias's body
+exactly as it is erased from a return type — and `Git[List[TagRef]]` stays in the signature for the evaluator to
+reduce. What crosses the use site is the row's **entries**, with the use's arguments substituted into them and
+nothing else: `core/processor/RowAliases` hands them to the desugar, which mints one marked binding binder per
+entry and records them in the definition's declared row, exactly as if the row had been written out. So the
+definition is the one the user could have written by hand in everything but its return type, which stays the name
+they did write.
+
+It landed 2026-09-11 (`afd6d34c`) as a **splice** — the whole row, payload included, put where the alias stood —
+because the write then recognised a binding binder by its occurring in no type, and binders passed to an applied
+alias stopped reading as bindings. The mark (§9) removed that reason, and with it the payload rewrite. Two limits
+remain, both because the desugar reads the alias's *declaration* at `core`: it works in **return position only**,
+every other position being an error rather than a silent widening (before the splice a row in an alias body was
+erased with no diagnostic, so `type Printing = {Console} Unit` silently meant `Unit`); and it is **file-local**,
+because the module dictionary does not exist until `module`, one phase later. Lifting either is **D18** (§9.5).
 
 What has no spelling is v5's `ability Web[F[_] ~ Console & Log]` — a set of abilities required *of a binder*.
 With no carrier binder there is nothing to hang such a requirement on, and a name for a set of
@@ -308,28 +317,29 @@ def sort[T ~ Ord[T]](xs: List[T])             ⟶   def sort[Impl, T ~ Ord[Impl,
 computation: {Throw[E]} A                     ⟶   computation: Unit => A
 ```
 
-Minted binders are a **leading prefix**, because `ValueReference.typeArgs` applies positionally and the write
-is a prefix write; for an ability member the prefix moves, since its leading binders are the ability's own and
-its binding must stay the last ability-level type argument. The pass is idempotent, because `CoreProcessor`
-applies it uniformly to definitions the ability lowering has already produced.
+**Every minted binder says so in its declared type** — `Impl: Implementation[Console]`
+(`GenericParameter.implementationMark`, §9). The mark is the one place the fact "this binder is a binding" is
+written down, and it names the ability the binding is for, so nothing is re-derived from the shape of a
+signature. It lives between `core` and `row` and nowhere else: the write erases it at the end of that phase
+(`BindingWriter.Writer.unmarked`), so the checker is handed the signature it was handed before the mark
+existed. Minted binders are still *placed* together, but they need not be a **prefix**: `typeArgs` applies
+positionally, and the write merges the marked indices with what the call determines for the rest — which is
+what lets a member of a *parameterised* ability declare effects of its own. The pass is idempotent, because
+`CoreProcessor` applies it uniformly to definitions the ability lowering has already produced, and its
+idempotence test is the same mark (`GenericParameter.isBinding`): one fact, one place it is written down, two
+readers.
 
-**How the write recognises a phantom binder today — and this is what Part II §9 replaces.** Nothing marks one
-past the AST. `GenericParameter.inferable` is set by the desugar and dies at `core`, where `CoreProcessor`
-collapses it to a *count* (`NamedValue.inferableArity`, forwarded by every later fact and read by none);
-`BindingWriter.mintedPhantoms` then re-derives the set from the signature alone — a binder is a binding iff it
-occurs in no parameter and no return type *and* is the first type argument of one of the definition's own
-constraints — and an ability member's own slot is a fourth rule, keyed on `Qualifier.Ability`. A count can only
-describe a prefix, which is why the write is a prefix write and a binding behind an undetermined binder is
-reported instead of written (`nonPrefixPhantom`: a member of a *parameterised* ability declaring effects of its
-own). It is also why the row alias (§2.4) is spliced textually before minting: applied to binders, the alias
-would *mention* them, and the write would stop seeing them as bindings.
+A **row alias** (§2.4) adds no mechanism of its own. It lowers to an ordinary type alias, and a definition
+naming one as its return type is handed the alias's row *entries* — arguments substituted, payload untouched —
+by `core/processor/RowAliases`, to be minted here exactly as entries written out in the return position are.
 
 **`row/BindingWriter`**, run by `RowElaborationProcessor` between the recursion gate and saturation, then
 rewrites one definition so that every reference carries the implementation each of the callee's phantom
 binders stands for. Three jobs, one walk:
 
-1. **write the bindings** — each phantom binder is given a value by the resolution order below, as a leading
-   positional prefix. A binder is never left to a metavariable.
+1. **write the bindings** — each binding binder, read off the callee's marks, is given a value by the
+   resolution order below, merged by index with whatever else the call determines. A binder is never left to a
+   metavariable.
 2. **thunk and apply** — an actual delivered to a row-typed slot is wrapped in a lambda, and a reference to
    one of *this* definition's row-typed parameters is applied to `unit`. Doing both unconditionally is what
    makes a pass-through (`runAbort(computation)`, `val restFailures = rest`) come out right with no inspection
@@ -633,7 +643,8 @@ Each is stated, fail-safe, and either has a plan entry or is a deliberate trade.
    back is keying `Throw`'s compile-time frame on a fixed marker the way `Abort` keys on `Aborted`, at the cost
    of two instantiations sharing one frame.
 5. **A row alias works in return position only, and only within its file** (§2.4). A slot or a field
-   doubling many effects still writes the full chain. Interim: Part II §9 lifts both limits.
+   doubling many effects still writes the full chain. Both limits follow from the desugar reading the alias's
+   declaration at `core`; lifting either is **D18** (§9.5).
 6. **A stored computation's binding is fixed where it is constructed.** Deciding the handler before storing is
    unambiguous and easier to understand; losing first-classness is the accepted price. A `with` applied to a
    stored computation later is an error, never a rebinding — rejected at the read, in both of `with`'s positions.
@@ -647,11 +658,12 @@ Each is stated, fail-safe, and either has a plan entry or is a deliberate trade.
 
 # Part II — What is left
 
-**Status (2026-09-11).** v6 landed on 2026-09-09 and its record — the reasoning, the flag-day log, the
+**Status (2026-09-12).** v6 landed on 2026-09-09 and its record — the reasoning, the flag-day log, the
 follow-ups — is no longer here: Part I states what it built, and git history holds how (Part III §13 says how
 to read a citation to it). This part holds only what is *not* done: where the tree still diverges from Part I
-(§8), the one change decided and not yet built (§9), the method any such change is run under (§10), and the
-decisions still open (§11). Every entry marked **decision** is Robert's.
+(§8), the change §9 decided — **built in full on 2026-09-12**, and kept here for the corrections it measured and
+the one thing it did not move — the method any such change is run under (§10), and the decisions still open
+(§11). Every entry marked **decision** is Robert's.
 
 ## 8. Where the tree diverges from Part I
 
@@ -677,38 +689,40 @@ fix. The silent ones come first, because a silent acceptance is the one failure 
    case is loud (the argument is written by hand), so this is last.
 5. **An undischarged control effect reaching `main` fails at runtime**, not at the boundary (§7 item 7).
    **D19** (§11).
-6. **A row alias works in return position only, and only within its file** (§2.4). Interim by design;
-   §9 lifts both limits.
+6. **A row alias works in return position only, and only within its file** (§2.4). Interim by design. §9 step 5
+   made the alias itself ordinary, but neither limit moved: both follow from the desugar reading the alias's
+   declaration at `core`, and lifting them is **D18** (§9.5).
 
-## 9. The next change: a binding binder is marked by its type
+## 9. Built: a binding binder is marked by its type
 
 **Decision (2026-09-11).** A binder the desugar mints — for a row entry, for a `~` constraint, or for an
 ability block's binding slot — is declared with the type `Implementation[A]`, `A` being the ability it binds,
 and every phase that needs to know which binders are bindings reads that declared type and nothing else.
 Abilities and effects are one mechanism here, so one marker serves both.
 
-**Where the tree is (2026-09-11).** Steps 1–4 of §9.3 are built: every binding binder carries its mark, the write
-reads it and nothing else, and the four dead encodings are gone. §9.2 records the three corrections those steps
-measured. Steps 5–7 — the row alias becoming ordinary, its tests, and the documents — are next; step 5 needs D18
-(§9.5) before it goes past return position.
+**Where the tree is (2026-09-12). §9.3 is built, all seven steps.** Every binding binder carries its mark, the
+write reads it and nothing else, the four dead encodings are gone, and the row alias is an ordinary type alias
+whose use hands over entries rather than a spliced row. §9.2 records the three corrections steps 1–4 measured and
+step 5 a fourth. Nothing of §9 is left; what the alias still cannot do — a parameter, a field, another file — is
+**D18** (§9.5), which this step did not move and was not asked to.
 
-### 9.1 What the tree does today, and what it costs
+### 9.1 What the tree did before this, and what it cost
 
-Part I §3.1 states it: nothing marks a phantom binder past the AST, and the same fact is encoded four times —
+Nothing marked a phantom binder past the AST, and the same fact was encoded four times —
 `GenericParameter.inferable` on the AST binder, the count `inferableArity` that `CoreProcessor` collapses it to
 and every later fact forwards unread, `BindingWriter.mintedPhantoms`' re-derivation (unmentioned in every
 parameter and return type *and* the first argument of one of the definition's own constraints), and the
-`Qualifier.Ability` special case for a member's own slot. Each costs something concrete:
+`Qualifier.Ability` special case for a member's own slot. Each cost something concrete:
 
-- **The prefix rule.** A count describes only a prefix, so the write is a prefix write, and a binding behind a
-  binder no declaration determines is an error (`nonPrefixPhantom`): a member of a *parameterised* ability
-  declaring effects of its own (`ability Show[T] { def show(t: T): {Log} String }`) cannot be written at all.
-- **The splice.** A row alias applied to binders *mentions* them, so the write would stop seeing them as
-  bindings; `RowAliasExpander` therefore β-reduces the alias textually before minting, which is what confines
-  it to return position (a parameter would have to be thunked, a rewrite of the slot rather than of the type
-  naming it) and to one file (`core` has no dictionary).
-- **Fragility.** A user's unmentioned `[P]` is told from a binding only by the constraint rule, and four
-  encodings must be kept in step by hand.
+- **The prefix rule.** A count describes only a prefix, so the write was a prefix write, and a binding behind a
+  binder no declaration determined was an error (`nonPrefixPhantom`): a member of a *parameterised* ability
+  declaring effects of its own (`ability Show[T] { def show(t: T): {Log} String }`) could not be written at all.
+- **The splice.** A row alias applied to binders *mentions* them, so the write stopped seeing them as bindings;
+  `RowAliasExpander` therefore β-reduced the alias textually before minting — the payload rewrite step 5 deleted.
+  Only that: what confines the alias to **return position** is the slot rewrite a parameter needs, and to **one
+  file** that `core` has no dictionary. Neither was the splice's doing and both are still there (D18).
+- **Fragility.** A user's unmentioned `[P]` was told from a binding only by the constraint rule, and four
+  encodings had to be kept in step by hand.
 
 ### 9.2 The form chosen, and the two not chosen
 
@@ -810,21 +824,48 @@ to use directly or to search. Nothing there moves.
    `OperatorResolvedValue`, with every forward. The desugar's idempotence test ("is this binder one I minted?") is
    `GenericParameter.isBinding` — the mark read at the AST exactly as the write reads it at the operator-resolved
    signature. One fact, one place it is written down, two readers.
-5. **The alias is ordinary.** `RowAliasExpander` and the splice in `CoreProcessor` are deleted. A row alias is
-   a def with a return row, so the desugar mints its binders exactly as on any def
-   (`type Git[I0: Implementation[Process], …, A] = A`). A use `def f(…): Git[X]` mints fresh marked binders on
-   `f`, one per marked binder of `Git` with the same ability, and rewrites its return type to `Git[J0, …, X]`.
-   The `J`s are **dead arguments** — `Git`'s body is `A` — so the application reduces to `X` before any type
-   is compared, and rows still flow into no type (§3.3). The write sees `f`'s marks whether or not the return
-   type mentions them. Return position first, file-local as today; the other positions are D18 (§9.5).
-6. **Tests.** The phantom-discovery cases in `BindingWriter`'s suite move to the mark; the `nonPrefixPhantom`
-   case inverts into a positive one (a parameterised ability's member with its own row is written); the row
-   alias cases (six defs of `eliot-build`'s Cache.els shape) compile byte-identical applied instead of spliced.
-7. **Documents.** Part I §3.1 is rewritten to the new mechanism and its "how the write recognises a phantom
-   binder today" paragraph deleted; §2.4's two limits and §7 item 5 go; the CLAUDE.md cornerstone's "minted
-   binders are a leading prefix because `typeArgs` applies positionally; for an ability member the prefix
-   moves" is replaced by the mark; the `eliot-monomorphize` and `eliot-layers` skills are re-read for the
-   prefix.
+5. **The alias is ordinary — DONE (2026-09-12).** `RowAliasExpander` and the splice in `CoreProcessor` are gone.
+   `core/processor/RowAliases` reads the file's row aliases and hands a definition naming one as its **return type**
+   the alias's *entries*, the use's arguments substituted into them and the payload untouched;
+   `EffectSugarDesugarer.desugar` mints and records them exactly as it does entries written out in the return
+   position, through the same one code path. The alias itself lowers to the ordinary `type Git[A] = A` — its body's
+   row erased like any other — and the use stays `Git[List[TagRef]]` in the signature, for the evaluator to reduce.
+   Rows still flow into no type (§3.3). Return position, file-local as before; the other positions are D18 (§9.5).
+
+   **A fourth correction, measured building this. Do not re-propose the plan's reading.** The plan had the alias mint
+   its own binders (`type Git[I0: Implementation[Process], …, A] = A`) and the use rewrite its return type to
+   `Git[J0, …, X]`, the `J`s dead arguments reducing away. Two measurements sank it, and both say the same thing — an
+   alias is a *name for a row*, not a definition that performs one, so it has nothing to receive and nothing to be
+   given:
+   - **an alias's parameters are its value args, not binders.** `TypeAliasDefinition` lowers `type Git[A]` to a
+     `Type`-returning function of one *argument*, so a mark minted there lands on an arrow domain, where nothing
+     erases it: `BindingWriter.Writer.unmarked` erases a *binder's* declared type, and a value parameter's is not
+     one — so the checker would meet `Implementation[Process]` with an ability of kind `Type -> Type` inside it,
+     which is §9.2's first correction over again. Minting them as *generic* binders instead erases cleanly, but then
+     the write writes the dead arguments at every use, for a reduction that was going to happen anyway.
+   - **the alias cannot state its own row either.** Recording the entries on the alias's `effectRow` — the ordinary
+     place a row lives — does not resolve: `resolveEffectRow` resolves an entry's arguments against the signature's
+     *generic* params, and `type Fallible[E, A] = {Throw[E]} A` mentions `E`, which is a value arg. So the entries
+     stay where they can be read, among the file's own declarations at `core` — which is where the splice read them
+     too, and exactly why neither limit moves here (D18).
+
+   What the step bought is the payload: a use site's return type now keeps the name the user wrote, the alias is a
+   value the evaluator reduces rather than text the desugar substitutes, and **only entries cross a use site**.
+6. **Tests — DONE (2026-09-12).** `RowAliasExpanderTest` became `RowAliasesTest`, and its identity claim moved
+   with the mechanism: a definition naming an alias mints and declares exactly what the written-out row does — the
+   abilities its binding binders mark, and its declared row, compared against the written-out source — while its
+   *signature* keeps the application (`Impl -> Function(String)(Talk(Unit))`). The alias itself lowers with no
+   binding binder and its body to its payload; the position and arity rejections stay, and a **type alias naming a
+   row alias** joins them, which was a silent loss before. `jvm`'s `RowAliasIntegrationTest` is the end-to-end
+   witness — a def naming an alias runs on the implementation the boundary binds, a parameterless alias carries
+   payload and row, an alias argument reaches the entry mentioning it (`Fallible[String, String]` discharged by
+   `catch`), and an effect the named row does not carry is still reported at the reference.
+7. **Documents — DONE (2026-09-12).** Part I §3.1 is rewritten to the mark and its "how the write recognises a
+   phantom binder today" paragraph deleted; §2.4 describes the ordinary alias and keeps its two limits, now
+   attributed to where they come from; §7 item 5 and §8 item 6 say the same. The CLAUDE.md cornerstone already
+   carried the mark from steps 1–4; its `row`-phase line loses "as a leading positional prefix". One thing the plan
+   expected to delete stays, and that is the correction above: **the alias's two limits are not lifted by this
+   step** — only by D18.
 
 ### 9.4 What does not change
 
@@ -837,12 +878,11 @@ resolution order still says what each is written to.
 
 ### 9.5 The alias in every position — the phase question (D18)
 
-With marked binders the alias is ordinary at a return. At a **parameter or field** the desugar must first know
-the slot is a row slot — to thunk it and record it as supplying — and under the mark that reads as "the slot's
-type is headed by a type-level function with marked binders", which needs the alias's *declaration*. Two ways
-to reach it:
+The alias is ordinary at a **return**: a use hands over entries and the desugar mints them (§9.3 step 5). At a
+**parameter or field** it must first know the slot is a row slot — to thunk it and record it as supplying — which
+needs the alias's *declaration* at the point the slot is rewritten. Two ways to reach it:
 
-- **File-local, at `core`**, reading the alias among the file's own definitions exactly as the splice does
+- **File-local, at `core`**, reading the alias among the file's own definitions exactly as `RowAliases` reads it
   today. Cheap; keeps the limit that an alias must be declared in the file that uses it, which is the same
   discipline the layer model imposes on every other name a file needs (§2.4).
 - **Move the minting and thunking after `resolve`**, where the dictionary exists. The honest one, and not a
@@ -850,8 +890,9 @@ to reach it:
   is load-bearing (A7: the `data` is split first so the constructor reaches the desugar with an ordinary
   parameter row). Which of its rewrites can move and which cannot has to be mapped before choosing.
 
-**Decision needed before §9.3 step 5 goes beyond return position.** Recommended order: steps 1–4 under the
-byte-identity gate; step 5 for return position, file-local; then D18.
+**Decision needed before a row alias leaves return position.** Steps 1–7 are done and neither limit moved: the
+desugar still reads the alias's declaration among the file's own, which is what makes it file-local, and still
+rewrites no slot, which is what keeps it out of a parameter. D18 is now the only thing left of §9.
 
 ### 9.6 Reversals this records
 
@@ -864,15 +905,17 @@ Standing rule 1: a reversal is written down as one, never amended in place.
   reason. Positional application stays; the prefix does not.
 - §12's entry closing "a handler as a marker type" says the phantom binder *"occurs in no type"*. Refined, not
   reopened: it occurs in no parameter or return type of any value; it may carry a declared type that reduces
-  to `Type`, and it may stand as a dead argument of a row alias that reduces away. Neither is the in-type
-  binder that entry closed — nothing unifies it.
+  to `Type`, which the `row` phase erases before the checker sees it. That is not the in-type binder that entry
+  closed — nothing unifies it. (The plan's *other* refinement, a binder standing as a dead argument of a row
+  alias, never happened: step 5's correction is that an alias has no binders to be given.)
 
 ### 9.7 The gate
 
-§10's byte-identity gate over the 45 example jars, every test green, and the six-def `Cache.els` shape
-byte-identical applied instead of spliced. No example writes a parameterised ability member with its own row,
-so the inverted `nonPrefixPhantom` case is the only witness for that gain — a shape with no example has no gate
-(§10).
+§10's byte-identity gate over the 45 example jars, and every test green. It held at every step, step 5 included —
+which that step's gate had to *expect*, since **no example and no stdlib file declares a row alias at all**: the
+sweep can only say the change touched nothing else, and the witness for the feature itself is the pair of suites
+in step 6. A shape with no example has no gate (§10), and this one has two of them: a parameterised ability member
+with its own row, and the alias.
 
 ## 10. How a change is run
 
