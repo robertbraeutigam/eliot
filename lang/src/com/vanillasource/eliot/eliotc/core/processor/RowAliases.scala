@@ -6,75 +6,101 @@ import com.vanillasource.eliot.eliotc.ast.fact.Expression.*
 import com.vanillasource.eliot.eliotc.ast.fact.{FunctionDefinition, UnresolvedAbilityConstraint}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
-/** Expands a **row alias** — a type alias whose body is an open effect row — where it is used as a definition's
-  * **return type**, by splicing the row in at the use site before [[EffectSugarDesugarer]] runs.
+/** The **row aliases** a file declares — a type alias whose body is an open effect row — and what a use of one
+  * contributes to the definition naming it (`docs/effects.md` §2.4, §9.3 step 5).
   *
   * {{{
   * type Git[A] = {Process, FileSystem, Throw[IoError], Throw[GitError]} A
   *
   * def publishedTags(root: Path, id: PackageId): Git[List[TagRef]] = ...
-  * -- becomes, before any other core transformation:
-  * def publishedTags(root: Path, id: PackageId): {Process, FileSystem, Throw[IoError], Throw[GitError]} List[TagRef]
   * }}}
   *
-  * It is a **syntactic** expansion and deliberately nothing more: the result is the definition the user could have
-  * written out by hand, so every phase downstream — the binder minting, the `row` phase's scope check, the checker,
-  * codegen — sees exactly what it sees today and needs no knowledge that an alias existed.
+  * **The alias is an ordinary type alias, and a use of it an ordinary application.** `Git` lowers to
+  * `type Git[A] = A` — the row is declaration metadata and never a type (§3.3), so it is erased from the alias's body
+  * exactly as it is erased from a definition's return type — and `Git[List[TagRef]]` stays in the signature, where the
+  * evaluator reduces it to `List[TagRef]` like any other alias application. What a use contributes is therefore not a
+  * *type* at all but the alias's **row entries**, with the use's arguments substituted into them
+  * ([[returnEntries]]): [[EffectSugarDesugarer]] mints one marked binding binder per entry and records them in the
+  * definition's declared row, which is precisely the definition the user could have written out by hand — in
+  * everything but the return type, which stays the name they did write.
   *
-  * **Why not an application.** The natural reading is that `Git` is the type-level lambda `λI0…I3. λA. A` and the use
-  * site η-expands: mint the definition's own binders and apply `Git` to them. That fails one phase later.
-  * [[com.vanillasource.eliot.eliotc.row.BindingWriter]] recognises a phantom binder by its occurring in **no**
-  * parameter and no return type, and it reads that syntactically, before monomorphization — so binders passed to
-  * `Git[J0, J1, J2, J3, List[TagRef]]` are "mentioned", and the write stops seeing them as bindings. β-reducing the
-  * application at the use site is what removes them again, and β-reducing it *here* is this expansion. Application
-  * and expansion denote the same type; only the expanded form is visible to the pre-mono walk.
+  * It was a **splice** until the binding binders carried their [[com.vanillasource.eliot.eliotc.ast.fact.GenericParameter.implementationMark]]
+  * (landed 2026-09-11, `afd6d34c`): the write recognised a phantom binder by its occurring in no type, so binders
+  * passed to an applied alias stopped reading as bindings and the row had to be β-reduced into the return type before
+  * minting. With the mark that reason is gone, and only the entries — never the payload — cross the use site.
+  *
+  * **The alias mints no binders of its own**, and that is measured, not assumed (`docs/effects.md` §9.3 step 5's
+  * correction). The plan had it mint them like any def, the use passing them as dead arguments that reduce away. But
+  * an alias's parameters are its *value* args, so a mark minted there lands on an arrow domain — which
+  * `BindingWriter.Writer.unmarked` does not erase, since it erases a *binder's* declared type — and the checker then
+  * meets an ability of kind `Type -> Type` inside `Implementation[…]`. Recording the row on the alias's own
+  * `effectRow` instead fails for a neighbouring reason: `ValueResolver.resolveEffectRow` resolves an entry's arguments
+  * against the signature's *generic* params, and `type Fallible[E, A] = {Throw[E]} A` mentions a value arg. An alias
+  * *names* a row; it does not perform one, so it has nothing to receive and nothing to be given.
   *
   * **Return position only.** A row means four different things by position — received at a return, *supplied* and
   * thunked at a parameter, the callback's own in an arrow codomain, stored and bound at construction in a `data`
-  * field. An alias carries the row, not the placement discipline, and only the return case is a plain splice: a
-  * parameter would additionally have to thunk the slot to `Unit => A`, which is a rewrite of the slot rather than of
-  * the type it names. Every other position is therefore [[errors]], never a silent widening.
+  * field. An alias carries the row, not the placement discipline, and only the return case needs nothing of the slot:
+  * a parameter would additionally have to thunk it, which is a rewrite of the slot rather than of the type naming it.
+  * Every other position is therefore [[errors]], never a silent widening (§9.5, D18).
   *
   * **File-local**, because this runs at `core` and the module dictionary does not exist until `module` (one phase
   * later). An alias must be declared in the file that uses it, which is the same discipline the layer model already
   * imposes on every other name a file needs.
   */
-object RowAliasExpander {
+object RowAliases {
 
-  /** A type alias whose body is a top-level open effect row: its generic parameter names, and the row itself. */
-  case class RowAlias(parameters: Seq[String], row: EffectfulType, declaredAt: Sourced[String])
+  /** A type alias whose body is a top-level open effect row: its parameter names, the row's entries, and where it was
+    * declared.
+    */
+  case class RowAlias(
+      parameters: Seq[String],
+      entries: Seq[UnresolvedAbilityConstraint[Sourced[Expression]]],
+      declaredAt: Sourced[String]
+  )
 
   /** The row aliases declared among these definitions, by name. */
-  def rowAliases(functions: Seq[FunctionDefinition]): Map[String, RowAlias] =
+  def declaredIn(functions: Seq[FunctionDefinition]): Map[String, RowAlias] =
     functions.flatMap { function =>
       for {
-        body <- function.body if returnsType(function)
+        body <- function.body if isTypeAlias(function)
         row  <- openRow(body)
       } yield function.name.value.name -> RowAlias(
         // A type alias's parameters are its *value* args: `TypeAliasDefinition` lowers `type Git[A]` to a
         // `Type`-returning function of one argument `A`, which is the types-are-values reading of `Git : Type -> Type`.
         function.args.map(_.name.value),
-        row,
+        row.effects,
         function.name.map(_.name)
       )
     }.toMap
 
-  /** Splice a row alias used as this definition's return type. Everything else is returned unchanged. */
-  def expand(aliases: Map[String, RowAlias], function: FunctionDefinition): FunctionDefinition =
-    if (aliases.isEmpty || returnsType(function)) function
+  /** The row entries a definition receives from a row alias naming its **return type**, with the use's arguments
+    * substituted into them — what [[EffectSugarDesugarer]] mints binders for, on top of any row the definition writes
+    * out itself.
+    *
+    * The alias's *payload* is deliberately not substituted anywhere: the return type keeps the alias application the
+    * user wrote, and the evaluator reduces it.
+    */
+  def returnEntries(
+      aliases: Map[String, RowAlias],
+      function: FunctionDefinition
+  ): Seq[UnresolvedAbilityConstraint[Sourced[Expression]]] =
+    if (aliases.isEmpty || isTypeAlias(function)) Seq.empty
     else
       aliasUse(aliases, function.typeDefinition) match {
         case Some((alias, arguments)) if arguments.size === alias.parameters.size =>
-          function.copy(typeDefinition =
-            function.typeDefinition.as(substitute(alias.parameters.zip(arguments).toMap, alias.row))
-          )
-        case _                                                                    => function
+          alias.entries.map(substitute(alias.parameters.zip(arguments).toMap, _))
+        case _                                                                    => Seq.empty
       }
 
-  /** A row alias used where it cannot be spliced: any position but a definition's own return type. */
+  /** A row alias named where its row cannot be received: any position but a definition's own return type. */
   def errors(aliases: Map[String, RowAlias], function: FunctionDefinition): Seq[Sourced[String]] =
     if (aliases.isEmpty) Seq.empty
-    else {
+    else if (isTypeAlias(function)) {
+      // A type alias naming a row alias (`type Held[A] = Option[Talk[A]]`, `type Loud = Talk`) would drop the row on
+      // the floor: only a *definition's* return type receives one, and nothing here is one.
+      function.body.toSeq.flatMap(positionErrors(aliases, _))
+    } else {
       val returnUse    = aliasUse(aliases, function.typeDefinition)
       val arityError   = returnUse.toSeq.collect {
         case (alias, arguments) if arguments.size =!= alias.parameters.size =>
@@ -103,7 +129,7 @@ object RowAliasExpander {
     }
 
   /** Whether this definition's declared return type is the bare `Type` — i.e. it is a type alias rather than a def. */
-  private def returnsType(function: FunctionDefinition): Boolean =
+  private def isTypeAlias(function: FunctionDefinition): Boolean =
     function.typeDefinition.value match {
       case FunctionApplication(None, name, genericArguments, Seq()) if genericArguments.forall(_.isEmpty) =>
         name.value === "Type"
@@ -139,13 +165,6 @@ object RowAliasExpander {
       case _                                                         => Seq.empty
     }
 
-  private def substitute(bindings: Map[String, Sourced[Expression]], row: EffectfulType): EffectfulType =
-    EffectfulType(
-      row.effects.map(substitute(bindings, _)),
-      substitute(bindings, row.resultType),
-      row.tail.map(substitute(bindings, _))
-    )
-
   private def substitute(
       bindings: Map[String, Sourced[Expression]],
       constraint: UnresolvedAbilityConstraint[Sourced[Expression]]
@@ -168,8 +187,6 @@ object RowAliasExpander {
             arguments.map(substitute(bindings, _))
           )
         )
-      case row: EffectfulType                                                            =>
-        expression.as(substitute(bindings, row))
       case WithBinding(subject, implementation)                                          =>
         expression.as(WithBinding(substitute(bindings, subject), implementation))
       case FlatExpression(parts)                                                         =>

@@ -81,15 +81,28 @@ object EffectSugarDesugarer {
   def storedFieldEntries(field: Sourced[Expression]): Seq[UnresolvedAbilityConstraint[Sourced[Expression]]] =
     topLevelRowEntries(field)
 
-  /** Rewrite one function definition — see the object comment. */
-  def desugar(function: FunctionDefinition): FunctionDefinition =
-    if (signatureAndBodyRows(function).isEmpty && unprocessedConstraints(function).isEmpty) function
+  /** Rewrite one function definition — see the object comment.
+    *
+    * @param contributedReturnEntries
+    *   Row entries a **row alias** naming this definition's return type hands over ([[RowAliases.returnEntries]]),
+    *   already substituted. They are minted and recorded exactly as entries written out in the return position are —
+    *   the alias itself is an ordinary type alias and its application stays in the signature, so nothing here knows
+    *   one was named.
+    */
+  def desugar(
+      function: FunctionDefinition,
+      contributedReturnEntries: Seq[UnresolvedAbilityConstraint[Sourced[Expression]]] = Seq.empty
+  ): FunctionDefinition =
+    if (
+      signatureAndBodyRows(function).isEmpty && unprocessedConstraints(function).isEmpty &&
+      contributedReturnEntries.isEmpty
+    ) function
     else {
       val anchor                       = function.name
       val names                        = NameSource(function.genericParameters.map(_.name.value).toSet)
       // One binder per distinct entry of the declared (return) row, in declared order, each carrying its own
       // constraint with itself appended — `{Console, Log} Unit` mints `Impl ~ Console[Impl]` and `Impl0 ~ Log[Impl0]`.
-      val rowBinders                   = openRowEntries(function.typeDefinition).map { entry =>
+      val rowBinders                   = returnRowEntries(function, contributedReturnEntries).map { entry =>
         val binder = anchor.as(names.fresh(binderPrefix))
         GenericParameter(
           binder,
@@ -121,7 +134,7 @@ object EffectSugarDesugarer {
         (minted ++ gpMinted, done :+ gp.copy(typeRestriction = bare(gp.typeRestriction), abilityConstraints = constraints))
       }
       val (before, after)              = adapted.splitAt(mintAt(function))
-      val declared                     = declaredEffectRow(function)
+      val declared                     = declaredEffectRow(function, contributedReturnEntries)
 
       function.copy(
         genericParameters = before ++ rowBinders ++ constraintBinders ++ after,
@@ -181,10 +194,11 @@ object EffectSugarDesugarer {
     * a computation whose calls the caller's bindings cover (§9.4's resolution order reads exactly this).
     */
   private def declaredEffectRow(
-      function: FunctionDefinition
+      function: FunctionDefinition,
+      contributedReturnEntries: Seq[UnresolvedAbilityConstraint[Sourced[Expression]]]
   ): EffectRow[UnresolvedAbilityConstraint[Sourced[Expression]]] =
     EffectRow(
-      openRowEntries(function.typeDefinition),
+      returnRowEntries(function, contributedReturnEntries),
       // A meta companion's parameters are not thunked ([[parameterType]]), so they must not be recorded as row
       // positions either: the row record is what tells the `row` phase to wrap an actual and to run a reference, and
       // doing that against a bare parameter is exactly the mismatch it would cause.
@@ -196,9 +210,15 @@ object EffectSugarDesugarer {
         }
     )
 
-  /** The distinct entries of a signature position that *is* an open row at top level. */
-  private def openRowEntries(expr: Sourced[Expression]): Seq[UnresolvedAbilityConstraint[Sourced[Expression]]] =
-    topLevelRowEntries(expr).distinctBy(constraintKey)
+  /** The distinct entries of a definition's **return row**: the ones written out in the return position, and the ones
+    * a [[RowAliases]] use there contributes. A return type is one or the other, never both, and neither reaches any
+    * *type*: a row is declaration metadata, so the return type lowers to its payload either way.
+    */
+  private def returnRowEntries(
+      function: FunctionDefinition,
+      contributedReturnEntries: Seq[UnresolvedAbilityConstraint[Sourced[Expression]]]
+  ): Seq[UnresolvedAbilityConstraint[Sourced[Expression]]] =
+    (topLevelRowEntries(function.typeDefinition) ++ contributedReturnEntries).distinctBy(constraintKey)
 
   /** A slot's `with` chain wraps its row (`program: {Console} Unit with recordingConsole`), so both readers look
     * *through* it — exactly as [[thunked]] does. Reading the row off the outside instead would leave the slot

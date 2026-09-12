@@ -94,7 +94,9 @@ subset of its data.
 1. **source** — reading source files (multi-mount, platform-scoped; see the Layers cornerstone)
 2. **token** — tokenizer
 3. **ast** — building the AST
-4. **core** — building the core language AST (desugars `data`, effect rows, meta transfers). Two checks ride the
+4. **core** — building the core language AST (desugars `data`, effect rows, meta transfers; a **row alias**
+   `type Git[A] = {Process} A` is an ordinary alias here, and `core/processor/RowAliases` hands a definition naming
+   one as its return type the alias's row *entries* — never its payload). Two checks ride the
    desugared named values here: `StrictPositivityChecker` and `VisibilityOrderChecker` (a file's public API must be a
    *prefix* — no public declaration may follow a private one, C++'s `private:` section as an ordering rule). The
    visibility check runs post-desugar precisely so `def`/`type`/`data`/`ability`/`implement` need no per-construct
@@ -114,7 +116,8 @@ subset of its data.
 11. **row** — the effect phase. `row/processor/RowElaborationProcessor` produces `RowElaboratedValue` between the
     recursion gate and saturation, running `row/BindingWriter` over **both halves** of a definition (body *and*
     signature — a guarded return holds references too). One walk, three jobs, **from declarations only**: write each
-    phantom binder's implementation as a leading positional prefix; **thunk and apply** (an actual at a row-typed slot
+    binding binder's implementation at the indices the callee's declaration **marks** (`Impl: Implementation[Console]`),
+    merged by index with what the call determines for the rest; **thunk and apply** (an actual at a row-typed slot
     is wrapped in a lambda, a reference to one of this definition's row-typed parameters is applied to `unit` — wrap and
     apply are inverse, so a pass-through is an η-expansion); and erase the `with` nodes. The walk **is** the pre-mono
     scope check: an effect with no covering declaration is the "performs but does not declare" error at that reference.
