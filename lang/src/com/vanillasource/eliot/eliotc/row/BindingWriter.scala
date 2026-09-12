@@ -290,7 +290,7 @@ object BindingWriter {
             case ValueReference(callee, existing) =>
               val written  = writeBindings(expr.as(head), callee.value, existing, scope, args)
               val adjusted = args.zipWithIndex.map { case (arg, index) => walkArgument(arg, callee.value, index, scope) }
-              runStored(expr.as(applyChain(written, adjusted)), callee.value, args.size, scope)
+              runStored(expr.as(applyChain(written, adjusted)), head, args, scope)
             case _                                =>
               expr.as(applyChain(walk(expr.as(head), scope), args.map(walk(_, scope))))
           }
@@ -309,17 +309,42 @@ object BindingWriter {
       */
     private def runStored(
         call: Sourced[OperatorResolvedExpression],
-        callee: ValueFQN,
-        argumentCount: Int,
+        head: OperatorResolvedExpression,
+        args: Seq[Sourced[OperatorResolvedExpression]],
         scope: Scope
     ): Sourced[OperatorResolvedExpression] =
-      universe.lookup(callee) match {
-        case Some(orv)
-            if orv.effectRow.returnThunkEffects.nonEmpty && argumentCount === valueParameterCount(orv) =>
-          orv.effectRow.returnThunkEffects.foreach(entry => chargeStored(entry.abilityFQN, call, scope))
+      storedRow(head, args) match {
+        case Nil     => call
+        case entries =>
+          entries.foreach(entry => chargeStored(entry.abilityFQN, call, scope))
           call.as(FunctionApplication(call, unitValue(call)))
-        case _ => call
       }
+
+    /** The stored row a call **reads** — the field row of the accessor it saturates, and empty for everything else,
+      * an *under*-applied accessor included (it is a function being passed on, not a read).
+      *
+      * The spine is taken through [[calledSpine]], so the dot spelling is the written one: `task.step` is
+      * `.(task, step)`, whose effective callee is `step` with `task` as its argument, and both forms therefore charge
+      * the same entries and are applied the same way. The applied term stays what it was — the `.` call is still what
+      * runs — because the accessor's own bindings were already written when the walk reached it as an argument; only
+      * the missing application to `unit`, and the charge, are added here.
+      */
+    private def storedRow(
+        head: OperatorResolvedExpression,
+        args: Seq[Sourced[OperatorResolvedExpression]]
+    ): Seq[AbilityConstraint[OperatorResolvedExpression]] = {
+      val (calledHead, calledArgs) = calledSpine(head, args)
+      calledHead match {
+        case ValueReference(callee, _) =>
+          universe
+            .lookup(callee.value)
+            .filter(_.effectRow.returnThunkEffects.nonEmpty)
+            .filter(orv => calledArgs.size === valueParameterCount(orv))
+            .toSeq
+            .flatMap(_.effectRow.returnThunkEffects)
+        case _                         => Seq.empty
+      }
+    }
 
     /** Require a covering declaration for an effect this reference performs but writes no binding for.
       *
@@ -651,6 +676,27 @@ object BindingWriter {
         case other                   =>
           throw IllegalStateException(s"An application head is not a value reference: ${other.render}")
       }
+  }
+
+  /** An already-decomposed [[OperatorResolvedExpression.spine]] with the **apply operator read through**: the head and
+    * arguments of the call an expression *spells*, whichever of its two spellings the author used.
+    *
+    * `a.f` is the ordinary call `.(a, f)` to `eliot.lang.Function::.`, whose body is `f(a)` — so the value actually
+    * called is `f`, with `a` as its last argument, and a chain `a.f.g` nests that. Every phase before `row` treats the
+    * dot as the ordinary operator it is, and so does the write: this view is only what the *reading* rules consult, so
+    * that a rule stated on a call ("a saturated accessor call runs the stored computation") is not silently a rule
+    * about one spelling of it (`docs/effects.md` §8 item 2). A module declaring its own `.` takes the name back and
+    * gets no reading-through, exactly as it takes back `&` (`WellKnownTypes.applyOperatorFQN`).
+    */
+  private def calledSpine(
+      head: OperatorResolvedExpression,
+      args: Seq[Sourced[OperatorResolvedExpression]]
+  ): (OperatorResolvedExpression, Seq[Sourced[OperatorResolvedExpression]]) = head match {
+    case ValueReference(name, _) if name.value === WellKnownTypes.applyOperatorFQN && args.size === 2 =>
+      val (innerHead, innerArgs)   = spine(args(1).value)
+      val (calledHead, calledArgs) = calledSpine(innerHead, innerArgs)
+      (calledHead, calledArgs :+ args.head)
+    case _                                                                                           => (head, args)
   }
 
   /** The `Default` sentinel: "search at the ground arguments", today's two-site resolution. */

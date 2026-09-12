@@ -126,4 +126,74 @@ class StoredComputationIntegrationTest extends FullIntegrationTest {
       |def main: {Console} Unit = announce""".stripMargin)
       .asserting(_ shouldBe "inside")
   }
+
+  /** The **dot spelling** of every read above (`docs/effects.md` §8 item 2). `task.step` is the ordinary call
+    * `.(task, step)` to `eliot.lang.Function::.`, whose body is `f(a)`, so the accessor reaches the write as an
+    * *argument* rather than as the head of a saturated call — and the read rule, stated on that head, did not fire:
+    * the thunk came back unrun. That was a type error where a value was expected and, as a block statement, a
+    * **silent no-op** — `job.run` printed nothing.
+    *
+    * `BindingWriter.calledSpine` reads through that one name, so the rule is about the call and not about one
+    * spelling of it: the same entries are charged at the same position, the same `with` is rejected, and the same
+    * application to `unit` is added. A chain nests it, and a field that stores no computation is untouched.
+    */
+  "a dot-read of a stored computation" should "run it, as the call spelling does" in {
+    compileAndRun(consolePrelude + """
+      |def announce: {Console} Unit = held.run
+      |def main: {Console} Unit = announce""".stripMargin)
+      .asserting(_ shouldBe "inside")
+  }
+
+  "a dot-read as a block statement" should "run it rather than be dropped" in {
+    compileAndRun(consolePrelude + """
+      |def announce: {Console} Unit = {
+      |   held.run
+      |   printLine("after")
+      |}
+      |def main: {Console} Unit = announce""".stripMargin)
+      .asserting(_ shouldBe "inside\nafter")
+  }
+
+  "a dot-read without declaring its effect" should "be rejected at the read" in {
+    compileForErrors(consolePrelude + """
+      |def leak: Unit = held.run
+      |def main: {Console} Unit = leak""".stripMargin)
+      .asserting(_ should include("performs the effect 'Console' but does not declare it"))
+  }
+
+  "a `with` over a dot-read" should "be rejected the same way as over the call spelling" in {
+    compileForErrors(consolePrelude + """
+      |def transcript: String = runWriterToLog(held.run with recordingConsole)
+      |def main: {Console} Unit = printLine(transcript)""".stripMargin)
+      .asserting(_ should include("whose effect 'Console' was bound where the value was constructed"))
+  }
+
+  "a dot-read at a rowed slot" should "be discharged there" in {
+    compileAndRun(prelude + """
+      |def outcome(t: Task[String]): String = t.step catch (e -> combine("caught ", e))
+      |def main: {Console} Unit = printLine(outcome(Task(failing, "bad")))""".stripMargin)
+      .asserting(_ shouldBe "caught nope")
+  }
+
+  "a dot-read under runThrow" should "determine E from the field's own declared row" in {
+    compileAndRun(prelude + """
+      |def outcome(t: Task[String]): String = foldEither(e -> e, v -> v, runThrow(t.step))
+      |def main: {Console} Unit = printLine(outcome(Task(failing, "bad")))""".stripMargin)
+      .asserting(_ shouldBe "nope")
+  }
+
+  "a dot-read at the end of a chain" should "run the computation the last accessor hands back" in {
+    compileAndRun(prelude + """
+      |data Batch(only: Task[String])
+      |def outcome(b: Batch): String = b.only.step catch (e -> e)
+      |def main: {Console} Unit = printLine(outcome(Batch(Task(failing, "bad"))))""".stripMargin)
+      .asserting(_ shouldBe "nope")
+  }
+
+  "a dot-read of a field that stores no computation" should "stay the ordinary accessor call it is" in {
+    compileAndRun(prelude + """
+      |def outcome(t: Task[String]): String = t.label
+      |def main: {Console} Unit = printLine(outcome(Task(failing, "bad")))""".stripMargin)
+      .asserting(_ shouldBe "bad")
+  }
 }
