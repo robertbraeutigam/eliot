@@ -17,6 +17,7 @@ import com.vanillasource.eliot.eliotc.core.fact.{
 }
 import com.vanillasource.eliot.eliotc.module.fact.WellKnownTypes.{
   abilityCombinatorFQN,
+  functionDataTypeFQN,
   implementationTypeFQN,
   typeFQN,
   patternMatchAbilityName,
@@ -65,9 +66,30 @@ class ValueResolver
       resolvedSignature   <- withLocalScope(resolveExpression(namedValue.signature.value, false)).map(namedValue.signature.as)
       resolvedName        <- convertQualifiedName(namedValue.qualifiedName)
       resolvedConstraints <- resolveParamConstraints(namedValue.paramConstraints)
-      resolvedEffectRow   <- resolveEffectRow(namedValue.effectRow)
+      // A **row alias**'s own row is written over its *value* args (`type Fallible[E, A] = {Throw[E]} A`), because a
+      // type alias's parameters are its value args — `type Git[A]` lowers to a `Type`-returning function of one
+      // argument. They are in scope for its body and must be in scope for the row it declares over them.
+      resolvedEffectRow   <- withLocalScope(
+                               aliasParameters(namedValue)
+                                 .traverse_(addParameter)
+                                 .whenA(namesRow(namedValue)) >> resolveEffectRow(namedValue.effectRow)
+                             )
       resolvedPrecedence  <- resolvePrecedenceDeclarations(namedValue.precedence)
-      _                   <- debug[ScopedIO](s"Resolved ${key.vfqn.show} type: ${resolvedSignature.value.render}")
+      // A **row alias** named as this definition's return type (`def greet(name: String): Talk[Unit]`) hands it the
+      // row that alias declares. Nothing is special-cased: the name was resolved above like every other name, and
+      // what is read here is the declaration it resolved to — the same reading that lets a `~` constraint stand for
+      // the abilities its ability declares (see [[superConstraints]]).
+      namedRow            <- receivedNamedRow(resolvedSignature).map(entries =>
+                               // An entry the definition already writes out (`def greet: {Console} Talk[Unit]`, where
+                               // `Talk` also names `Console`) is one entry, not two: a definition receives one binding
+                               // per distinct effect however many ways it declared it.
+                               entries.filterNot(entry =>
+                                 constraintKeys(resolvedEffectRow.returnEffects).contains(constraintKey(entry))
+                               )
+                             )
+      _                   <- reportNamedRowMisuses(resolvedSignature, resolvedRuntime, namedValue)
+      received             = receiveBindings(resolvedSignature, resolvedConstraints, resolvedEffectRow, namedRow)
+      _                   <- debug[ScopedIO](s"Resolved ${key.vfqn.show} type: ${received.signature.value.render}")
       _                   <- debug[ScopedIO](
                                s"Resolved ${key.vfqn.show} runtime: ${resolvedRuntime.map(_.value.render).getOrElse("<abstract>")}"
                              )
@@ -75,17 +97,278 @@ class ValueResolver
       unifiedValue.vfqn,
       resolvedName,
       resolvedRuntime,
-      resolvedSignature,
-      resolvedConstraints,
+      received.signature,
+      received.paramConstraints,
       namedValue.fixity,
       resolvedPrecedence,
       namedValue.roleHint,
       key.platform,
-      resolvedEffectRow
+      received.effectRow
     )
 
     resolveProgram.runA(scope)
   }
+
+  /** What naming a **row alias** as a return type leaves on the definition that named it: its signature with one
+    * binding binder per received entry, those binders' constraints, and the row recording them.
+    */
+  private case class ReceivedRow(
+      signature: Sourced[Expression],
+      paramConstraints: Map[String, Seq[AbilityConstraint[Expression]]],
+      effectRow: EffectRow[AbilityConstraint[Expression]]
+  )
+
+  /** The row entries a definition **receives** from a row alias naming its return type (`docs/effects.md` §2.4), the
+    * use's arguments substituted into them.
+    *
+    * The alias is reached the way every name is reached: [[resolveExpression]] has already resolved it to a
+    * [[ValueFQN]] through the ordinary dictionary, so import scope, shadowing, privacy and qualification are decided
+    * there and nothing is matched by spelling here. What this adds is the reading of the declaration that name
+    * resolved to — which is the same rule that propagates a callee's declared row to its caller, and the same rule
+    * [[superConstraints]] applies to a `~` constraint.
+    *
+    * **Return position only**, which is the one position that needs nothing of the slot: a parameter row is *supplied*
+    * rather than received and must additionally be thunked, which is a rewrite of the slot rather than of the type
+    * naming it. Every other position is [[reportNamedRowMisuses]], never a silent widening.
+    */
+  private def receivedNamedRow(signature: Sourced[Expression]): ScopedIO[Seq[AbilityConstraint[Expression]]] =
+    applicationSpine(returnPosition(signature)) match {
+      case (Sourced(_, _, Expression.ValueReference(name, typeArgs)), arguments) =>
+        declaredRowOf(name, typeArgs ++ arguments)
+      case _                                                                    =>
+        Seq.empty[AbilityConstraint[Expression]].pure[ScopedIO]
+    }
+
+  /** The row a named value declares, with this use's arguments substituted for the parameters it declared them over —
+    * empty for every name that is not a row alias, which is nearly all of them.
+    *
+    * The entries are resolved **in the alias's own scope** before being substituted, exactly as [[superConstraints]]
+    * resolves an ability's own constraints in the ability's scope: a row names abilities and types its own file
+    * imports, and the file naming the alias need not import any of them.
+    *
+    * [[getFactIfProduced]] because a return type's head legitimately has no module value at all — `Type` and
+    * `Function` are compiler-known FQNs with no declaration — and a head whose own definition aborted upstream is the
+    * other expected absence. Neither is a missing producer.
+    */
+  private def declaredRowOf(
+      aliasName: Sourced[ValueFQN],
+      arguments: Seq[Sourced[Expression]]
+  ): ScopedIO[Seq[AbilityConstraint[Expression]]] =
+    for {
+      platform <- getPlatform
+      alias    <- rowAliasAt(aliasName, platform)
+      entries  <- alias.fold(Seq.empty[AbilityConstraint[Expression]].pure[ScopedIO]) { umv =>
+                    val parameters = aliasParameters(umv.namedValue)
+                    if (parameters.size =!= arguments.size)
+                      rejectRowAlias(
+                        aliasName.as(
+                          s"Row alias '${umv.namedValue.qualifiedName.value.name}' takes ${parameters.size} " +
+                            s"type argument(s), but ${arguments.size} were given."
+                        )
+                      )
+                    else
+                      for {
+                        resolved <- resolveInValueScope(aliasName.value.moduleName, umv, parameters, platform)(
+                                      umv.namedValue.effectRow.returnEffects.traverse(resolveConstraint)
+                                    )
+                        bindings  = parameters.zip(arguments.map(_.value)).toMap
+                      } yield resolved.map(c => c.copy(typeArgs = c.typeArgs.map(substituteParameters(bindings))))
+                  }
+    } yield entries
+
+  /** The declaration this name resolves to, when it is a **row alias** — a declaration that *names* a row rather than
+    * performing one.
+    *
+    * That is read exactly, not guessed from a namespace: the desugar mints a binding binder for every entry of a row
+    * a definition **performs**, and none for a row a definition **names**, so a declared row with no constraint of
+    * its own naming the same ability is the one and only shape an alias has. A `{Console}`-declaring `def` therefore
+    * never reads as one, whatever position it is named in.
+    */
+  private def rowAliasAt(name: Sourced[ValueFQN], platform: Platform): ScopedIO[Option[UnifiedModuleValue]] =
+    getFactIfProduced(UnifiedModuleValue.Key(name.value, platform)).liftToScoped
+      .map(_.filter(umv => namesRow(umv.namedValue)))
+
+  private def namesRow(namedValue: NamedValue): Boolean = {
+    val performed = namedValue.paramConstraints.values.flatten.map(_.abilityName.value).toSet
+    namedValue.effectRow.returnEffects.nonEmpty &&
+    !namedValue.effectRow.returnEffects.exists(entry => performed.contains(entry.abilityName.value))
+  }
+
+  /** A row alias named where its row cannot be received — any position but a definition's own return type. Reported
+    * rather than silently widened away: the row would simply vanish, and the effects it names would be charged to
+    * whoever called the definition instead.
+    */
+  private def reportNamedRowMisuses(
+      signature: Sourced[Expression],
+      runtime: Option[Sourced[Expression]],
+      namedValue: NamedValue
+  ): ScopedIO[Unit] = {
+    // A *type-level* definition's body is a type expression, and a row alias named in one would drop its row on the
+    // floor: only a definition's return type receives a row, and a type is not one. `type Held[A] = Option[Talk[A]]`
+    // and `type Loud = Talk` are therefore rejected exactly as a parameter position is. A row alias whose body *is* a
+    // row is not this case — that row was recorded as what the alias declares, and erased from the body.
+    val body = if (isTypeDefinition(namedValue)) runtime.toSeq.flatMap(valueReferences) else Seq.empty
+    (misusablePositions(signature) ++ body)
+      .distinctBy(_.value)
+      .traverse_(name => declaresRow(name).ifM(reportMisuse(name), ().pure[ScopedIO]))
+  }
+
+  /** Whether this definition was declared with `type` (or `data`) — it lives in the **type namespace**, so its body is
+    * a type expression and its parameters are its value args.
+    *
+    * Deliberately *not* "its return position is `Type`": a type is an ordinary value here, so an ordinary `def` may
+    * return one (`def raiseGuard: {Throw[String]} Type`) without being a type definition — its body is a term and its
+    * parameters are its binders, exactly as for any other `def`.
+    */
+  private def isTypeDefinition(namedValue: NamedValue): Boolean =
+    namedValue.qualifiedName.value.qualifier match {
+      case CoreQualifier.Type => true
+      case _                  => false
+    }
+
+  /** Whether this name is a row alias at all — asked without resolving or substituting anything, because a misused
+    * one is rejected rather than received.
+    */
+  private def declaresRow(name: Sourced[ValueFQN]): ScopedIO[Boolean] =
+    getPlatform.flatMap(rowAliasAt(name, _)).map(_.isDefined)
+
+  private def reportMisuse(name: Sourced[ValueFQN]): ScopedIO[Unit] =
+    rejectRowAlias(
+      name.as(
+        s"Row alias '${name.value.name.name}' can only name a definition's return type. " +
+          "A row on a parameter is supplied rather than received, so it must be written out."
+      )
+    )
+
+  /** Reject this value over a misused row alias. The value is never produced on *either* platform — a row that cannot
+    * be received is not a runtime-only problem — but the message is printed once, from the runtime platform, since the
+    * compiler track resolves the very same declaration (the same guard [[com.vanillasource.eliot.eliotc.row.processor.RowElaborationProcessor]] makes).
+    */
+  private def rejectRowAlias[T](message: Sourced[String]): ScopedIO[T] =
+    getPlatform.flatMap(platform =>
+      (if (platform == Platform.Runtime) compilerAbort[T](message) else abort[T]).liftToScoped
+    )
+
+  /** Every value reference in a signature except the return position's head — the one place a row alias may stand. */
+  private def misusablePositions(signature: Sourced[Expression]): Seq[Sourced[ValueFQN]] = {
+    val returnType              = returnPosition(signature)
+    val (head, returnArguments) = applicationSpine(returnType)
+    val nestedInReturn          = head match {
+      case Sourced(_, _, Expression.ValueReference(_, typeArgs)) => (typeArgs ++ returnArguments).flatMap(valueReferences)
+      case other                                                 => valueReferences(other)
+    }
+    (valueReferences(signature).diff(valueReferences(returnType)) ++ nestedInReturn).distinctBy(_.value)
+  }
+
+  /** Every value reference anywhere in a type expression, outermost first. */
+  private def valueReferences(expr: Sourced[Expression]): Seq[Sourced[ValueFQN]] = expr.value match {
+    case Expression.ValueReference(name, typeArgs)        => name +: typeArgs.flatMap(valueReferences)
+    case Expression.FunctionApplication(target, argument) => valueReferences(target) ++ valueReferences(argument)
+    case Expression.FunctionLiteral(_, parameterType, body) =>
+      parameterType.toSeq.flatMap(valueReferences) ++ valueReferences(body)
+    case _                                                => Seq.empty
+  }
+
+  /** The final, non-arrow return position of a signature: past its generic binders and its curried `Function` chain. */
+  private def returnPosition(signature: Sourced[Expression]): Sourced[Expression] = signature.value match {
+    case Expression.FunctionLiteral(_, Some(_), body)                                                     =>
+      returnPosition(body)
+    case Expression.FunctionApplication(Sourced(_, _, Expression.FunctionApplication(arrow, _)), codomain)
+        if isArrow(arrow.value) =>
+      returnPosition(codomain)
+    case _                                                                                                => signature
+  }
+
+  private def isArrow(expr: Expression): Boolean = expr match {
+    case Expression.ValueReference(name, _) => name.value === functionDataTypeFQN
+    case _                                  => false
+  }
+
+  /** An application chain read as its head and its arguments in written order. */
+  private def applicationSpine(expr: Sourced[Expression]): (Sourced[Expression], Seq[Sourced[Expression]]) =
+    expr.value match {
+      case Expression.FunctionApplication(target, argument) =>
+        val (head, arguments) = applicationSpine(target)
+        (head, arguments :+ argument)
+      case _                                                => (expr, Seq.empty)
+    }
+
+  /** A row alias's parameters: the leading binders of its body. An alias's parameters are its **value** args — `type
+    * Git[A]` lowers to a `Type`-returning function of one argument — so they are the body's lambdas, and a type
+    * expression has no lambda of its own (an arrow is an application of `Function`), which is what makes the leading
+    * run exactly the parameter list.
+    */
+  private def aliasParameters(alias: NamedValue): Seq[String] =
+    alias.runtime.toSeq.flatMap(body => leadingBinderNames(body.value))
+
+  private def leadingBinderNames(expr: CoreExpression): Seq[String] = expr match {
+    case FunctionLiteral(name, _, body) => name.value +: leadingBinderNames(body.value)
+    case _                              => Seq.empty
+  }
+
+  /** Mint one **binding binder** per received entry, exactly as a written-out return row mints one at `core`
+    * ([[com.vanillasource.eliot.eliotc.core.processor.EffectSugarDesugarer]]): a binder carrying the mark
+    * `Implementation[Console]` as its declared type, the entry's own constraint with that binder as its first type
+    * argument, and the entry recorded in the declared row.
+    *
+    * The binders are appended to the signature's binder run rather than prefixed, because an **ability member's**
+    * ability-level binders must keep their positions — the ability's own binding stays the first ability-level type
+    * argument. Nothing requires a binding to be a prefix: the write merges the marked indices with what the call
+    * determines for the rest.
+    */
+  private def receiveBindings(
+      signature: Sourced[Expression],
+      paramConstraints: Map[String, Seq[AbilityConstraint[Expression]]],
+      effectRow: EffectRow[AbilityConstraint[Expression]],
+      entries: Seq[AbilityConstraint[Expression]]
+  ): ReceivedRow =
+    if (entries.isEmpty) ReceivedRow(signature, paramConstraints, effectRow)
+    else {
+      val taken   = resolvedBinderNames(signature.value).toSet ++ paramConstraints.keySet
+      val binders = entries.foldLeft(Seq.empty[(String, AbilityConstraint[Expression])]) { (acc, entry) =>
+        acc :+ (freshBinderName(taken ++ acc.map(_._1)), entry)
+      }
+      ReceivedRow(
+        signature.map(expr => appendBinders(expr, binders.map { case (name, entry) => (signature.as(name), entry) })),
+        paramConstraints ++ binders.map { case (name, entry) =>
+          name -> Seq(entry.copy(typeArgs = Expression.ParameterReference(signature.as(name)) +: entry.typeArgs))
+        },
+        effectRow.copy(returnEffects = effectRow.returnEffects ++ entries)
+      )
+    }
+
+  /** The generic binder names of an already-resolved signature — its leading annotated [[Expression.FunctionLiteral]]
+    * run, the same reading [[collectGenericParamsFromExpr]] makes of the unresolved one.
+    */
+  private def resolvedBinderNames(expr: Expression): Seq[String] = expr match {
+    case Expression.FunctionLiteral(name, Some(_), body) => name.value +: resolvedBinderNames(body.value)
+    case _                                               => Seq.empty
+  }
+
+  private def freshBinderName(taken: Set[String]): String =
+    LazyList.from(0).map(i => if (i === 0) "Impl" else s"Impl$i").find(!taken.contains(_)).get
+
+  private def appendBinders(
+      expr: Expression,
+      binders: Seq[(Sourced[String], AbilityConstraint[Expression])]
+  ): Expression = expr match {
+    case Expression.FunctionLiteral(name, Some(parameterType), body) =>
+      Expression.FunctionLiteral(name, Some(parameterType), body.map(appendBinders(_, binders)))
+    case _                                                           =>
+      binders.foldRight(expr) { case ((name, entry), body) =>
+        Expression.FunctionLiteral(name, Some(name.as(implementationMark(name, entry.abilityFQN))), name.as(body))
+      }
+  }
+
+  /** A binding binder's **mark**: `Implementation[Console]`, the one place the fact "this binder is a binding" is
+    * written down, read (and erased) by [[com.vanillasource.eliot.eliotc.row.BindingWriter]]. Its argument is the
+    * ability's own marker value, which is what that reader matches on.
+    */
+  private def implementationMark(at: Sourced[?], abilityFQN: AbilityFQN): Expression =
+    Expression.FunctionApplication(
+      at.as(Expression.ValueReference(at.as(implementationTypeFQN))),
+      at.as(Expression.ValueReference(at.as(markerOf(abilityFQN))))
+    )
 
   private def convertQualifiedName(
       name: Sourced[CoreQualifiedName]
@@ -287,8 +570,19 @@ class ValueResolver
       params: Seq[String],
       platform: Platform
   )(computation: ScopedIO[T]): ScopedIO[T] =
+    resolveInValueScope(abilityFQN.moduleName, marker, params, platform)(computation)
+
+  /** Run a resolution in the scope of the *declaring* value rather than this one — its module, its dictionary, its
+    * private names and its own parameters. What a declaration says is written in the names its own file has.
+    */
+  private def resolveInValueScope[T](
+      moduleName: ModuleName,
+      declaring: UnifiedModuleValue,
+      params: Seq[String],
+      platform: Platform
+  )(computation: ScopedIO[T]): ScopedIO[T] =
     computation
-      .runA(ValueResolverScope(abilityFQN.moduleName, marker.dictionary, marker.privateNames, params.toSet, platform))
+      .runA(ValueResolverScope(moduleName, declaring.dictionary, declaring.privateNames, params.toSet, platform))
       .liftToScoped
 
   /** Replace every reference to one of the ability's own parameters by the argument this use wrote for it. */
@@ -298,6 +592,12 @@ class ValueResolver
       case other                                                                =>
         Expression.mapChildrenM[Id](substituteParameters(bindings))(other)
     }
+
+  private def constraintKeys(constraints: Seq[AbilityConstraint[Expression]]): Set[(AbilityFQN, Seq[String])] =
+    constraints.map(constraintKey).toSet
+
+  private def constraintKey(constraint: AbilityConstraint[Expression]): (AbilityFQN, Seq[String]) =
+    (constraint.abilityFQN, constraint.typeArgs.map(_.render))
 
   private def distinctConstraints(
       constraints: Seq[AbilityConstraint[Expression]]

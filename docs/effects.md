@@ -245,18 +245,32 @@ The alias is an **ordinary type alias** and a use of it an **ordinary applicatio
 `type Git[A] = A` — a row is declaration metadata and never a type (§3.3), so it is erased from the alias's body
 exactly as it is erased from a return type — and `Git[List[TagRef]]` stays in the signature for the evaluator to
 reduce. What crosses the use site is the row's **entries**, with the use's arguments substituted into them and
-nothing else: `core/processor/RowAliases` hands them to the desugar, which mints one marked binding binder per
-entry and records them in the definition's declared row, exactly as if the row had been written out. So the
-definition is the one the user could have written by hand in everything but its return type, which stays the name
-they did write.
+nothing else: the definition naming the alias mints one marked binding binder per entry and records them in its
+declared row, exactly as if the row had been written out. So the definition is the one the user could have written
+by hand in everything but its return type, which stays the name they did write.
+
+**The alias is an ordinary name, and that is the whole of how a use finds it.** The alias *declares* its row, on
+its own declaration, exactly as a `def` writing `{Console}` declares one — `core/…/EffectSugarDesugarer` records it
+and mints nothing, since an alias names a row rather than performing one. A use is then the ordinary reading of a
+resolved name: `resolve/…/ValueResolver` has already resolved `Talk` through the dictionary, and it reads the
+declaration that name resolved to for the row it declares, resolving the entries **in the alias's own scope** before
+substituting the use's arguments — the same reading `superConstraints` makes of an ability's own `~` constraints
+(§2.5), and the same rule by which a callee's declared row propagates to its caller. So import scope, shadowing,
+privacy and qualification are the ordinary ones: an alias crosses files, a binder named `Talk` shadows it, and
+nothing is matched by spelling.
+
+A written-out row and a named one **compose**, because the alias contributes to the return *position* — which is
+what a written-out row lowers to: `def announce(n: String): {Log} Talking[Unit]` declares both, and an effect named
+twice is declared once.
 
 It landed 2026-09-11 (`afd6d34c`) as a **splice** — the whole row, payload included, put where the alias stood —
 because the write then recognised a binding binder by its occurring in no type, and binders passed to an applied
-alias stopped reading as bindings. The mark (§9) removed that reason, and with it the payload rewrite. Two limits
-remain, both because the desugar reads the alias's *declaration* at `core`: it works in **return position only**,
-every other position being an error rather than a silent widening (before the splice a row in an alias body was
-erased with no diagnostic, so `type Printing = {Console} Unit` silently meant `Unit`); and it is **file-local**,
-because the module dictionary does not exist until `module`, one phase later. Lifting either is **D18** (§9.5).
+alias stopped reading as bindings. The mark (§9) removed that reason, and with it the payload rewrite; step 8
+(2026-09-12) replaced the file-local syntactic scan with the name reading above (§9.3). **One limit remains**: it
+works in **return position only**, every other position being an error rather than a silent widening (before the
+splice a row in an alias body was erased with no diagnostic, so `type Printing = {Console} Unit` silently meant
+`Unit`). A parameter row is *supplied* rather than received and must additionally be thunked, which is a rewrite of
+the slot rather than of the type naming it; lifting that is **D18** (§9.5).
 
 What has no spelling is v5's `ability Web[F[_] ~ Console & Log]` — a set of abilities required *of a binder*.
 With no carrier binder there is nothing to hang such a requirement on, and a name for a set of
@@ -331,9 +345,10 @@ what lets a member of a *parameterised* ability declare effects of its own. The 
 idempotence test is the same mark (`GenericParameter.isBinding`): one fact, one place it is written down, two
 readers.
 
-A **row alias** (§2.4) adds no mechanism of its own. It lowers to an ordinary type alias, and a definition
-naming one as its return type is handed the alias's row *entries* — arguments substituted, payload untouched —
-by `core/processor/RowAliases`, to be minted here exactly as entries written out in the return position are.
+A **row alias** (§2.4) adds no mechanism of its own. It lowers to an ordinary type alias whose own declared row is
+recorded and not minted, and a definition naming one as its return type is handed the alias's row *entries* —
+resolved in the alias's scope, arguments substituted, payload untouched — by `resolve/…/ValueResolver`, which mints
+them exactly as `EffectSugarDesugarer` mints entries written out in the return position.
 
 **`row/BindingWriter`**, run by `RowElaborationProcessor` between the recursion gate and saturation, then
 rewrites one definition so that every reference carries the implementation each of the callee's phantom
@@ -656,9 +671,11 @@ Each is stated, fail-safe, and either has a plan entry or is a deliberate trade.
    (the flag day's F5, §13), so a `raise("…")` in a signature reduces without its text. Accepted rather than fixed; the route
    back is keying `Throw`'s compile-time frame on a fixed marker the way `Abort` keys on `Aborted`, at the cost
    of two instantiations sharing one frame.
-5. **A row alias works in return position only, and only within its file** (§2.4). A slot or a field
-   doubling many effects still writes the full chain. Both limits follow from the desugar reading the alias's
-   declaration at `core`; lifting either is **D18** (§9.5).
+5. **A row alias works in return position only** (§2.4). A slot or a field doubling many effects still writes
+   the full chain: a parameter row is *supplied* rather than received and must additionally be thunked, which is
+   a rewrite of the slot rather than of the type naming it. Lifting it is **D18** (§9.5). The alias's *other*
+   limit — that it had to be declared in the file using it — is gone: it is reached by ordinary name resolution
+   (§2.4), so it crosses files, honours import scope, and is shadowed by a binder of the same name.
 6. **A stored computation's binding is fixed where it is constructed.** Deciding the handler before storing is
    unambiguous and easier to understand; losing first-classness is the accepted price. A `with` applied to a
    stored computation later is an error, never a rebinding — rejected at the read, in both of `with`'s positions.
@@ -731,9 +748,9 @@ fix. The silent ones come first, because a silent acceptance is the one failure 
 5. **An undischarged control effect reaching `main` fails at runtime**, not at the boundary (§7 item 7).
    **Decided 2026-09-12: it must be a compile error.** The mechanism was measured rather than argued and is
    written up under **D19** (§11); one cost has to be chosen before it lands.
-6. **A row alias works in return position only, and only within its file** (§2.4). Interim by design. §9 step 5
-   made the alias itself ordinary, but neither limit moved: both follow from the desugar reading the alias's
-   declaration at `core`, and lifting them is **D18** (§9.5).
+6. **A row alias works in return position only** (§2.4). Interim by design. §9 step 5 made the alias itself an
+   ordinary *definition*; step 8 (2026-09-12) made it an ordinary *name*, which lifted the file-local limit and
+   the misreadings that came with it (§9.3). What is left is the position, and lifting it is **D18** (§9.5).
 7. ~~**A named implementation answered the two-site search.**~~ **Closed 2026-09-12.** §2 and §6 both say a named
    implementation "is never searched" and "is not checked for overlap", and nothing enforced it: the search and
    both coherence checks read `ModuleAbilities.implementationMethodsOf`, which returns *every* implementation in
@@ -924,6 +941,28 @@ to use directly or to search. Nothing there moves.
    expected to delete stays, and that is the correction above: **the alias's two limits are not lifted by this
    step** — only by D18.
 
+8. **The alias is an ordinary name — DONE (2026-09-12).** `core/processor/RowAliases` is gone, and with it the last
+   thing about a row alias that was not ordinary. The alias now **declares** its row, on its own declaration
+   (`EffectSugarDesugarer` records the body's row in its `effectRow` and mints nothing for it — an alias names a row
+   rather than performing one, so it has nothing to receive). A use is the ordinary reading of a resolved name:
+   `ValueResolver` reads the declaration the return type's head resolved to, resolves its entries **in the alias's
+   own scope** and substitutes the use's arguments, then mints one marked binder per entry and records them — the
+   same shape `superConstraints` has had all along, which is the rule that lets a name stand for a set of effects.
+
+   **What that lifted, and why it was not a limit of the design.** The file-local limit went with the scan, and so
+   did the misreadings that came with matching a name by spelling before resolution: an imported alias silently
+   contributed nothing (the row vanished and the body's effect was reported undeclared at the reference, pointing
+   nowhere near the cause), a *binder* named like an alias was read as a use of it (`def id[Talk](x: Talk): Talk`
+   drew both an arity and a position error), and a qualified spelling of an alias in scope matched nothing. A
+   written-out row and a named one also **compose** now, for free: the alias contributes to the return *position*,
+   which is what a written-out row lowers to, so `{Log} Talking[Unit]` declares both and an effect named twice is
+   declared once.
+
+   Two things are no longer where they were. **Both are demand-driven now**, because `resolve` is: a misused alias
+   in a definition nothing reaches is not reported, exactly as that definition's types are not checked (the use-site
+   cornerstone). And the rejection is **reported from the runtime platform only** and aborts silently on the
+   compiler one, the guard `RowElaborationProcessor` already makes, so one misuse is one message.
+
 ### 9.4 What does not change
 
 The resolution order (§3.1), `with` in both positions, `Default` and the two-site search, `ImplementationBinding`'s
@@ -935,26 +974,30 @@ resolution order still says what each is written to.
 
 ### 9.5 The alias in every position — the phase question (D18)
 
-The alias is ordinary at a **return**: a use hands over entries and the desugar mints them (§9.3 step 5). At a
-**parameter or field** it must first know the slot is a row slot — to thunk it and record it as supplying — which
-needs the alias's *declaration* at the point the slot is rewritten. Two ways to reach it:
+The alias is ordinary at a **return**: the definition naming it reads the row off that name's declaration and mints
+it (§9.3 step 8). At a **parameter or field** it must first know the slot is a row slot — to thunk it and record it
+as supplying — which is a rewrite of the *slot*, and `EffectSugarDesugarer` does that at `core`, where no name is
+resolved yet. So the question is no longer "which phase can see the declaration" — step 8 answered that with
+`resolve` — but **which of the desugar's rewrites can move there with it**:
 
-- **File-local, at `core`**, reading the alias among the file's own definitions exactly as `RowAliases` reads it
-  today. Cheap; keeps the limit that an alias must be declared in the file that uses it, which is the same
-  discipline the layer model imposes on every other name a file needs (§2.4).
-- **Move the minting and thunking after `resolve`**, where the dictionary exists. The honest one, and not a
-  relocation: `EffectSugarDesugarer` sits beside the `~` lowering and the `data` split, and the split's order
-  is load-bearing (A7: the `data` is split first so the constructor reaches the desugar with an ordinary
-  parameter row). Which of its rewrites can move and which cannot has to be mapped before choosing.
+- `EffectSugarDesugarer` sits beside the `~` lowering and the `data` split, and the split's order is load-bearing
+  (A7: the `data` is split first so the constructor reaches the desugar with an ordinary parameter row).
+- Minting a *return* binder moved cleanly (step 8 mints into the resolved signature); thunking a slot is a bigger
+  move, because the thunk changes the parameter's **type**, which the module phase's signature merge compares.
 
-**Decision needed before a row alias leaves return position.** Steps 1–7 are done and neither limit moved: the
-desugar still reads the alias's declaration among the file's own, which is what makes it file-local, and still
-rewrites no slot, which is what keeps it out of a parameter. D18 is now the only thing left of §9.
+**Decision needed before a row alias leaves return position.** Steps 1–8 are done; the file-local limit is gone and
+the position one is not. D18 is now the only thing left of §9.
 
 ### 9.6 Reversals this records
 
 Standing rule 1: a reversal is written down as one, never amended in place.
 
+- §9.3 step 5's measurement (2026-09-11) *"the alias cannot state its own row either"* is reversed by step 8. It
+  was true of the code as it stood and not of the design: `resolveEffectRow` resolved an entry's arguments against
+  the signature's *generic* params, and a type alias's parameters are its **value** args, so `type Fallible[E, A] =
+  {Throw[E]} A` could not name `E`. Step 8 resolves a type definition's own row with its value args in scope, which
+  is what they are — they are in scope for its body, and a row it declares is written over them. The step's *other*
+  measurement stands and is not reopened: an alias still mints **no** binders of its own.
 - F1's rule (2026-09-09) *"phantom-binder discovery needs **no new metadata**"* is reversed. The no-metadata
   rule did not avoid metadata: it produced a count nobody reads, a re-derivation, a prefix constraint and a
   splice.
@@ -1026,10 +1069,11 @@ blocker (the superability closure runs at resolve, before operators are structur
 is ever answered yes. Its half that asked "what does an ability denote as a value?" is answered under names by
 *nothing*: an implementation is not a value, so an ability denotes no type of values.
 
-### D18 — a row alias at a parameter or a field: which phase reads the declaration
+### D18 — a row alias at a parameter or a field: which rewrites move with it
 
-§9.5. Whether the desugar stays at `core` and file-local, or the minting and thunking move after `resolve`.
-Needed before §9.3 step 5 leaves return position.
+§9.5. The declaration is read at `resolve` since §9.3 step 8; what is open is whether the **slot rewrites** — the
+thunk and the supplying record — can move there too, and what that does to the signature the module phase merges.
+Needed before a row alias leaves return position.
 
 ### D19 — an undischarged control effect at `main`: decided, and costed
 
