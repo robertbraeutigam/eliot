@@ -216,7 +216,9 @@ The field lowers to a thunk. Its calls are bound where the constructor is applie
 declaration that covers them there — so `Task(failing, "load")` binds `failing`'s `Throw` at the
 construction site rather than charging it to whoever built the value. Reading the field runs it: the accessor hands back the
 thunk and the read applies it, so the entries the field's row declares are **charged at the read**, and an
-undeclared read is the ordinary "performs but does not declare" error there. Nothing captures a frame, so
+undeclared read is the ordinary "performs but does not declare" error there. A read is the *call*, in either of
+its spellings — `step(task)` and `task.step` are one thing, since `.` is an ordinary function whose body applies
+its second argument to its first. Nothing captures a frame, so
 nothing can dangle — a frame is installed by a discharger's call and left when that call returns or is exited.
 
 The accessor's return is the field *as stored*, deliberately not a return row: a return row would mint a
@@ -670,7 +672,7 @@ Each is stated, fail-safe, and either has a plan entry or is a deliberate trade.
 
 # Part II — What is left
 
-**Status (2026-09-12, second entry of the day).** v6 landed on 2026-09-09 and its record — the reasoning, the
+**Status (2026-09-12, third entry of the day).** v6 landed on 2026-09-09 and its record — the reasoning, the
 flag-day log, the follow-ups — is no longer here: Part I states what it built, and git history holds how
 (Part III §13 says how to read a citation to it). This part holds only what is *not* done: where the tree still
 diverges from Part I (§8), the change §9 decided — **built in full on 2026-09-12**, and kept here for the
@@ -683,8 +685,10 @@ sentence (§8 item 3). **D19** closed to "it must be a compile error", and pursu
 that had nothing to do with `main` and are now fixed — a named implementation was answering the two-site search,
 and a slot's `with` was invisible to the layer merge (§8 items 7 and 8). D19's own fix is **not** landed: both
 routes to it are now measured rather than argued, and picking between their costs is the open half of that entry.
-Of the six divergences §8 opened the day with, **three are closed**; two more were found and closed in the same
-change; two remain open alongside the ones needing D18 and D19.
+Of the six divergences §8 opened the day with, **items 2 and 3 are closed** and item 5 is decided but not
+landed; items 1, 4 and 6 remain open, and two more (items 7 and 8) were found and closed in the same change.
+**Item 2 needed no decision** and closed on its own later that day: a dot-read is the same read as the call
+spelling, so the rule had only to be stated on the call rather than on one of its two spellings.
 
 ## 8. Where the tree diverges from Part I
 
@@ -697,10 +701,23 @@ fix. The silent ones come first, because a silent acceptance is the one failure 
    to a declaring def is a hard error naming the fix. No such check exists anywhere in `row/`. It needs
    something the write does not track — whether a binding was ever *consumed* — and is the same
    silent-acceptance family that A11 closed for a stored read (§2.3).
-2. **A dot-read of a row-typed `data` field hands back the thunk.** Only the call form `step(task)` is a read
-   (§2.3); `task.step` is a type error where a value is expected and a **silent no-op** as a block statement
-   (`job.run` printed nothing). The `.` operator lowers to the same saturated accessor call, so the read rule
-   should fire there too, and does not.
+2. ~~**A dot-read of a row-typed `data` field hands back the thunk.**~~ **Closed 2026-09-12.** Only the call
+   form `step(task)` was a read (§2.3); `task.step` was a type error where a value is expected and a **silent
+   no-op** as a block statement (`job.run` printed nothing). The first write-up's premise was wrong in one word:
+   `.` does not *lower* to the accessor call, it **is** a call — the ordinary
+   `infix left below apply def .[A, B](a: A, f: A => {} B): B = f(a)` in `eliot.lang.Function` — so the accessor
+   reaches the write as an *argument*, and the read rule, stated on the head of a saturated call, never saw it.
+   `BindingWriter.calledSpine` now reads through that one name (`WellKnownTypes.applyOperatorFQN`, recognised
+   exactly as `&` is, so a module declaring its own `.` takes the name back and gets none of it) and hands the
+   read rule the call the author spelled: the same entries charged at the same position, the same `with`
+   rejected, the same application to `unit`. Only the *reading* rules consult that view — what runs is still the
+   `.` call, since the accessor's own bindings were already written when the walk reached it as an argument.
+   Two things this measured. A rule stated on a *call* has two spellings in this language and has to say so;
+   the sibling rules that read a call (`argumentRow`, the supplied-row determination) turned out to need no
+   change, because A6 reads `E` off the field's declared row by a route the spelling never touches —
+   `runThrow(t.step)` determines it as `runThrow(step(t))` does, measured, not assumed. §10's gate held whole
+   (all 45 jars byte-identical), which here can only say the change touched nothing else: no example stores a
+   computation, so the witness for the feature is the eight cases added to `StoredComputationIntegrationTest`.
 3. ~~**`val x = comp` then `x else …` fails**~~ — **closed 2026-09-12, and it was never a tree defect.**
    **D17 is decided: a `val` is a bind**, so rule 1 was right and §3.5's "a `val`-bound computation is
    dischargeable" was the wrong half; it is struck there and recorded as a reversal below. Measured before
