@@ -152,7 +152,7 @@ object WellKnownTypes {
   private val pairModule: ModuleName = ModuleName(defaultSystemPackage, "Pair")
 
   /** The value constructor of the concrete `Pair` — `data Pair[A, B](first: A, second: B)`, the representation both the
-    * jvm layer and the compile-track overlay (`stdlib/eliot-compiler/eliot/lang/Pair.els`) give the base's abstract
+    * jvm layer and the compile-track overlay (`stdlib/eliot/compiler/eliot/lang/Pair.els`) give the base's abstract
     * `Pair`. What the cell intrinsic answers, so the overlay's `foldPair` takes it apart like any `match`; the
     * `Left`/`Right` of [[eitherFQN]] play the same role for the escape intrinsic.
     */

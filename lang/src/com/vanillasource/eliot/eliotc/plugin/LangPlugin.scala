@@ -54,8 +54,8 @@ class LangPlugin extends CompilerPlugin {
       .unbounded()
       .action((path, config) => config.updatedWith(pathKey, _.getOrElse(Seq.empty).appended(path).some))
       .text(
-        "an additional source root (a layer's `eliot/` dir). Each root is scanned for the runtime pool; for the " +
-          "compile-time pool its sibling `eliot-compiler/` overlay is added on top (override-preferred). Repeatable; " +
+        "an additional source root (a package's `src` dir). Each root is scanned for the runtime pool; for the " +
+          "compile-time pool its sibling `compiler/` overlay is added on top (override-preferred). Repeatable; " +
           "this is the option form of the positional `<path>`, usable after a subcommand."
       )
   )
@@ -63,16 +63,16 @@ class LangPlugin extends CompilerPlugin {
   override def initialize(configuration: Configuration): StateT[IO, CompilerProcessor, Unit] = {
     // There is a single list of source roots (`pathKey` — the positional `<path>` program plus every `--path` layer).
     // Both pools are derived from it: every root is a runtime mount, and *for the compiler pool only* each root's
-    // sibling `eliot-compiler/` overlay is added on top. `PathScanner` scans the runtime mounts for a runtime request;
+    // sibling `compiler/` overlay is added on top. `PathScanner` scans the runtime mounts for a runtime request;
     // for a compiler request it scans the runtime mounts *and* the overlay mounts, tagging the overlays so the merge
     // prefers an overlay definition over the platform's (the compiler-as-platform override). So the compiler track sees
-    // the whole runtime track and borrows what no layer overrides, while a layer's own `eliot-compiler/` contribution
+    // the whole runtime track and borrows what no layer overrides, while a layer's own `compiler/` contribution
     // wins; user type-level code is checked in both tracks because the program root is in the same list. Roots become
     // mounts through the (substitutable) factory; plugins may contribute extra runtime mounts — both settled in
     // configure(), which completes before any initialize.
     //
     // A tool that drives the compiler programmatically (the LSP) may additionally set `compilerPathKey` with
-    // compile-time overlay roots listed *explicitly* — for a layout whose overlay is not the `eliot-compiler/` sibling
+    // compile-time overlay roots listed *explicitly* — for a layout whose overlay is not the `compiler/` sibling
     // of a runtime root, so the sibling derivation cannot find it. Those roots are added to the compiler pool on top of
     // the derived siblings (deduplicated). The CLI never sets this key, so `eliotc` stays fully `--path`-parameterised.
     val compilerRootPaths = (allRoots(configuration).map(eliotCompilerOverlay) ++ compilerRoots(configuration)).distinct
@@ -120,21 +120,22 @@ object LangPlugin {
 
   /** **Explicit** compile-time overlay roots, set programmatically by a driver (the LSP) — *not* a CLI option. Each is
     * scanned for the compiler pool only, override-superseding the borrowed runtime definition of the same name, exactly
-    * like a derived `eliot-compiler/` sibling ([[eliotCompilerOverlay]]). This is the escape hatch for a project layout
-    * whose overlay is not that sibling (e.g. a Mill-style tree with sources directly under `src/`), where the derivation
-    * finds nothing. Empty for the CLI, which keeps deriving siblings from its `--path` runtime roots only.
+    * like a derived `compiler/` sibling ([[eliotCompilerOverlay]]). This is the escape hatch for a project layout whose
+    * overlay is not that sibling, where the derivation finds nothing. Empty for the CLI, which keeps deriving siblings
+    * from its `--path` runtime roots only.
     */
   val compilerPathKey: Configuration.Key[Seq[Path]] = namedKey[Seq[Path]]("compilerPaths")
 
   /** All explicit compile-time overlay roots, in order (see [[compilerPathKey]]). */
   def compilerRoots(configuration: Configuration): Seq[Path] = configuration.getOrElse(compilerPathKey, Seq.empty)
 
-  /** A root's **compile-time overlay**: the sibling directory `eliot-compiler/` beside its `eliot/` source root. This
-    * is a layer's opt-in compiler-platform contribution; it is scanned only for the compiler pool, where it
+  /** A root's **compile-time overlay**: the directory `compiler/` beside its `src/` source root — the build system's
+    * standard layout, where a package is `src/` (runtime), `compiler/` (compile-time overlay) and `test/`. This is a
+    * layer's opt-in compiler-platform contribution; it is scanned only for the compiler pool, where it
     * override-supersedes the borrowed runtime definition of the same name. Most roots (every runtime-only layer, the
     * user program) have no such sibling, in which case the derived mount simply resolves nothing.
     */
-  def eliotCompilerOverlay(root: Path): Path = root.resolveSibling("eliot-compiler")
+  def eliotCompilerOverlay(root: Path): Path = root.resolveSibling("compiler")
 
   private def mountFactory(configuration: Configuration): Path => SourceMount =
     configuration.getOrElse(PathScanner.mountFactoryKey, FilesystemMount(_))

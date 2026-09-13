@@ -134,14 +134,14 @@ final class EliotCompilationService(runtime: IORuntime) extends Logging {
     * ordinary dependencies that arrive on the path alongside the user's own code — downloaded packages once a build
     * system exists. Until then the roots are found in one of two ways. If a workspace root holds an `eliot.paths` file
     * ([[WorkspacePaths]]), that file is *authoritative*: it lists every runtime root (the project's own sources — no
-    * assumed `src/` — plus the layer `eliot/` roots) and, separately, every explicit compile-time overlay root, so a
-    * project can sit directly under `src/` with no `eliot-compiler/` sibling to derive. Otherwise
-    * [[SourceRootDiscovery]] recovers the roots by convention from the folder the editor handed over (the `eliot/`
-    * layer roots and `.els`-bearing application roots beneath it) — the case that keeps opening the compiler repo
-    * itself working.
+    * assumed `src/` — plus the layer `eliot/src` roots) and, separately, every explicit compile-time overlay root, so a
+    * project can sit directly under `src/` with no `compiler/` sibling to derive. Otherwise
+    * [[SourceRootDiscovery]] recovers the roots by convention from the folder the editor handed over (the `src`/`test`
+    * roots and any other `.els`-bearing directory beneath it) — the case that keeps opening the compiler repo itself
+    * working.
     *
     * The runtime roots feed the runtime pool via `LangPlugin.pathKey` (each also contributing its derived
-    * `eliot-compiler/` sibling to the compile-time pool); any explicit overlay roots feed it via
+    * `compiler/` sibling to the compile-time pool); any explicit overlay roots feed it via
     * `LangPlugin.compilerPathKey`. The whole-workspace driver ([[LspPlugin]]) recognises library modules by their
     * reserved `eliot.*` package and leaves them undiagnosed, so listing a dependency root does not diagnose it.
     */

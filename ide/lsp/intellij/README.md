@@ -60,7 +60,7 @@ Either import the generated template or configure it by hand.
 Open any project containing `.els` files (the project root becomes the workspace the server checks —
 there is no build file; the open folder *is* the project model). The standard library and platform
 layers are **not** bundled with the server — like any dependency they must be on the open project's
-path (until a build system downloads them, the project has to include the base/stdlib/jvm `eliot/`
+path (until a build system downloads them, the project has to include the base/stdlib/jvm `eliot/src`
 roots itself). Errors appear as you **save** (`didSave`) or when files change on disk.
 
 You can watch traffic under **Language Servers → Eliot → (right-click) → … trace** or set the
@@ -79,7 +79,7 @@ You can watch traffic under **Language Servers → Eliot → (right-click) → �
 ## Troubleshooting
 
 - **Every stdlib name shows "Name not defined" (e.g. `printLine`)** — the standard library is not on the
-  open project's path. The server bundles no layers; the project must include the base/stdlib/jvm `eliot/`
+  open project's path. The server bundles no layers; the project must include the base/stdlib/jvm `eliot/src`
   roots (a fat jar dropping a plugin registration is the other, rarer cause — see the warning in step 1).
 - **Server doesn't start** — run `ide/lsp/dist/eliot-lsp` in a terminal; it should block waiting for LSP
   input on stdin. Check `java` is on `PATH`. All server logs go to **stderr** (stdout is the protocol

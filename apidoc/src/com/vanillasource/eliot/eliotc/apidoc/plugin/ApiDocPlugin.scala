@@ -119,7 +119,7 @@ class ApiDocPlugin extends CompilerPlugin with Logging {
     }
 
   /** The distinct source roots to document, each paired with a human-readable layer label. Every configured root plus
-    * its compile-time `eliot-compiler/` overlay is documented; deduplicating by absolute path keeps the base as one
+    * its compile-time `compiler/` overlay is documented; deduplicating by absolute path keeps the base as one
     * root. The user's program paths fold in as additional roots.
     */
   private def rootsWithLayer(configuration: Configuration): Seq[(Path, String)] = {
@@ -131,7 +131,7 @@ class ApiDocPlugin extends CompilerPlugin with Logging {
   private def layerLabel(root: Path): String = {
     val fileName = root.getFileName.toString
     if (fileName == "eliot") Option(root.getParent).map(_.getFileName.toString).getOrElse(fileName)
-    else if (fileName == "eliot-compiler") "compiler"
+    else if (fileName == "compiler") "compiler"
     else fileName
   }
 

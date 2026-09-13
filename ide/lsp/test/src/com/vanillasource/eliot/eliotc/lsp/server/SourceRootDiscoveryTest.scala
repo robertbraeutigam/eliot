@@ -6,8 +6,9 @@ import org.scalatest.matchers.should.Matchers
 import java.nio.file.Path
 
 /** Exercises the workspace source-root discovery against the compiler repo itself (handed in via `ELIOT_REPO_ROOT`, see
-  * `build.mill`). The repo is the hard case: its own folder is literally named `eliot`, it holds several `eliot` layer
-  * roots plus an `eliot-compiler` overlay and many Scala `.../vanillasource/eliot` package directories.
+  * `build.mill`). The repo is the hard case: its own folder is literally named `eliot`, it holds three layer packages
+  * under `<module>/eliot`, a `compiler/` overlay, a Mill `src/` of Scala per module and many Scala
+  * `.../vanillasource/eliot` package directories.
   */
 class SourceRootDiscoveryTest extends AnyFlatSpec with Matchers {
   private val repoRoot                         =
@@ -16,9 +17,9 @@ class SourceRootDiscoveryTest extends AnyFlatSpec with Matchers {
 
   "source-root discovery" should "recover exactly the layer and application roots under the repo folder" in {
     SourceRootDiscovery.discover(Seq(repoRoot)).toSet shouldBe Set(
-      moduleRoot("lang", "eliot"),
-      moduleRoot("stdlib", "eliot"),
-      moduleRoot("jvm", "eliot"),
+      moduleRoot("lang", "eliot/src"),
+      moduleRoot("stdlib", "eliot/src"),
+      moduleRoot("jvm", "eliot/src"),
       moduleRoot("examples", "src")
     )
   }

@@ -144,7 +144,7 @@ class CompilerMonomorphicTypeCheckProcessor()
   /** §2.2 fail-safe: reject a compiler-track body that references a `where`-bearing callee. The refinement channel
     * ([[com.vanillasource.eliot.eliotc.monomorphize.channel.RefinementChannelProcessor]]) demands a `where`
     * precondition only over *runtime* [[com.vanillasource.eliot.eliotc.monomorphize.fact.MonomorphicValue]] bodies,
-    * never compiler-track ones, so a `where`-guarded def reached from an `eliot-compiler` overlay (compile-time) body
+    * never compiler-track ones, so a `where`-guarded def reached from a `compiler` overlay (compile-time) body
     * would have its precondition silently skipped — the same silent-accept class as the higher-order escape
     * (`docs/refinement-channel-follow-ups.md` §2.1/§2.2). Until the channel is extended to walk compiler-track bodies,
     * any such reference is rejected loudly and the value aborts (never a silently-unchecked compile-time precondition).

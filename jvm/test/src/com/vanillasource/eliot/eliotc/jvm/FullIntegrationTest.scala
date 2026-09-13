@@ -20,7 +20,7 @@ import scala.concurrent.duration.*
   * and runs it, asserting on its output (or on the compiler's diagnostics for the failing cases).
   *
   * The expensive part of such a compile is not the few-line test program — it is discovering the plugins and compiling
-  * the base-layer `.els` files (`lang` + `stdlib` + `jvm`, plus `stdlib`'s `eliot-compiler/` overlay) that every program
+  * the base-layer `.els` files (`lang` + `stdlib` + `jvm`, plus `stdlib`'s `compiler/` overlay) that every program
   * stands on. Rather than
   * pay that cold start per test, every suite shares a single resident [[CompilationSession]] ([[FullIntegrationTest]]'s
   * companion): the base is compiled once and every subsequent test reuses the warm *in-memory* fact cache — which keeps
@@ -198,7 +198,7 @@ object FullIntegrationTest {
   object SharedSession {
 
     /** CP1.5: the abstract base (`lang` + `stdlib`) and the `jvm` target layer are passed to the compiler as filesystem
-      * source roots — each layer module's `eliot/` source root — instead of being discovered on the classpath. A forked
+      * source roots — each layer module's `eliot/src` source root — instead of being discovered on the classpath. A forked
       * test JVM's working dir is a per-worker sandbox, so the build hands the repo root in via `ELIOT_REPO_ROOT` (see
       * `build.mill`). These options are appended *after* the `jvm exe-jar …` command — the only position scopt accepts
       * these top-level options (exactly as `-o` already trails it) (CP1.5).
@@ -206,8 +206,8 @@ object FullIntegrationTest {
     private def layerPathArgs: List[String] = {
       val repoRoot             =
         Path.of(Option(System.getenv("ELIOT_REPO_ROOT")).getOrElse(System.getProperty("user.dir")))
-      def root(module: String) = repoRoot.resolve(module).resolve("eliot").toString
-      // One `--path` per layer `eliot/` root; the compiler pool additionally scans each root's sibling `eliot-compiler/`
+      def root(module: String) = repoRoot.resolve(module).resolve("eliot").resolve("src").toString
+      // One `--path` per layer `eliot/src` root; the compiler pool additionally scans each root's sibling `compiler/`
       // overlay (only `stdlib` ships one — the compile-time `Either`/`Option`/guard carriers).
       List("--path", root("lang"), "--path", root("stdlib"), "--path", root("jvm"))
     }

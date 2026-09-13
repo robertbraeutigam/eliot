@@ -90,13 +90,13 @@ class EffectsSeamGroundnessTest extends AsyncFlatSpec with AsyncIOSpec with Matc
       facts      <- result.generator.currentFacts()
     } yield facts
 
-  /** The base-layer `eliot/` source roots handed to the compiler as filesystem roots — the repo root reaches the
+  /** The base-layer `eliot/src` source roots handed to the compiler as filesystem roots — the repo root reaches the
     * forked test JVM via `ELIOT_REPO_ROOT`.
     */
   private def layerPathArgs: List[String] = {
     val repoRoot             =
       Path.of(Option(System.getenv("ELIOT_REPO_ROOT")).getOrElse(System.getProperty("user.dir")))
-    def root(module: String) = repoRoot.resolve(module).resolve("eliot").toString
+    def root(module: String) = repoRoot.resolve(module).resolve("eliot").resolve("src").toString
     List("--path", root("lang"), "--path", root("stdlib"), "--path", root("jvm"))
   }
 }

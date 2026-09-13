@@ -59,7 +59,7 @@ class SignatureTwinMonoTest extends ProcessorTest(LangProcessors(systemModules =
       |""".stripMargin
 
   // The compile-time `Either` carrier plus the effect abilities it implements — the machinery a `{Throw[String]}` guard
-  // signature reduces through (a faithful slice of `stdlib/eliot-compiler/eliot/lang/Either.els`, as in
+  // signature reduces through (a faithful slice of `stdlib/eliot/compiler/eliot/lang/Either.els`, as in
   // [[CompilerAbilityResolutionTest]]). Needed only for the guarded fixture.
   private val eitherContent =
     """import eliot.lang.Function

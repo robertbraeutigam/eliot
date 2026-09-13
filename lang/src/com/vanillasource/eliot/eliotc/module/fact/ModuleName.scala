@@ -7,7 +7,7 @@ import java.nio.file.{Path, Paths}
 
 case class ModuleName(packages: Seq[String], name: String) {
 
-  /** The relative `.els` source path this module resolves to under any layer's `eliot/` source root, e.g.
+  /** The relative `.els` source path this module resolves to under any layer's `eliot/src` source root, e.g.
     * `eliot.lang.String` -> `eliot/lang/String.els`. This is the single definition of the package-to-path layout,
     * shared by the source resolver ([[com.vanillasource.eliot.eliotc.module.processor.UnifiedModuleNamesProcessor]],
     * `UnifiedModuleValueProcessor`) and the test harness, so relocating a module to a new package needs no path string
@@ -72,7 +72,7 @@ object ModuleName {
   val systemFunctionModuleName: ModuleName = ModuleName(defaultSystemPackage, "Function")
 
   /** The ambient modules of [[effectPackage]] — the whole package, kept in sync with the `.els` files under
-    * `stdlib/eliot/eliot/effect/`. Auto-imported alongside the `eliot.lang` prelude (see [[defaultSystemModules]]), in
+    * `stdlib/eliot/src/eliot/effect/`. Auto-imported alongside the `eliot.lang` prelude (see [[defaultSystemModules]]), in
     * the same weak tier: a file-local declaration or an explicit import of the same name silently wins
     * (`ModuleValueProcessor`), so ambient names like `log`/`state` can always be taken back.
     */

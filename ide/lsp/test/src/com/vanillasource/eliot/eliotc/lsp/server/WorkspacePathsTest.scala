@@ -14,16 +14,16 @@ import scala.jdk.CollectionConverters.*
 class WorkspacePathsTest extends AnyFlatSpec with Matchers {
   "eliot.paths" should "split runtime and compiler roots, resolving relative paths against the file directory" in {
     withPathsFile("""# base + platform layers, plus this project's own sources
-                    |runtime  /opt/eliot/stdlib/eliot
-                    |compiler /opt/eliot/stdlib/eliot-compiler
+                    |runtime  /opt/eliot/stdlib/eliot/src
+                    |compiler /opt/eliot/stdlib/eliot/compiler
                     |
                     |runtime  src
                     |# a stray directive is skipped
                     |nonsense whatever""".stripMargin) { dir =>
       WorkspacePaths.load(Seq(dir)) shouldBe Some(
         WorkspacePaths(
-          Seq(Path.of("/opt/eliot/stdlib/eliot"), dir.resolve("src").toAbsolutePath.normalize),
-          Seq(Path.of("/opt/eliot/stdlib/eliot-compiler"))
+          Seq(Path.of("/opt/eliot/stdlib/eliot/src"), dir.resolve("src").toAbsolutePath.normalize),
+          Seq(Path.of("/opt/eliot/stdlib/eliot/compiler"))
         )
       )
     }

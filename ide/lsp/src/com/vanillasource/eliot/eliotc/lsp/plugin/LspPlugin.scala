@@ -106,7 +106,7 @@ class LspPlugin(vfs: VirtualFileSystem) extends CompilerPlugin with Logging {
     layerSourceFiles(configuration).flatMap(_.traverse_ { case (base, file) => demandDocs(compilation, base, file) })
 
   /** Every `.els` under every (distinct) layer root, paired with the base directory its module name is relative to.
-    * Both the runtime roots and their compile-time `eliot-compiler/` overlays are documented, so hover reaches every
+    * Both the runtime roots and their compile-time `compiler/` overlays are documented, so hover reaches every
     * name.
     */
   private def layerSourceFiles(configuration: Configuration): IO[Seq[(Path, Path)]] = {

@@ -70,7 +70,7 @@ class WarmBuildLeafOnlyTest extends AsyncFlatSpec with AsyncIOSpec with Matchers
 
   /** Build a dedicated session over a fresh source/target directory pair holding `source` as module `Test`, then run
     * `use` against it. Mirrors [[FullIntegrationTest.SharedSession]]'s argument construction (the `jvm exe-jar` command
-    * plus one `--path` per layer `eliot/` root), but hands the session out directly so the caller controls each
+    * plus one `--path` per layer `eliot/src` root), but hands the session out directly so the caller controls each
     * `compileOnce` and never rewrites the source between runs.
     */
   private def withSession(source: String)(use: CompilationSession => IO[Assertion]): IO[Assertion] =
@@ -98,7 +98,7 @@ class WarmBuildLeafOnlyTest extends AsyncFlatSpec with AsyncIOSpec with Matchers
   private def layerPathArgs: List[String] = {
     val repoRoot             =
       Path.of(Option(System.getenv("ELIOT_REPO_ROOT")).getOrElse(System.getProperty("user.dir")))
-    def root(module: String) = repoRoot.resolve(module).resolve("eliot").toString
+    def root(module: String) = repoRoot.resolve(module).resolve("eliot").resolve("src").toString
     List("--path", root("lang"), "--path", root("stdlib"), "--path", root("jvm"))
   }
 }

@@ -182,7 +182,7 @@ merger via the plugin's `configure()`; the two existing labels are already wired
 
 **Ability instances across tracks.** An `implement X[T]` needs to *resolve* on whichever pool asks. A jvm runtime
 instance is *borrowed* into the compiler pool for resolution, so often no compiler copy is needed. You need a
-`stdlib/eliot-compiler/` overlay copy only when the compiler must be **self-sufficient** (LSP type-checks without jvm)
+`stdlib/eliot/compiler/` overlay copy only when the compiler must be **self-sufficient** (LSP type-checks without jvm)
 *and* the concrete instance body it would borrow is a jvm-only representation the compiler can't run — that is the
 `Either`/`Option`/`Pair` overlay (`data` + folds), which is what the evaluator's escape and cell intrinsics answer
 through. But when the instance is **body-less** (its methods are native leaves
@@ -249,7 +249,7 @@ exercise your leaf at runtime, drive it from an effect** (`readLine == "yes"`), 
 
 ## See also
 
-- **eliot-layers** — where the `.els` (abstract vs jvm vs eliot-compiler) goes and why; the merge and its
+- **eliot-layers** — where the `.els` (abstract vs jvm vs compiler) goes and why; the merge and its
   signature traps. Do placement there *first*.
 - **eliot-monomorphize** — the checker/`SemValue`/`VNative` side of the compile-time reductions.
 - **eliot-code** (global skill) — `.els` surface syntax; that pure computation folds is the *Types-Are-Values* +

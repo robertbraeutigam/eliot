@@ -158,11 +158,11 @@ class SharedSessionIsolationTest extends AsyncFlatSpec with AsyncIOSpec with Mat
       result     <- use(Session(session, sourceDir.resolve("Test.els"), targetDir.resolve("Test.jar")))
     } yield result
 
-  /** One `--path` per layer `eliot/` root, exactly as [[FullIntegrationTest.SharedSession]] builds them. */
+  /** One `--path` per layer `eliot/src` root, exactly as [[FullIntegrationTest.SharedSession]] builds them. */
   private def layerPathArgs: List[String] = {
     val repoRoot             =
       Path.of(Option(System.getenv("ELIOT_REPO_ROOT")).getOrElse(System.getProperty("user.dir")))
-    def root(module: String) = repoRoot.resolve(module).resolve("eliot").toString
+    def root(module: String) = repoRoot.resolve(module).resolve("eliot").resolve("src").toString
     List("--path", root("lang"), "--path", root("stdlib"), "--path", root("jvm"))
   }
 }

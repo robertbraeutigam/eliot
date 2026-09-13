@@ -66,7 +66,7 @@ client without it.
 ### 1.1 Why the current `Dep` is too weak
 
 ```eliot
-ability Dep[X, F[_]] { def dependency: F[X] }          -- stdlib/eliot/eliot/effect/Dep.els
+ability Dep[X, F[_]] { def dependency: F[X] }          -- stdlib/eliot/src/eliot/effect/Dep.els
 implement Dep[Database, IO] { def dependency = pure(Database("jdbc://…")) }  -- the "injection"
 ```
 

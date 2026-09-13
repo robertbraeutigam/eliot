@@ -6,9 +6,9 @@ API of the stdlib. The companion of `docs/file-io.md`, and deliberately shaped l
 
 ## What shipped
 
-- `stdlib/eliot/eliot/system/Environment.els` (abstract) + `jvm/eliot/eliot/system/Environment.els`:
+- `stdlib/eliot/src/eliot/system/Environment.els` (abstract) + `jvm/eliot/src/eliot/system/Environment.els`:
   the `Environment` ability — `arguments`, `environmentVariable`, `workingDirectory`.
-- `stdlib/eliot/eliot/system/Process.els` (abstract) + `jvm/eliot/eliot/system/Process.els`: the
+- `stdlib/eliot/src/eliot/system/Process.els` (abstract) + `jvm/eliot/src/eliot/system/Process.els`: the
   `Process` ability — `run` (captures both streams) and `runInheritingIo` (hands the child this
   program's streams, yields the exit code) — plus `ProcessResult` and the `command` /
   `withArgument` builders.

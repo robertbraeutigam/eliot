@@ -4,7 +4,7 @@ package com.vanillasource.eliot.eliotc.platform
   * "compiler as a platform" plan, CP1). It is a plain namespace tag on the fact keys — processors are otherwise
   * unchanged — that selects *which pool of source roots* a name is resolved against:
   *
-  *   - [[Platform.Compiler]] scans the **whole runtime track plus each root's `eliot-compiler/` overlay** (a layer's
+  *   - [[Platform.Compiler]] scans the **whole runtime track plus each root's `compiler/` overlay** (a layer's
   *     opt-in compile-time contribution, override-preferred; only `stdlib` ships one) and drives **compile-time
   *     evaluation** (NbE / type checking);
   *   - [[Platform.Runtime]] scans the **runtime roots** (the base, the selected target such as `jvm`, and the user's

@@ -6,14 +6,14 @@ that prompted it: whether grouping needs a `Map`.
 
 ## What shipped
 
-- `lang/eliot/eliot/collection/List.els`: `prepend` — the one new *primitive*, declared abstractly
+- `lang/eliot/src/eliot/collection/List.els`: `prepend` — the one new *primitive*, declared abstractly
   beside `empty`/`append`/`foldLeft`.
-- `stdlib/eliot/eliot/collection/List.els`: `map`, `filter`, `reverse`, `isEmpty`, `find`, `groupBy`
+- `stdlib/eliot/src/eliot/collection/List.els`: `map`, `filter`, `reverse`, `isEmpty`, `find`, `groupBy`
   (+ its private `addToGroup` step) — all **platform-independent bodies** over `foldLeft`, joining
   `foreach` and `Combine[List[A]]` which already lived there.
 - `jvm/src/.../NativeImplementation.scala`: the `prepend` native (an `ArrayList` copy + `add(0, …)`,
   mirroring `append`).
-- `stdlib/eliot/eliot/lang/Pair.els` + `jvm/eliot/eliot/lang/{Pair,Option}.els`: `pair`, `some`,
+- `stdlib/eliot/src/eliot/lang/Pair.els` + `jvm/eliot/src/eliot/lang/{Pair,Option}.els`: `pair`, `some`,
   `none` — the abstract value constructors the base layer was missing (see decision 3).
 - `lang/src/.../row/RowChecker.scala`: the row-polymorphic-callback fix (see decision 4).
 - Tests: `ListIntegrationTest` (11 new cases), `BaseConstructorsIntegrationTest`,
@@ -107,7 +107,7 @@ Status: IMPLEMENTED. `eliot.build` (the build tool written in Eliot) had accumul
 said "each is a candidate to move [into the standard library] unchanged". They are now in the
 standard library and both private modules are deleted.
 
-**Added to `stdlib/eliot/eliot/collection/List.els`** — every one a platform-independent body over
+**Added to `stdlib/eliot/src/eliot/collection/List.els`** — every one a platform-independent body over
 `foldLeft`, no new native: `size`, `singleton`, `head`, `last`, `at`, `tail`, `dropLast`,
 `replaceLast`, `any`, `all`, `flatMap`, `flatten`, `sorted`, `insert`, `joined`, `lookupOption`,
 `lookup`, `put`. Plus two leaves that are `java.lang.String` calls, `split` and `words` (below).

@@ -257,13 +257,13 @@ class EffectShapeCompileTest extends AsyncFlatSpec with AsyncIOSpec with Matcher
     finally in.close()
   }
 
-  /** The base-layer `eliot/` source roots handed to the compiler as filesystem roots (CP1.5), exactly as
+  /** The base-layer `eliot/src` source roots handed to the compiler as filesystem roots (CP1.5), exactly as
     * [[FullIntegrationTest]] does — the repo root is passed to the forked test JVM via `ELIOT_REPO_ROOT`.
     */
   private def layerPathArgs: List[String] = {
     val repoRoot             =
       Path.of(Option(System.getenv("ELIOT_REPO_ROOT")).getOrElse(System.getProperty("user.dir")))
-    def root(module: String) = repoRoot.resolve(module).resolve("eliot").toString
+    def root(module: String) = repoRoot.resolve(module).resolve("eliot").resolve("src").toString
     List("--path", root("lang"), "--path", root("stdlib"), "--path", root("jvm"))
   }
 }

@@ -11,25 +11,24 @@ import scala.jdk.CollectionConverters.*
   * (only) where every source root is — the project's own code and the base/stdlib/platform layers it depends on — so
   * the server can hand them to the compiler as ordinary path parameters. Unlike [[SourceRootDiscovery]], nothing is
   * guessed: every root, including the project's own (there is no assumed `src/`), is listed. This keeps the file
-  * layout-agnostic — a project may sit directly under `src/` with no `eliot/` qualifier and no `eliot-compiler/`
-  * sibling.
+  * layout-agnostic — a project laid out by nobody's convention is described exactly as one in the standard layout is.
   *
   * The file lives in a workspace root and has one directive per line:
   * {{{
   *   # base + platform layers (from a compiler checkout, say), plus this project's own sources
-  *   runtime  /home/me/eliot/lang/eliot
-  *   runtime  /home/me/eliot/stdlib/eliot
-  *   runtime  /home/me/eliot/jvm/eliot
+  *   runtime  /home/me/eliot/lang/eliot/src
+  *   runtime  /home/me/eliot/stdlib/eliot/src
+  *   runtime  /home/me/eliot/jvm/eliot/src
   *   runtime  src
   *   # compile-time overlay roots, listed separately (the compiler pool scans these on top, override-preferred)
-  *   compiler /home/me/eliot/stdlib/eliot-compiler
+  *   compiler /home/me/eliot/stdlib/eliot/compiler
   * }}}
   * Blank lines and `#` comments are ignored; any other directive keyword is skipped. A path is everything after the
   * keyword, trimmed; a relative path resolves against the file's own directory (so `src` means `<project>/src`), an
   * absolute path is taken as-is. Both lists are normalised to absolute paths.
   *
   * @param runtimeRoots
-  *   the runtime pool roots (`LangPlugin.pathKey`) — project + layer `eliot/` roots.
+  *   the runtime pool roots (`LangPlugin.pathKey`) — project + layer `eliot/src` roots.
   * @param compilerRoots
   *   the explicit compile-time overlay roots (`LangPlugin.compilerPathKey`).
   */

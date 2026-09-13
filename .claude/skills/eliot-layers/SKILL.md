@@ -9,30 +9,32 @@ Read the **"Platform-Independence via Layers"** cornerstone in CLAUDE.md first �
 redefinition not inheritance; merge prefers the concrete). This skill is the *operational* layer: where things
 go, what must resolve where, and the mechanical traps.
 
-## The layers (each is a `--path` root shipping an `eliot/` source root; some also ship an `eliot-compiler/` sibling)
+## The layers (each is a `--path` root shipping an `eliot/src` source root; some also ship a `compiler/` sibling)
 
-A module `eliot.lang.X` maps to `<layer>/eliot/eliot/lang/X.els` (path = `ModuleName.toPath`). The same name
+A module `eliot.lang.X` maps to `<layer>/eliot/src/eliot/lang/X.els` (path = `ModuleName.toPath`). Each layer is an
+Eliot package in the build system's standard layout (`src/`, `compiler/`), parked at `<layer>/eliot` because Mill
+already owns `<layer>/src` for the Scala — which is what that module's `at` clause in `eliot.pkg` says. The same name
 in several layers/roots is **merged**. There is **no standalone `compiler` Mill module** — a layer's compile-time
-contribution is a sibling `eliot-compiler/` root next to its `eliot/` root (today only `stdlib` ships one:
+contribution is a sibling `compiler/` root next to its `src/` root (today only `stdlib` ships one:
 `Either`/`Option`/`Pair`/`Bound`/`Interval`, the two evaluator-intrinsic declarations `eliot.compiler.Escape` and
 `eliot.compiler.Cell`, and the compile-time `Abort` written over `escape`, which is what makes an `if..else`
 return guard reduce).
 
 | Layer / root | Holds | On which pool |
 |-------|-------|---------------|
-| `lang/eliot` | core compiler (Scala) **and** compiler-owned `.els` (`eliot.compiler.{Meta,Reflect,Type}`, `eliot.compiler.internal.{PatternMatch,TypeMatch}`, the `Eq[Type]` instance, `Bool`'s `true`/`false`, `eliot.collection.List`) | **both** |
-| `stdlib/eliot` | the platform-independent base: abstract `type`s, body-less `def` signatures, `ability` decls, pure platform-independent bodies/instances | **both** |
-| `jvm/eliot` | the runtime platform: concrete `data`, `def` bodies, native leaves, ability and effect `implement`s, the three private control-flow primitives (`escapeInternal`/`withCellInternal`/`foreverInternal`) and the discharger bodies over them | runtime only (**borrowed** into the compiler pool) |
-| `stdlib/eliot-compiler` | the compile-time overlay: `data`/instances the NbE checker must *evaluate at compile time* that **aren't borrowable** — the self-sufficient `Either`/`Option`/`Pair`, the `Interval` `Meta`/`Numeric` instances, the `Escape`/`Cell` intrinsic declarations, and the compile-time `Abort` over them | compiler only (**override**) |
+| `lang/eliot/src` | core compiler (Scala) **and** compiler-owned `.els` (`eliot.compiler.{Meta,Reflect,Type}`, `eliot.compiler.internal.{PatternMatch,TypeMatch}`, the `Eq[Type]` instance, `Bool`'s `true`/`false`, `eliot.collection.List`) | **both** |
+| `stdlib/eliot/src` | the platform-independent base: abstract `type`s, body-less `def` signatures, `ability` decls, pure platform-independent bodies/instances | **both** |
+| `jvm/eliot/src` | the runtime platform: concrete `data`, `def` bodies, native leaves, ability and effect `implement`s, the three private control-flow primitives (`escapeInternal`/`withCellInternal`/`foreverInternal`) and the discharger bodies over them | runtime only (**borrowed** into the compiler pool) |
+| `stdlib/eliot/compiler` | the compile-time overlay: `data`/instances the NbE checker must *evaluate at compile time* that **aren't borrowable** — the self-sufficient `Either`/`Option`/`Pair`, the `Interval` `Meta`/`Numeric` instances, the `Escape`/`Cell` intrinsic declarations, and the compile-time `Abort` over them | compiler only (**override**) |
 
 ## The two pools — the operational key
 
 There is **one** list of source roots (each `--path`, plus the positional program → `LangPlugin.pathKey`). Both
 pools derive from it:
 
-- **runtime pool** (codegen + the user program) = every root's `eliot/`.
+- **runtime pool** (codegen + the user program) = every root itself (each is a package's `src/`).
 - **compiler pool** (type checking / NbE) = **the whole runtime pool, *borrowed*** *plus* each root's sibling
-  `eliot-compiler/` overlay, which **override-supersedes** the borrowed definition of the same name.
+  `compiler/` overlay, which **override-supersedes** the borrowed definition of the same name.
 
 Merge happens **per pool** (`UnifiedModuleValueProcessor`, keyed on `platform`; overlay files carry
 `PathScan.overrideFiles`, so an overlay def wins). Two consequences drive every placement decision:
@@ -42,10 +44,10 @@ Merge happens **per pool** (`UnifiedModuleValueProcessor`, keyed on `platform`; 
 > **borrowing** it — no compiler copy needed. Borrowing fails only for a name that reaches a *runtime-only leaf* (a
 > bytecode op) when forced at compile time; that **stalls loudly** (the native-leaf boundary), never silently wrong.
 
-> **A layer's compile-time track must be self-sufficient from base + its own `eliot-compiler/`.** It may borrow the
+> **A layer's compile-time track must be self-sufficient from base + its own `compiler/`.** It may borrow the
 > program and pure base bodies, but **not** a sibling target (jvm) that might be absent. So a `data` the checker
 > genuinely needs — the `Either`/`Option` the escape intrinsic and the guards answer through, the `Pair` the cell
-> intrinsic answers — lives in `stdlib/eliot-compiler/` and duplicates jvm's runtime copy (sanctioned). Anything pure
+> intrinsic answers — lives in `stdlib/eliot/compiler/` and duplicates jvm's runtime copy (sanctioned). Anything pure
 > and already on the path (base bodies, a program's pure helpers) is **borrowed**, not duplicated.
 
 ## Where does X go?
@@ -56,8 +58,8 @@ an 8-bit MCU) need this?* If no, it's platform-specific → `jvm` (or the releva
 | You're adding… | Put it in | Notes |
 |---|---|---|
 | abstract `type X` (or `type X = alias`) | **stdlib** | so any signature can mention `X` on both pools |
-| concrete `data X` (representation + ctor) | **jvm** (runtime); **+ `stdlib/eliot-compiler`** only if the checker needs it *self-sufficiently* at compile time (e.g. `Either`) | never stdlib base |
-| field accessor / `foldX` eliminator | with the `data` (jvm; + `stdlib/eliot-compiler` for a self-sufficient one) | pure ones are **borrowed** at compile time — add a copy only for self-sufficiency, an abstract twin only if a non-borrowable name is referenced |
+| concrete `data X` (representation + ctor) | **jvm** (runtime); **+ `stdlib/eliot/compiler`** only if the checker needs it *self-sufficiently* at compile time (e.g. `Either`) | never stdlib base |
+| field accessor / `foldX` eliminator | with the `data` (jvm; + `stdlib/eliot/compiler` for a self-sufficient one) | pure ones are **borrowed** at compile time — add a copy only for self-sufficiency, an abstract twin only if a non-borrowable name is referenced |
 | pure body, same on every target (composition over abstract/native ops) | **stdlib** | e.g. `catch`, `else`, `updateState`, Function `.` |
 | native leaf (backend/compiler supplies the body: bytecode op, arbitrary-precision arith, `printLineInternal`) | **jvm** (runtime) / Scala `*NativesProcessor` (compiler leaves) | the layer "bottom" |
 | representation-dependent body (layout choice) | **jvm** | e.g. a `data`'s field accessor, or a native leaf's wrapper |
@@ -67,7 +69,7 @@ an 8-bit MCU) need this?* If no, it's platform-specific → `jvm` (or the releva
 | **body-less** `implement X[T]` (methods are native leaves attached per-platform) | **stdlib** (base) | representation-free *declaration*, so it lives once and both pools borrow it; each platform attaches the leaf (jvm backend + `*NativesProcessor`). e.g. `Eq[String]` in `String.els`, `Compare[BigInteger]`/`Numeric[BigInteger]` — even though value-level |
 | an **effect**'s default `implement` with an Eliot body | **jvm** | e.g. `implement Console { … }` over `printLineInternal`, `implement[E] Throw[E] { def raise[A](err: E): A = exitInternal(err) }`. The base declares the `effect` and nothing else; the *named* `implement` a test writes lives in the test module and is never a layer question |
 | a **discharger** (`runThrow`, `catch`, `else`, `runState*`, `provide`) | body-less in **stdlib** if it touches a primitive; an ordinary **stdlib** body if it composes other dischargers | the three primitives are layer-private, so `runThrow`/`runAbort`/`runStateToPair`/`runWriterToPair`/`provide` are abstract in the base and bodied in **jvm**; `catch`/`else`/`runStateToValue`/`runStateToFinalState`/`runWriterToValue`/`runWriterToLog` are base bodies over those |
-| something the compiler must evaluate at compile time, expressible in Eliot | **borrow** it if pure & already on the path; else the owning layer's **`eliot-compiler/`** (base names → `stdlib/eliot-compiler`) | not Scala `SemValue`s — the one NbE evaluator runs it |
+| something the compiler must evaluate at compile time, expressible in Eliot | **borrow** it if pure & already on the path; else the owning layer's **`compiler/`** (base names → `stdlib/eliot/compiler`) | not Scala `SemValue`s — the one NbE evaluator runs it |
 
 ### Ability module vs. type module — which of the two allowed homes
 
@@ -136,10 +138,10 @@ error, not two instances; distinct-but-unifiable patterns are what the overlap l
 
 ## Moving / adding a file — checklist
 
-1. Decide the layer(s) from the table above; split abstract (`stdlib`) vs concrete (`jvm`, + `stdlib/eliot-compiler`
+1. Decide the layer(s) from the table above; split abstract (`stdlib`) vs concrete (`jvm`, + `stdlib/eliot/compiler`
    only for something the checker needs self-sufficiently) if needed.
 2. If a stdlib body references, at compile time, a name that **can't be borrowed** (it reaches a runtime-only leaf)
-   and has **no `eliot-compiler` overlay**, add the abstract declaration in stdlib (exact-match signature for any
+   and has **no `compiler` overlay**, add the abstract declaration in stdlib (exact-match signature for any
    `data` member — see gotchas), or an overlay copy. A *pure* referenced name is borrowed and needs nothing.
 3. Keep `ability` + its `implement`s colocated; copy the `ability` decl into any file that hosts an instance.
 4. If you emptied a file by moving its contents, **delete** it.

@@ -1,4 +1,4 @@
-// The compile-time `Pair`: the same representation the jvm layer chooses (`jvm/eliot/eliot/lang/Pair.els`), kept in
+// The compile-time `Pair`: the same representation the jvm layer chooses (`jvm/eliot/src/eliot/lang/Pair.els`), kept in
 // the compiler overlay so the compile track is self-sufficient — a layer's compile-time track may not borrow a sibling
 // target that might be absent. The cell primitive (`withCell`, effects v6 §9.6) answers this constructor directly.
 data Pair[A, B](first: A, second: B)

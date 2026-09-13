@@ -7,7 +7,7 @@ file API of the stdlib.
 ## Implementation status (what shipped)
 
 The **whole-file, fold, and metadata/directory surface** is implemented and tested end-to-end on
-the jvm backend (`stdlib/eliot/eliot/file/{Path,File}.els` abstract, `jvm/eliot/eliot/file/{Path,File}.els`
+the jvm backend (`stdlib/eliot/src/eliot/file/{Path,File}.els` abstract, `jvm/eliot/src/eliot/file/{Path,File}.els`
 concrete, `jvm/.../FileNatives.scala` leaves, `FileIoIntegrationTest`):
 
 - The pure `Path` algebra (§4): `path`, `/`, `parent`, `fileName`, `extension`, `isAbsolute`,
@@ -142,7 +142,7 @@ Lessons this design adopts:
 - A target without a filesystem simply ships no `FileSystem` instance: any `{FileSystem}`
   program fails ability resolution at monomorphization for that target. No capability
   configuration needed — the layer system is the capability.
-- The **compiler platform gets no `eliot-compiler/` overlay** for `eliot.file`: compile-time
+- The **compiler platform gets no `compiler/` overlay** for `eliot.file`: compile-time
   code cannot read files (hermetic checking). A `FileSystem` op reached at check time stalls at
   the native leaf — loud, fail-safe.
 
@@ -494,7 +494,7 @@ system exists to avoid.
 
 ## 9. Platform layer (jvm) and testing
 
-`jvm/eliot/eliot/file/Path.els` + `File.els`, following the `Console`/`List` patterns exactly:
+`jvm/eliot/src/eliot/file/Path.els` + `File.els`, following the `Console`/`List` patterns exactly:
 
 - Re-declare `type Path`, `type File[M]`, the `FileSystem` ability (merge-verified copies);
   `data IoError(message: String)`.

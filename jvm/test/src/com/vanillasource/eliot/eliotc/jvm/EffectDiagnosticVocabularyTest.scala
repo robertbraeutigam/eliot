@@ -120,7 +120,7 @@ class EffectDiagnosticVocabularyTest extends AsyncFlatSpec with AsyncIOSpec with
   private def layerPathArgs: List[String] = {
     val repoRoot             =
       Path.of(Option(System.getenv("ELIOT_REPO_ROOT")).getOrElse(System.getProperty("user.dir")))
-    def root(module: String) = repoRoot.resolve(module).resolve("eliot").toString
+    def root(module: String) = repoRoot.resolve(module).resolve("eliot").resolve("src").toString
     List("--path", root("lang"), "--path", root("stdlib"), "--path", root("jvm"))
   }
 }

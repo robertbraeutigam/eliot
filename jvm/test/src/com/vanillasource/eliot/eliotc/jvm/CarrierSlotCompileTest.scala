@@ -84,13 +84,13 @@ class CarrierSlotCompileTest extends AsyncFlatSpec with AsyncIOSpec with Matcher
       result     <- session.compileOnce()
     } yield result.errors
 
-  /** The base-layer `eliot/` source roots handed to the compiler as filesystem roots, exactly as
+  /** The base-layer `eliot/src` source roots handed to the compiler as filesystem roots, exactly as
     * [[EffectShapeCompileTest]] does — the repo root reaches the forked test JVM via `ELIOT_REPO_ROOT`.
     */
   private def layerPathArgs: List[String] = {
     val repoRoot             =
       Path.of(Option(System.getenv("ELIOT_REPO_ROOT")).getOrElse(System.getProperty("user.dir")))
-    def root(module: String) = repoRoot.resolve(module).resolve("eliot").toString
+    def root(module: String) = repoRoot.resolve(module).resolve("eliot").resolve("src").toString
     List("--path", root("lang"), "--path", root("stdlib"), "--path", root("jvm"))
   }
 }

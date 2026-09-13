@@ -63,7 +63,7 @@ abstract class ProcessorTest(val processors: CompilerProcessor*) extends AsyncFl
     SystemImport("Ability", "infix left type &[A, B]"),
     // The `Default` binding sentinel. Effects v6 writes it as an ordinary type argument at every reference whose
     // implementation nothing names, and saturation then demands the value it names — so a snippet calling *any*
-    // ability method needs this module present, exactly as the real `stdlib/eliot/eliot/lang/Implementation.els` is.
+    // ability method needs this module present, exactly as the real `stdlib/eliot/src/eliot/lang/Implementation.els` is.
     SystemImport("Implementation", ProcessorTest.implementationStubContent),
     SystemImport("Bool", ProcessorTest.boolImportContent),
     SystemImport("Numeric", ProcessorTest.numericStubContent),
@@ -190,7 +190,7 @@ abstract class ProcessorTest(val processors: CompilerProcessor*) extends AsyncFl
 object ProcessorTest {
 
   /** Declarations for the built-in opaque `Bool` type and its compile-time predicates, mirroring
-    * `lang/eliot/eliot/lang/Bool.els`. The reductions are supplied by `SystemNativesProcessor`.
+    * `lang/eliot/src/eliot/lang/Bool.els`. The reductions are supplied by `SystemNativesProcessor`.
     */
   /** `eliot.lang.Implementation`, which every snippet declaring an effect row, a `~` constraint or an `ability` block
     * needs — the compiler writes both of its names into such a declaration, module-qualified, so neither depends on
@@ -198,7 +198,7 @@ object ProcessorTest {
     * saturation then demands the value it names); `Implementation[A]` is the **mark** a binding binder carries as its
     * declared type (`docs/effects.md` §9.2). A pool without this module fails with "Qualified named value not
     * available." at the declaration, so it is part of every stub prelude, exactly as the real
-    * `stdlib/eliot/eliot/lang/Implementation.els` is part of every layer.
+    * `stdlib/eliot/src/eliot/lang/Implementation.els` is part of every layer.
     */
   val implementationStubContent: String = "type Default\ntype Implementation[A] = Type"
 
@@ -298,24 +298,24 @@ object ProcessorTest {
   val typeMatchAbilityStub: String    =
     "ability TypeMatch[T] {\ntype Fields[R]\ndef typeMatch[R](value: Type, matched: Fields[R], notMatched: Function[Unit, R]): R\n}"
 
-  /** `Console` effect stub, mirroring `stdlib/eliot/eliot/effect/Console.els`. The whole `eliot.effect` package is
+  /** `Console` effect stub, mirroring `stdlib/eliot/src/eliot/effect/Console.els`. The whole `eliot.effect` package is
     * ambient (auto-imported in the weak prelude tier), so every full-prelude test carries this. The default
     * implementation lives in the real jvm layer, not here — a stub declares the effect, never how it runs.
     */
   val consoleStubContent: String =
     "effect Console {\ndef printLine(s: String): Unit\ndef readLine: String\n}"
 
-  /** `Log` effect stub, mirroring `stdlib/eliot/eliot/effect/Log.els` (ambient — see [[consoleStubContent]]); the
+  /** `Log` effect stub, mirroring `stdlib/eliot/src/eliot/effect/Log.els` (ambient — see [[consoleStubContent]]); the
     * concrete JVM instance lives in the real jvm layer.
     */
   val logStubContent: String = "effect Log {\ndef log(s: String): Unit\n}"
 
-  /** `Dep` effect stub, mirroring `stdlib/eliot/eliot/effect/Dep.els` (ambient — see [[consoleStubContent]]); this is
+  /** `Dep` effect stub, mirroring `stdlib/eliot/src/eliot/effect/Dep.els` (ambient — see [[consoleStubContent]]); this is
     * just the reader operation (the `ask`) — the `provide` discharge lives in the jvm layer.
     */
   val depStubContent: String = "effect Dep[X] {\ndef dependency: X\n}"
 
-  /** `Abort`/`Throw`/`State`/`Inf` effect stubs, mirroring their `stdlib/eliot/eliot/effect/` declarations (ambient —
+  /** `Abort`/`Throw`/`State`/`Inf` effect stubs, mirroring their `stdlib/eliot/src/eliot/effect/` declarations (ambient —
     * see [[consoleStubContent]]): the bare `effect` head + its operations, no dischargers. Tests exercising a
     * discharge enrich the module via `ambientStubsWith`.
     */

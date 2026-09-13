@@ -60,7 +60,7 @@ import scala.util.control.ControlThrowable
   * bodies the `State` implementation, recorded there.
   *
   * '''What the intrinsics answer is the overlay's data.''' `escape` answers `Left`/`Right` and `withCell` answers
-  * `Pair`, each the value constructor the compile-track overlay declares (`stdlib/eliot-compiler/eliot/lang/`), applied
+  * `Pair`, each the value constructor the compile-track overlay declares (`stdlib/eliot/compiler/eliot/lang/`), applied
   * to exactly its fields — a `match` applies a handler to every spine entry — so the overlay's own `foldEither` and
   * `foldPair` take them apart like any constructed value. A twin eliminator over a private normal form was tried and
   * does not work: the deep escalation links a bodied definition *reduced at its instantiation* ahead of a raw native,

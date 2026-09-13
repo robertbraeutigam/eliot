@@ -15,7 +15,7 @@
 # Two output dirs are produced:
 #   lib/          — the LSP server's CODE classpath (lang + stdlib + jvm + eliotc + lsp + deps). Run as
 #                   `-cp "lib/*"`. These jars carry compiled classes ONLY — no .els (each layer keeps its `.els` in a
-#                   separate `eliot/` source root, not `resources/`, so they are never jar-bundled). eliot-jvm.jar is
+#                   separate `eliot/src` source root, not `resources/`, so they are never jar-bundled). eliot-jvm.jar is
 #                   here for the JVM backend *classes* the "Run main" CLI needs; the jvm module's processors are never
 #                   added to the resident server's plugin list, so the server itself emits no bytecode.
 #   compiler-lib/ — the one extra jar the JVM backend needs to BUILD a runnable jar that is not already in lib/:
@@ -47,7 +47,7 @@ copy_module_jar() { # <mill-jar-target> <destination-file>
 }
 
 # Per-module CODE jars for the server/CLI classpath. eliot-jvm.jar carries the JVM backend *classes* the "Run main" CLI
-# needs; the jars hold no .els (layer sources live in a separate `eliot/` source root, not `resources/`, so they are
+# needs; the jars hold no .els (layer sources live in a separate `eliot/src` source root, not `resources/`, so they are
 # never jar-bundled — they reach the compiler on the path as dependencies, not from this distribution). Kept as separate
 # jars (not a fat assembly) so the bundle stays honest.
 copy_module_jar ide.lsp.jar "$LIB/eliot-lsp.jar"

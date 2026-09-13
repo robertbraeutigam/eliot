@@ -33,7 +33,7 @@ already the one-layer eliminator, and what is absent is its fixed point.
 
 The evidence is that the stdlib hand-writes an eliminator for **every** `data` type it owns — `Bool`'s
 `fold`, `foldOption`, `foldEither`, `foldPair` — each a near-identical `match` over its own constructors,
-duplicated again in the `eliot-compiler/` overlay. Those are all *non*-recursive, so they are merely
+duplicated again in the `compiler/` overlay. Those are all *non*-recursive, so they are merely
 tedious; a recursive type is where the same shape stops being writable at all. (`List`'s `foldLeft` is a
 different animal — a native container's fold, not a `data` eliminator, and it stays a native. The whole
 `docs/collections.md` combinator set is then ordinary non-recursive Eliot layered over it.)

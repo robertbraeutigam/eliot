@@ -238,7 +238,7 @@ and collapsed into the endpoints once those could express an open end. See the s
 
 > **Amended a third time: the generic top is gone, and there is now no global top at all.** The
 > `implement[T ~ Meta[T]] Meta[Bound[T]]` instance kept above — `Bound[D]` as the ready-made top of any
-> domain `D` — has been deleted (`stdlib/eliot-compiler/eliot/lang/Bound.els`). It was dead code, but it was
+> domain `D` — has been deleted (`stdlib/eliot/compiler/eliot/lang/Bound.els`). It was dead code, but it was
 > not *only* dead code: it was the last place the machinery offered a top of its own, and keeping it around
 > contradicted the thing this document is for.
 >

@@ -12,7 +12,7 @@ import com.vanillasource.eliot.eliotc.source.scan.PathScan
 import java.net.URI
 import java.nio.file.Path
 
-/** The signature split, Step 7: the compile-time `Abort` carrier overlay (`stdlib/eliot-compiler/eliot/effect/Abort.els`)
+/** The signature split, Step 7: the compile-time `Abort` carrier overlay (`stdlib/eliot/compiler/eliot/effect/Abort.els`)
   * — the missing sibling of the `Either`/`Option` overlays — is well-formed Eliot and extracts into the **compiler**
   * source pool: the concrete `data AbortCarrier` plus the compile-time `Effect[AbortCarrier[G]]` / `Abort[AbortCarrier[G]]`
   * instances. It is what lets a `{Abort}`-carrier return guard (`if(cond) T else raise(msg)`) reduce on the compiler
@@ -27,7 +27,7 @@ class CompilerAbortCarrierTest extends ProcessorTest(LangProcessors(systemModule
   private val abortPath    = Path.of("eliot", "effect", "Abort.els")
   private val abortUri     = URI.create("eliot/effect/Abort.els")
 
-  // A faithful copy of `stdlib/eliot-compiler/eliot/effect/Abort.els`'s shape: the concrete carrier plus the two
+  // A faithful copy of `stdlib/eliot/compiler/eliot/effect/Abort.els`'s shape: the concrete carrier plus the two
   // compile-time ability instances (the shipped file is exercised end-to-end by the LSP/jvm suites).
   private val carrier =
     """import eliot.carrier.Effect

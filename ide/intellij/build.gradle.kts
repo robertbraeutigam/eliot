@@ -84,7 +84,7 @@ val packageServer by tasks.registering(Exec::class) {
     inputs.dir(file("../../stdlib/src"))
     inputs.dir(file("../../eliotc/src"))
     inputs.dir(file("../../jvm/src")) // the JVM backend jar is bundled in lib/ (resident type-checking) + used by "Run main"
-    // NOTE: the module `eliot/` source roots are deliberately NOT inputs. package.sh bundles CODE only — the layer
+    // NOTE: the module `eliot/src` source roots are deliberately NOT inputs. package.sh bundles CODE only — the layer
     // `.els` are never packaged; they reach the compiler on the path as dependencies (see package.sh / the plugin's
     // EliotConnectionProvider + EliotRunConfiguration). So an `.els` edit does not need to re-trigger packaging.
     outputs.dir(file("../lsp/dist/lib"))

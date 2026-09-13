@@ -129,7 +129,7 @@ Added by this plugin:
 
 - **Every stdlib name shows "Name not defined" (e.g. `printLine`)** — the standard library and platform
   layers are not bundled with the plugin; they must be on the open project's path. Confirm the workspace
-  actually contains the base/stdlib/jvm `eliot/` roots (until a build system downloads them as
+  actually contains the base/stdlib/jvm `eliot/src` roots (until a build system downloads them as
   dependencies, the open project has to provide them itself).
 - **Diagnostics never appear / a whole phase seems missing** — a fat jar may have snuck in, collapsing the
   per-layer `META-INF/services/…CompilerPlugin` files and dropping a plugin registration. The plugin must

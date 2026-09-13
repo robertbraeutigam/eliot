@@ -49,6 +49,12 @@ Modules (see `build.mill`):
 5. **examples** — example ELIOT programs
 6. **apidoc** — doc-comment facts + HTML site generation
 
+The three layer modules carry `.els` besides their Scala, and those sources are an ordinary Eliot **package** in the
+build system's standard layout — `<module>/eliot/src` (runtime) and `<module>/eliot/compiler` (the compile-time
+overlay) — parked one level down because Mill already owns `<module>/src` for the Scala. The root `eliot.pkg` is what
+says so: each layer's `at` clause names its directory, so `//lang`, `//stdlib` and `//jvm` stay the names a dependent
+selects however the tree is rearranged.
+
 ### IDE Tooling (`ide/`)
 
 Everything editor/IDE-related lives under **`ide/`**; put new editor integrations there.
@@ -334,19 +340,19 @@ native-binding routing (`ContributedBinding` + `BindingMergerProcessor`: the com
 checking, the runtime body for codegen).
 
 **The compiler platform is not a monolithic layer stacked on `stdlib`; it is assembled from each layer's opt-in
-compile-time contribution.** A layer that supports it ships, beside its runtime `eliot/` root, a sibling
-**`eliot-compiler/`** root plus Scala natives for what no Eliot body can express. The compiler pool scans the
-**entire runtime track** *plus* every root's `eliot-compiler/` overlay, and an overlay definition supersedes the
+compile-time contribution.** A layer that supports it ships, beside its runtime `src/` root, a sibling
+**`compiler/`** root plus Scala natives for what no Eliot body can express. The compiler pool scans the
+**entire runtime track** *plus* every root's `compiler/` overlay, and an overlay definition supersedes the
 borrowed one for the same name (`PathScan.overrideFiles`; the runtime track carries no override files, so its
 merge is unchanged). The compiler therefore **borrows** a runtime body wherever it is compiler-runnable — a pure
 base body, a user program's pure helper, any pure `data`/fold — with the native-leaf boundary as the fail-safe: a
 body reaching a bytecode leaf stalls **loudly**, never silently wrong.
 
 What a layer may **not** borrow is a *sibling target* (jvm) that might be absent, so a layer's compile-time track
-must be **self-sufficient** from the base plus its own `eliot-compiler/`. Roots reach the compiler via a single
-repeatable **`--path <root>/eliot`** (no separate compiler/runtime path flags, no `compiler` Mill module);
+must be **self-sufficient** from the base plus its own `compiler/`. Roots reach the compiler via a single
+repeatable **`--path <module>/eliot/src`** (no separate compiler/runtime path flags, no `compiler` Mill module);
 `LangPlugin.eliotCompilerOverlay` derives each root's sibling. **One** root ships an overlay today,
-`stdlib/eliot-compiler/`: the self-sufficient compile-time `Either`, `Option`, `Pair` and `Bound`/`Interval` (the
+`stdlib/eliot/compiler/`: the self-sufficient compile-time `Either`, `Option`, `Pair` and `Bound`/`Interval` (the
 data the evaluator's escape/cell intrinsics answer, `monomorphize/processor/EffectIntrinsics`), the two intrinsic
 declarations themselves (`eliot/compiler/Escape.els`, `eliot/compiler/Cell.els` — declared once and publicly,
 because `EffectIntrinsics` matches their exact FQNs, and compile-track-only so no user program can reach them), and
@@ -362,7 +368,7 @@ bottom, mirroring jvm's bytecode leaves.
 
 **Where to put new compiler code.** When a task needs something evaluated at compile time — an effect
 implementation, an intrinsic, an instance used only during checking — and it is expressible in ordinary Eliot, write it as **Eliot in
-the owning layer's `eliot-compiler/` root**, keeping the abstract signature in `lang`/`stdlib` and the *runtime*
+the owning layer's `compiler/` root**, keeping the abstract signature in `lang`/`stdlib` and the *runtime*
 concrete impl in `jvm`. **First ask whether it can be borrowed**: a pure body already in the base or reachable on
 the runtime track needs no overlay copy — that is how duplication is avoided. Add an overlay copy only when the
 name must be *self-sufficient* (its only runtime concrete is a sibling target's) or is a checking-only addition.

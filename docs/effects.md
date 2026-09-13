@@ -874,7 +874,7 @@ to use directly or to search. Nothing there moves.
 ### 9.3 The work list
 
 1. **The alias and its FQN — DONE (2026-09-11).** `type Implementation[A] = Type` in
-   `stdlib/eliot/eliot/lang/Implementation.els`; `WellKnownTypes.implementationTypeFQN`. Every stub prelude
+   `stdlib/eliot/src/eliot/lang/Implementation.els`; `WellKnownTypes.implementationTypeFQN`. Every stub prelude
    grew it, not only the ones that had the module: the mark is written into every declaration that takes a
    binding, so a pool without `eliot.lang.Implementation` no longer resolves (§9.2).
 2. **Mint with the declared type — DONE (2026-09-11).** `EffectSugarDesugarer` for a row entry and a `~`

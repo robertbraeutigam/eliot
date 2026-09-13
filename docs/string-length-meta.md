@@ -116,7 +116,7 @@ Mirror the integer seed. `eliot.lang.Runtime` already carries `def integerLitera
 V))}`; add its string twin and one arm in the channel:
 
 ```eliot
-// stdlib/eliot/eliot/lang/Runtime.els
+// stdlib/eliot/src/eliot/lang/Runtime.els
 def stringLiteral[N: BigInteger]: String {closed(N, N)}
 ```
 
@@ -157,7 +157,7 @@ count is both cheaper and *more* correct — one native and one name saved. See 
 *Verified, and it is a hard error, not a preference:*
 
 ```
-stdlib/eliot/eliot/lang/String.els:4: Name was already defined in this module.
+stdlib/eliot/src/eliot/lang/String.els:4: Name was already defined in this module.
   type String {length: Interval[BigInteger]}
                ^^^^^^
 ```
@@ -329,7 +329,7 @@ has.
 
 Strings are the same shape: **bytes is to `size` what the JVM's `Byte` choice is to an `Int`'s range.** An MCU
 backend that wants to lay a `[0,16]`-size string into a fixed buffer multiplies `size` by its own maximum
-bytes-per-code-point — a number only that backend knows. A `bytes` slot in `stdlib/eliot/eliot/lang/String.els`
+bytes-per-code-point — a number only that backend knows. A `bytes` slot in `stdlib/eliot/src/eliot/lang/String.els`
 would have the base layer assert that every string has a byte count, in units the base layer is forbidden to name.
 That is exactly the "no platform *representation*" line.
 
@@ -682,7 +682,7 @@ Each stage compiles and passes the example sweep on its own.
     exponent never runs, and `pow` stays decision 8's precision follow-on. Where the two documents disagreed, the
     later analysis in the document that owns R2 won.
   - **A brace could not name a number**, which is what actually gated the stage — see §6's *"what S4 needed that did
-    not exist"*. One compile-time-only helper (`boundedAt[V]`) closed it, in `stdlib/eliot-compiler/`, which is also
+    not exist"*. One compile-time-only helper (`boundedAt[V]`) closed it, in `stdlib/eliot/compiler/`, which is also
     the first time this domain needed anything in the compiler overlay at all. **Superseded**: the premise was wrong
     rather than the spelling — a brace is compiler-track, so its literals are `BigInteger`s like a signature's. The
     helper is deleted and the braces read `Bounded(0)` / `Bounded(0 - 1)`; §6 records what that removed.

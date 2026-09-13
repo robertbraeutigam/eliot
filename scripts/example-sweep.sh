@@ -97,7 +97,7 @@ for module in "${modules[@]}"; do
 
   java -cp "$classpath" com.vanillasource.eliot.eliotc.compiler.Main \
     jvm exe-jar examples/src/ -m "$module" \
-    --path lang/eliot --path stdlib/eliot --path jvm/eliot > "$tmp/compile.out" 2>&1
+    --path lang/eliot/src --path stdlib/eliot/src --path jvm/eliot/src > "$tmp/compile.out" 2>&1
   compile_status=$?
 
   {
