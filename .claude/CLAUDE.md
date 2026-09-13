@@ -55,6 +55,19 @@ overlay) — parked one level down because Mill already owns `<module>/src` for 
 says so: each layer's `at` clause names its directory, so `//lang`, `//stdlib` and `//jvm` stay the names a dependent
 selects however the tree is rearranged.
 
+### Releases: the `v0` line
+
+This repository is an Eliot package (root `eliot.pkg`), so it is versioned the way the build system
+versions every package: **a major version is a branch, a release is an annotated tag on it.** Development
+happens on `master`; releases are cut onto the line branch. The line is **`v0`** and its first release is
+**`v0.0`** (2026-09-13, the commit where the layers moved into the standard layout) — v0 rather than v1
+because a line is an append-only promise about exported signatures, `eliot compat-check` does not exist
+yet, and the base still changes shape wholesale. `v0.0`'s commit is also the line's *lineage anchor*, the
+identity two spellings of this repository's URL are unified by, so it never moves.
+
+To publish a release: fast-forward `v0` to the commit, `git tag -a v0.<n>` on it, push both. Tags must be
+**annotated** — the resolver reads the peeled ref and a lightweight tag has none.
+
 ### IDE Tooling (`ide/`)
 
 Everything editor/IDE-related lives under **`ide/`**; put new editor integrations there.
