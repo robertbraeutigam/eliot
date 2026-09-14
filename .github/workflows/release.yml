@@ -1,0 +1,98 @@
+# Publishing this repository is publishing its layers' compiler plugins. The root `eliot.pkg` names one
+# release asset per module that ships one — `eliot-compiler.zip`, `eliot-stdlib.zip`, `eliot-jvm.zip` —
+# at the tag a consumer already selected, so a package that says `dep github.com/…/eliot//jvm v0.1` has
+# named both the sources and the binaries that compile them, and neither can skew from the other: they
+# are the same commit. That only works if the tag actually carries the assets, and this is what puts
+# them there.
+#
+# Nothing here decides anything about packaging. `scripts/package-assets.sh` owns the partition and
+# checks it (disjoint, complete, jars at the top level); this file is the trigger, the release, and the
+# notes that record each asset's sha256.
+#
+# Two ways in, and the second exists because tags came before the workflow did: a tag push publishes
+# itself, and a manual run publishes a tag that is already pushed.
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: An existing tag to build and publish the assets for.
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  assets:
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
+          # The whole history, so the tag object itself is here to be inspected below.
+          fetch-depth: 0
+
+      # A release is an annotated tag on a line branch. The resolver reads the peeled ref, which a
+      # lightweight tag does not have, so a lightweight tag is a release no package can ever select —
+      # and it fails at whoever depends on it rather than here. Refuse it here instead.
+      - name: The tag is annotated
+        run: |
+          [ "$(git cat-file -t "$TAG")" = tag ] ||
+             { echo "::error::$TAG is a lightweight tag; a release must be annotated (git tag -a)."; exit 1; }
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/coursier
+            ~/.mill
+          key: mill-${{ hashFiles('build.mill', '.mill-version') }}
+          restore-keys: mill-
+
+      # The repository's own suite, as the gate. An asset published from a red commit is a compiler
+      # every consumer of this tag resolves to, and this workflow is the only thing that runs the suite
+      # before that happens.
+      - name: The suite is green
+        run: ./mill __.test
+
+      - name: The assets
+        run: ./scripts/package-assets.sh out/release
+
+      # The sha256 of every asset, in the notes. Nothing in the chain checks one — the launcher pin
+      # carries no hash, and when `eliot.lock` lands it will record what it fetched rather than what it
+      # was promised — so this is here for whoever wants to check by hand, and as the published record
+      # against which a lockfile's entry can be read.
+      - name: The notes
+        run: |
+          {
+            echo "Compiler plugin assets for \`$TAG\`, one per module of this repository that ships one."
+            echo
+            echo "| asset | sha256 |"
+            echo "| --- | --- |"
+            (cd out/release && sha256sum *.zip | while read -r sum name; do echo "| \`$name\` | \`$sum\` |"; done)
+            echo
+            echo "A published asset is never replaced. A mistake in one is a new tag."
+          } > out/notes.md
+          cat out/notes.md
+
+      # `--verify-tag` so a mistyped manual run refuses rather than creating a tag. The upload path is
+      # for repeating a run that failed partway; it is not a way to replace an asset somebody may
+      # already have fetched, which is what the promise above rules out and a new tag is for.
+      - name: The release
+        run: |
+          if gh release view "$TAG" > /dev/null 2>&1; then
+             gh release edit "$TAG" --notes-file out/notes.md
+             gh release upload "$TAG" out/release/*.zip --clobber
+          else
+             gh release create "$TAG" --verify-tag --title "$TAG" --notes-file out/notes.md out/release/*.zip
+          fi

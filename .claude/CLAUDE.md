@@ -66,7 +66,17 @@ yet, and the base still changes shape wholesale. `v0.0`'s commit is also the lin
 identity two spellings of this repository's URL are unified by, so it never moves.
 
 To publish a release: fast-forward `v0` to the commit, `git tag -a v0.<n>` on it, push both. Tags must be
-**annotated** — the resolver reads the peeled ref and a lightweight tag has none.
+**annotated** — the resolver reads the peeled ref and a lightweight tag has none, and
+`.github/workflows/release.yml` refuses a lightweight tag rather than letting it fail at whoever depends
+on it.
+
+Pushing the tag is the whole of publishing. That workflow runs `./mill __.test`, builds the three plugin
+assets `eliot.pkg` declares (`scripts/package-assets.sh`) and creates the GitHub release with their
+sha256s in the notes — so a tag carries the sources *and* the compiler binaries built from them, which
+is what lets a consumer's one `dep` line select both at once. A tag pushed before the workflow existed
+is published by running it manually with that tag as its input. **A published asset is never replaced**:
+that promise is why the launcher pin carries no hash, so a mistake in an asset is a new tag, never a
+re-upload.
 
 ### IDE Tooling (`ide/`)
 
