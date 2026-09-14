@@ -1,27 +1,47 @@
 -- The eliot repository as an Eliot package: the language's own layers, described in the format the
--- build tool reads. Inert so far — nothing resolves this yet (there are no version tags, and source
--- assembly is unwritten) — but it is where this repo's layout stops being folklore.
+-- build tool reads. No longer inert — v0.0 is released and eliot.build resolves this file — and it is
+-- where this repo's layout stopped being folklore.
 --
 -- Every layer says `at`, because this repository cannot have the layout the convention assumes: it is
 -- polyglot and always will be (the compiler is Scala), so Mill owns `lang/src` and the Eliot package
 -- sits at `lang/eliot` beside it. The names stay `lang`, `stdlib`, `jvm` — what `//lang` selects is
 -- the module, never its directory.
 --
--- Not here yet: the `plugin` clauses naming the compiler-plugin jars each layer ships. They are exact
--- Maven coordinates plus hashes, and there is nothing published to name.
+-- One asset per module. Each layer ships its compiler plugin as a release asset of this repository at
+-- the tag the consumer already selected — no coordinate, no version, no URL, and nothing that can skew
+-- from the sources it was built from, because they are the same tag. Each asset holds that module's own
+-- jar and the dependencies only it has; nothing is merged, so the per-module service registrations a
+-- fat jar would collapse stay separate. `ide/lsp/package.sh` already assembles exactly this shape.
+--
+-- `lang` carries the `compiler` marker, and its asset is the one that is not just a layer's own jar:
+-- it holds `eliotc`'s too. `eliotc` is the only directory here with no `.els` at all, which makes it
+-- the one thing in this repository that cannot be an Eliot package — nothing could ever `dep` it,
+-- since a dep line is a statement about sources. Its jar has to ride with a package, and `lang` is the
+-- package in every program's closure. That, rather than any claim that lang is the compiler, is why
+-- the marker sits here.
+--
+-- `apidoc` is in the same position and is deliberately not declared: a backend with no sources of its
+-- own, which nothing depends on and which therefore becomes a module the day a configuration names it.
 
 module lang {
   at lang/eliot
+  plugin eliot-compiler.zip {
+    compiler
+  }
 }
 
 module stdlib {
   at stdlib/eliot
   dep //lang
+  plugin eliot-stdlib.zip
 }
 
 module jvm {
   at jvm/eliot
   dep //stdlib
+  plugin eliot-jvm.zip {
+    backend jvm
+  }
 }
 
 module examples {
