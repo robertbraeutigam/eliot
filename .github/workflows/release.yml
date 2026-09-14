@@ -65,6 +65,20 @@ jobs:
       - name: The suite is green
         run: ./mill __.test
 
+      # Everything that gets packaged comes from the tag. The packaging *tooling* cannot, and that is
+      # the whole point of the manual path: a tag pushed before this workflow existed carries no
+      # `scripts/package-assets.sh`, and the checkout above has just replaced the tree with that tag's.
+      # v0.1 is exactly that tag, and it failed here with "No such file or directory". So the tooling
+      # comes from the ref the run was dispatched from, and the sources it packages from the tag.
+      #
+      # That mixes two commits, and it is safe because the script decides nothing on its own: the
+      # partition is a rule read off the tag's own module graph (`mill show`), and disjoint/complete
+      # are checked against the tag's own build. A script newer than the tag can therefore only fail
+      # loudly — a module it names and the tag does not have is a `mill` error — never quietly publish
+      # something else. On a tag push `$GITHUB_SHA` *is* the tag's commit, so this is a no-op there.
+      - name: The release tooling
+        run: git checkout "$GITHUB_SHA" -- scripts/package-assets.sh
+
       - name: The assets
         run: ./scripts/package-assets.sh out/release
 

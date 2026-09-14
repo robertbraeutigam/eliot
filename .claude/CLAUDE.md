@@ -74,7 +74,9 @@ Pushing the tag is the whole of publishing. That workflow runs `./mill __.test`,
 assets `eliot.pkg` declares (`scripts/package-assets.sh`) and creates the GitHub release with their
 sha256s in the notes — so a tag carries the sources *and* the compiler binaries built from them, which
 is what lets a consumer's one `dep` line select both at once. A tag pushed before the workflow existed
-is published by running it manually with that tag as its input. **A published asset is never replaced**:
+is published by running it manually with that tag as its input — and such a tag carries no packaging
+script, so the workflow takes `scripts/package-assets.sh` from the ref the run was dispatched from and
+everything it packages from the tag. **A published asset is never replaced**:
 that promise is why the launcher pin carries no hash, so a mistake in an asset is a new tag, never a
 re-upload.
 
