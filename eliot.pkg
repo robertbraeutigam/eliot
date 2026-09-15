@@ -2,15 +2,16 @@
 -- build tool reads. No longer inert — v0.0 is released and eliot.build resolves this file — and it is
 -- where this repo's layout stopped being folklore.
 --
--- Every layer says `at`, because this repository cannot have the layout the convention assumes: it is
+-- Every layer says `at` — its *package root*, the directory holding `src/` and `compiler/` — because
+-- this repository cannot have the layout the convention assumes: it is
 -- polyglot and always will be (the compiler is Scala), so Mill owns `lang/src` and the Eliot package
 -- sits at `lang/eliot` beside it. The names stay `lang`, `stdlib`, `jvm` — what `//lang` selects is
--- the module, never its directory.
+-- the package, never its directory.
 --
--- One asset per module. Each layer ships its compiler plugin as a release asset of this repository at
+-- One asset per package. Each layer ships its compiler plugin as a release asset of this repository at
 -- the tag the consumer already selected — no coordinate, no version, no URL, and nothing that can skew
--- from the sources it was built from, because they are the same tag. Each asset holds that module's own
--- jar and the dependencies only it has; nothing is merged, so the per-module service registrations a
+-- from the sources it was built from, because they are the same tag. Each asset holds that package's own
+-- jar and the dependencies only it has; nothing is merged, so the per-package service registrations a
 -- fat jar would collapse stay separate. `ide/lsp/package.sh` already assembles exactly this shape.
 --
 -- `lang` carries the `compiler` marker, and its asset is the one that is not just a layer's own jar:
@@ -23,20 +24,20 @@
 -- `apidoc` is in the same position and is deliberately not declared: a backend with no sources of its
 -- own, which nothing depends on and which therefore becomes a module the day a configuration names it.
 
-module lang {
+package lang {
   at lang/eliot
   plugin eliot-compiler.zip {
     compiler
   }
 }
 
-module stdlib {
+package stdlib {
   at stdlib/eliot
   dep //lang
   plugin eliot-stdlib.zip
 }
 
-module jvm {
+package jvm {
   at jvm/eliot
   dep //stdlib
   plugin eliot-jvm.zip {
@@ -44,7 +45,7 @@ module jvm {
   }
 }
 
-module examples {
+package examples {
   internal
   dep //jvm
 }
