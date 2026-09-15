@@ -1,0 +1,10 @@
+-- The launcher this repository is read with, and the only file `eliotw` reads. One line: the tag.
+--
+-- Read rather than built: this repository is polyglot and the compiler in it is Scala, so `mill` builds
+-- it and always will. What the launcher is for here is seeing this package the way a *consumer* sees it
+-- — `./eliotw roots test` prints the eight source roots the layers' `at` clauses resolve to, which is
+-- the one check that the descriptor everybody else depends on says what it means to say.
+--
+-- Keeping the pin out of `eliot.pkg` is what lets the wrapper stay a dumb script — a shell loop over
+-- lines is not a parser, and the wrapper has to work in a checkout no eliot has ever run in.
+v0.1

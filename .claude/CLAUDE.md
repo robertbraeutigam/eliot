@@ -80,6 +80,24 @@ everything it packages from the tag. **A published asset is never replaced**:
 that promise is why the launcher pin carries no hash, so a mistake in an asset is a new tag, never a
 re-upload.
 
+### `eliotw` — this repository as a package, from the outside
+
+`eliotw` and `.eliot-version` are here, byte-identical to every other repository's, and they do **not**
+build this one: this repo is polyglot, the compiler in it is Scala, and `mill` builds it. What the
+wrapper is for here is reading the descriptor the way a consumer does, which is the one thing no test in
+this repository can do:
+
+```bash
+./eliotw resolve test      # what this package's own dependencies close over (nothing, today)
+./eliotw roots test        # the eight source roots the layers' `at` clauses resolve to
+```
+
+That second command is worth running before cutting a release. Every consumer's build mounts exactly
+those directories, derived from `eliot.pkg`'s `module`/`at` clauses — so a typo in one is invisible here,
+compiles fine, passes `./mill __.test`, and then silently mounts nothing at whoever depends on the tag.
+
+It fetches the launcher release `.eliot-version` pins, which needs no compiler checkout and no mill.
+
 ### IDE Tooling (`ide/`)
 
 Everything editor/IDE-related lives under **`ide/`**; put new editor integrations there.

@@ -1,0 +1,129 @@
+#!/bin/sh
+#
+# The eliot wrapper: the one committed file that needs an eliot to be absent.
+#
+# Version-free and byte-identical in every repository — all the variance lives in `.eliot-version`
+# beside it — so "copy this script from anywhere" is literally true and no repository is ever a
+# version behind its own wrapper. Its whole job is four steps: find a JRE, read the pinned launcher
+# version, fetch that launcher once into a machine-level cache and verify it, then execute it.
+# Everything smart rides the dependency graph and is none of this script's business.
+#
+# The committed side pins *what*; the environment chooses *where from*. ELIOT_LAUNCHER_REPOSITORY
+# redirects the download at a mirror, because the same repository has to build inside and outside a
+# firewall — a mirror is consumer configuration, never package content.
+#
+# There is no hash here, and the reason is worth stating. A published launcher asset is never
+# replaced: a mistake in one is a new tag, which is a promise the publisher keeps rather than a check
+# the consumer runs. That plus TLS is what a pinned hash would have been adding to, and adding it
+# *here* would have verified exactly one link of a chain — the compiler, every layer and every
+# dependency below it arrive by tag with nothing checked. When that changes it changes in one place,
+# `eliot.lock`, which is where this design already sends every other asset's hash, tool-written and
+# recorded on first fetch. Each release publishes its sha256 for anyone who wants to check by hand.
+
+set -eu
+
+fail() {
+   echo "eliotw: $1" >&2
+   exit 1
+}
+
+# Where this script actually lives, following a chain of symlinks to get there — `dirname "$0"` is
+# the link's directory, not the wrapper's, and a wrapper symlinked into a project is the whole point
+# of one script being byte-identical everywhere.
+scriptPath=$0
+while
+   scriptDirectory=${scriptPath%"${scriptPath##*/}"}
+   [ -h "$scriptPath" ]
+do
+   linkListing=$(ls -ld "$scriptPath")
+   linkTarget=${linkListing#*' -> '}
+   case $linkTarget in
+      /*) scriptPath=$linkTarget ;;
+      *) scriptPath=$scriptDirectory$linkTarget ;;
+   esac
+done
+scriptDirectory=$(cd "${scriptDirectory:-./}" > /dev/null && pwd -P)
+pinFile="$scriptDirectory/.eliot-version"
+launcherRepository="${ELIOT_LAUNCHER_REPOSITORY:-https://github.com/eliotlang/eliot-build}"
+launcherAsset="eliot-launcher.jar"
+cacheDirectory="${ELIOT_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/eliot}"
+
+# The pin: `--` comments, then one line holding the tag. That is the whole file, and the whole of
+# what a version bump costs — one hand edit, mill's ergonomics, nothing to compute and nothing to
+# commit twice. There is deliberately no default version: a baked-in one drifts, and "no pin means
+# latest" trades reproducibility for a convenience nobody asked for.
+[ -f "$pinFile" ] || fail "no '.eliot-version' beside this script. It pins the launcher this project
+   builds with, and there is no default: write one line naming a tag, such as 'v0.0'."
+
+pinnedVersion=""
+carriageReturn=$(printf '\r')
+tab=$(printf '\t')
+
+# A carriage return is a field separator rather than part of a word, so a pin committed from a
+# Windows checkout reads as the same words it reads as everywhere else. Without this the tag carries
+# a `\r` into the download URL, and what a user sees is curl rejecting a malformed URL.
+while IFS=" $tab$carriageReturn" read -r pinnedWord _rest || [ -n "${pinnedWord:-}" ]; do
+   case "$pinnedWord" in
+      "" | --*) continue ;;
+   esac
+   [ -z "$pinnedVersion" ] || continue
+
+   pinnedVersion="$pinnedWord"
+done < "$pinFile"
+
+[ -n "$pinnedVersion" ] || fail "'$pinFile' names no launcher version. One line holding a tag, such
+   as 'v0.0', is the whole file."
+
+# A JAVA_HOME that is set and wrong is an error rather than a reason to look elsewhere. Falling
+# through to the PATH would silently run the build on a different JVM than the one the user pointed
+# at, and a build that runs on the wrong JVM is worse than one that does not run.
+if [ -n "${JAVA_HOME:-}" ]; then
+   java="$JAVA_HOME/bin/java"
+   [ -x "$java" ] || fail "JAVA_HOME is set to '$JAVA_HOME', which holds no executable bin/java.
+   Point it at a JRE or JDK, or unset it to use the one on the PATH."
+elif command -v java > /dev/null 2>&1; then
+   java=java
+else
+   fail "no java found. Set JAVA_HOME or put java on the PATH — the launcher is a jar, and providing
+   a JRE is not this script's job."
+fi
+
+launcherDirectory="$cacheDirectory/launcher/$pinnedVersion"
+launcherJar="$launcherDirectory/$launcherAsset"
+
+if [ ! -f "$launcherJar" ]; then
+   # One concatenation on the launcher's own repository and tag — the same URL shape every binary in
+   # this system is fetched by, so the wrapper needs no coordinates and no resolution logic at all.
+   launcherUrl="$launcherRepository/releases/download/$pinnedVersion/$launcherAsset"
+   partialJar="$launcherJar.partial.$$"
+
+   mkdir -p "$launcherDirectory"
+   echo "eliotw: fetching the eliot launcher $pinnedVersion from $launcherUrl" >&2
+   if command -v curl > /dev/null 2>&1; then
+      curl --fail --location --silent --show-error --connect-timeout 30 \
+         --output "$partialJar" "$launcherUrl" ||
+         { rm -f "$partialJar"; fail "could not fetch $launcherUrl"; }
+   elif command -v wget > /dev/null 2>&1; then
+      wget --quiet --connect-timeout=30 --output-document "$partialJar" "$launcherUrl" ||
+         { rm -f "$partialJar"; fail "could not fetch $launcherUrl"; }
+   else
+      fail "neither curl nor wget is installed, and one of them has to fetch the launcher."
+   fi
+
+   # Named as the launcher only once it is whole: a download interrupted halfway leaves a
+   # `.partial` beside the cache entry rather than a truncated jar inside it.
+   mv "$partialJar" "$launcherJar"
+fi
+
+# The JVM this script picked, handed on to the launcher, which spawns a compiler on one. This is the
+# whole of what the wrapper tells the tool about the machine, and it is here for the same reason
+# everything else is: the launcher cannot find it out. Honouring JAVA_HOME is a decision made above,
+# once, and a build that then compiled on whatever `java` happens to mean on the PATH would be a
+# different JVM than the one the user pointed at — silently, and only for half the work.
+export ELIOT_JAVA="$java"
+
+# ELIOT_OPTS is the way to reach the JVM the launcher runs on — heap, a proxy, an --add-opens. Split
+# on whitespace and not otherwise quoted, which is the honest limit of doing this in a shell: an
+# option carrying a space in it belongs in a JAVA_TOOL_OPTIONS the JVM parses itself.
+# shellcheck disable=SC2086
+exec "$java" ${ELIOT_OPTS:-} -jar "$launcherJar" "$@"
