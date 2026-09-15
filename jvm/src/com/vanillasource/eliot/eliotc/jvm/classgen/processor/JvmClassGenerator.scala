@@ -38,7 +38,7 @@ import com.vanillasource.eliot.eliotc.uncurry.fact.*
 import com.vanillasource.eliot.eliotc.uncurry.fact.UncurriedMonomorphicExpression.*
 import com.vanillasource.eliot.eliotc.used.UsedNames
 import com.vanillasource.eliot.eliotc.used.UsedNames.UsageStats
-import org.objectweb.asm.Opcodes
+import org.objectweb.asm.{Label, Opcodes}
 
 class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with Logging {
 
@@ -488,8 +488,8 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
     }
   }
 
-  /** The synthesized entry point: stash the program arguments where `eliot.system.Environment` can read them, then call
-    * the woven `main`.
+  /** The synthesized entry point: stash the program arguments where `eliot.system.Environment` can read them, call the
+    * woven `main`, and report the exit code the program registered.
     *
     * The arguments arrive as the parameter of a `static main(String[])`, which is a stack slot no leaf native in another
     * class can reach, so they are copied into a public static field of this very class and
@@ -499,10 +499,25 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
     *
     * `Arrays.asList` wraps the array without copying it; nothing mutates it afterwards, and Eliot's `List` is immutable
     * by contract (`append` builds a fresh list), so the wrapper is safe to hand out as an ordinary `List`.
+    *
+    * The exit code travels the same way in reverse: `eliot.system.Process.registerExitCode` writes
+    * [[SystemNatives.exitCodeField]] on this class, and the tail below reads it once `main` has returned and hands it
+    * to `System.exit`. Reading it *after* the call is the whole of "the code is registered, not acted on" — every
+    * registration the program made has already happened, the last one won, and nothing the program was in the middle
+    * of was cut short. A program that dies instead of returning never reaches the tail at all, and the JVM reports
+    * the uncaught failure itself.
+    *
+    * **Zero returns rather than exits.** The field defaults to `0`, so the guard makes a program that reports success
+    * end exactly as it did before this existed. That is invisible from outside the process — returning from
+    * `main(String[])` *is* exit `0` — but not from inside one: an in-process host that invokes this method
+    * reflectively (the integration harness here, which is why `runJarBounded` exists for `{Inf}` programs) does not
+    * survive a `System.exit`, and the overwhelmingly common program has nothing to report. A program that does
+    * register a non-zero code still terminates such a host, which is what a real exit code means.
     */
   private def createApplicationMain(mainVfqn: ValueFQN, generator: ClassGenerator): CompilerIO[Unit] =
     for {
       _ <- generator.createPublicStaticField[CompilerIO](SystemNatives.argumentsField, SystemNatives.argumentsFieldDescriptor)
+      _ <- generator.createPublicStaticField[CompilerIO](SystemNatives.exitCodeField, SystemNatives.exitCodeFieldDescriptor)
       _ <- generator.createMainMethod[CompilerIO]().use { methodGenerator =>
              methodGenerator.runNative[CompilerIO] { mv =>
                mv.visitVarInsn(Opcodes.ALOAD, 0)
@@ -519,7 +534,27 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                  SystemNatives.argumentsField,
                  SystemNatives.argumentsFieldDescriptor
                )
-             } >> methodGenerator.addCallTo(mainVfqn, Seq.empty, systemUnitValue)
+             } >> methodGenerator.addCallTo(mainVfqn, Seq.empty, systemUnitValue) >>
+             methodGenerator.runNative[CompilerIO] { mv =>
+               val reportedZero = new Label()
+
+               mv.visitInsn(Opcodes.POP) // the `Void` main answered with
+               mv.visitFieldInsn(
+                 Opcodes.GETSTATIC,
+                 SystemNatives.argumentsHolderClass,
+                 SystemNatives.exitCodeField,
+                 SystemNatives.exitCodeFieldDescriptor
+               )
+               mv.visitJumpInsn(Opcodes.IFEQ, reportedZero)
+               mv.visitFieldInsn(
+                 Opcodes.GETSTATIC,
+                 SystemNatives.argumentsHolderClass,
+                 SystemNatives.exitCodeField,
+                 SystemNatives.exitCodeFieldDescriptor
+               )
+               mv.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/System", "exit", "(I)V", false)
+               mv.visitLabel(reportedZero)
+             }
            }
     } yield ()
 

@@ -29,12 +29,19 @@ def standardOutput(result: ProcessResult): String
 def standardError(result: ProcessResult): String
 
 /**
- * Running other programs.
+ * The process model a hosted operating system offers: running other programs, and what this one
+ * reports when it ends.
  *
- * The effect a language-owned build tool is built on: resolution shells out to `git`, and the build
- * spawns the compiler as its own process. Both operations take the command as a **list of
- * arguments**, never as a string to be re-split — quoting rules are the one part of process
- * spawning that is different on every platform and wrong in every hand-rolled implementation.
+ * The effect a language-owned build tool is built on: resolution shells out to `git`, the build
+ * spawns the compiler as its own process, and the tool reports to the shell that invoked it whether
+ * any of that worked. The two spawning operations take the command as a **list of arguments**,
+ * never as a string to be re-split — quoting rules are the one part of process spawning that is
+ * different on every platform and wrong in every hand-rolled implementation.
+ *
+ * A target with no process model simply ships no default `implement Process`, so a `{Process}`
+ * program fails at the run boundary there — the layer system is the capability, exactly as it is
+ * for `Environment` and `FileSystem`. That is also why an exit code may be named here at all: a
+ * platform that has no notion of one is a platform on which none of this effect exists.
  *
  * ```eliot
  * def tags(repository: Path): {Process, Throw[IoError]} String = {
@@ -52,9 +59,9 @@ def standardError(result: ProcessResult): String
  * one `catch`, not two.
  *
  * There is no process *handle* and no streaming, by the same reasoning as `eliot.file`'s whole-file
- * surface: both operations here start a process and wait for it, so nothing can be left running.
- * Interactive or long-lived children are future work, and will need the bracket machinery that file
- * handles are also waiting on.
+ * surface: both spawning operations start a process and wait for it, so nothing can be left
+ * running. Interactive or long-lived children are future work, and will need the bracket machinery
+ * that file handles are also waiting on.
  */
 effect Process {
    /**
@@ -75,6 +82,41 @@ effect Process {
     * would have nowhere to come from; that is why this yields the code alone.
     */
    def runInheritingIo(command: List[String], workingDirectory: Path): {Throw[IoError]} Int
+
+   /**
+    * Register the code this program reports to whoever started it, zero conventionally meaning
+    * success and anything else failure.
+    *
+    * Nothing happens at the call: the code is **recorded**, and the program carries straight on. So
+    * a program decides its outcome where the decision is actually made, goes on to write its
+    * summary, close what it opened and return normally, and nothing it was in the middle of is
+    * skipped. Registering again replaces what was registered before — the last decision is the one
+    * reported — and a program that never registers reports zero.
+    *
+    * The registered code is read when the program **terminates normally**. A program that dies
+    * instead — an uncaught failure reaching the entry point — reports whatever the platform makes of
+    * that, and what was registered is never read.
+    *
+    * A platform may narrow the code: a POSIX system reports the low eight bits of it, so a program
+    * that wants to be understood everywhere registers something in `0 .. 255`. Nothing checks this
+    * yet.
+    *
+    * ```eliot
+    * // Compile one module, answering whether it succeeded.
+    * def compile(module: Module): {Console, Process} Bool
+    *
+    * // Build every module, and tell the shell that invoked us if any of them failed. The
+    * // registration sits where the decision is made; the summary below it still runs.
+    * def build(modules: List[Module]): {Console, Process} Unit = {
+    *    val succeeded = modules.all(compile)
+    *
+    *    if(succeeded, unit) else registerExitCode(1)
+    *
+    *    printLine("built " ++ show(modules.size) ++ " modules")
+    * }
+    * ```
+    */
+   def registerExitCode(code: Int): Unit
 }
 
 /**

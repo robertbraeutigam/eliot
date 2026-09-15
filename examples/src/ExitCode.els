@@ -1,0 +1,29 @@
+// A program's exit code: the outcome it reports to whoever started it (`eliot.system.Process`).
+//
+// `registerExitCode` records the code and nothing more — the program carries straight on. That is what lets the
+// decision sit where it is actually made, in the middle of the work, while the summary below it still runs and the
+// program still returns normally. A program that never registers reports zero, and registering twice reports the
+// last one.
+
+import eliot.system.Process
+
+// Check one module name, saying what is wrong and answering whether it was acceptable.
+def check(module: String): {Console} Bool =
+   if(module.isEmpty, {
+      printLine("error: blank module name")
+      false
+   }) else {
+      printLine("checking " ++ module)
+      true
+   }
+
+// Two checks, one of which fails. The failure is registered where it is discovered, and the program then reports
+// what it did and ends normally — the shell sees exit code 1, not a crash.
+def main: {Console, Process} Unit = {
+   val core = check("core")
+   val blank = check("")
+
+   if(core && blank, unit) else registerExitCode(1)
+
+   printLine("finished")
+}

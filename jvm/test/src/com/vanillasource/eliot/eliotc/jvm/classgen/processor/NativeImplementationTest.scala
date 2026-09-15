@@ -39,7 +39,7 @@ class NativeImplementationTest extends AnyFlatSpec with Matchers {
       "existsInternal", "isDirectoryInternal", "listDirectoryInternal", "walkInternal",
       "createDirectoriesInternal", "deleteInternal", "foldLinesInternal", "foldCodePointsInternal",
       "argumentsInternal", "environmentVariableInternal", "workingDirectoryInternal",
-      "runInternal", "runInheritingIoInternal"
+      "runInternal", "runInheritingIoInternal", "registerExitCodeInternal"
     )
   }
 }

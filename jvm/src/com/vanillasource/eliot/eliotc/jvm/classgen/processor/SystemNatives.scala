@@ -17,13 +17,15 @@ import org.objectweb.asm.{Label, MethodVisitor}
   * operations catch their exception into a four-slot `Object[]` holder (`ProcessOutcome`) that the Eliot instance
   * reflects into `Throw[IoError]`.
   *
-  * The one piece that is not a plain delegation is `argumentsInternal`. A JVM program receives its arguments as the
-  * parameter of `main`, which is a *stack slot of a method in another class* — nothing a leaf native can reach. So
-  * [[JvmClassGenerator]] has the synthesized entry point stash them in a public static field of its own class
+  * Two pieces are not plain delegations, and both cross into the entry-point class. A JVM program receives its
+  * arguments as the parameter of `main`, which is a *stack slot of a method in another class* — nothing a leaf native
+  * can reach. So [[JvmClassGenerator]] has the synthesized entry point stash them in a public static field of its class
   * ([[SystemNatives.argumentsHolderClass]] / [[SystemNatives.argumentsField]]) before calling the user's `main`, and
   * this native reads that field. The entry-point class is the one class an executable jar is guaranteed to have, which
   * is why the field lives there rather than on `Environment`'s own class — a program that never mentions `Environment`
-  * does not generate that class at all.
+  * does not generate that class at all. `registerExitCodeInternal` crosses the same way in the other direction: it
+  * writes [[SystemNatives.exitCodeField]] on that class, which the entry point reads and hands to `System.exit` once
+  * the program's `main` has returned.
   */
 object SystemNatives {
 
@@ -37,6 +39,7 @@ object SystemNatives {
   private val stringType: ValueFQN  = systemLangType("String")
   private val boolType: ValueFQN    = systemLangType("Bool")
   private val intType: ValueFQN     = systemLangType("Int")
+  private val unitType: ValueFQN    = systemLangType("Unit")
   private val listType: ValueFQN    = systemCollectionType("List")
 
   /** The class the synthesized entry point stashes the program arguments in — module `main`, the executable jar's
@@ -50,6 +53,15 @@ object SystemNatives {
   val argumentsField: String = "eliot$arguments"
 
   val argumentsFieldDescriptor: String = "Ljava/util/List;"
+
+  /** The field the registered exit code is stashed in, on the same entry-point class and for the same reason.
+    *
+    * A primitive `int` rather than a boxed `Int`: it is never an Eliot value again — the entry point's only use of it
+    * is `System.exit(I)V` — and a primitive static defaults to `0`, which is exactly "nothing was registered".
+    */
+  val exitCodeField: String = "eliot$exitCode"
+
+  val exitCodeFieldDescriptor: String = "I"
 
   private val JString      = "java/lang/String"
   private val JObject      = "java/lang/Object"
@@ -85,6 +97,7 @@ object SystemNatives {
     // --- eliot.system.Process ---
     entry(processFqn("runInternal"), Seq(listType, pathType), outcomeType, impure = true)(runCapturing),
     entry(processFqn("runInheritingIoInternal"), Seq(listType, pathType), outcomeType, impure = true)(runInheriting),
+    entry(processFqn("registerExitCodeInternal"), Seq(intType), unitType, impure = true)(registerExitCode),
     entry(processFqn("outcomeErrorMessage"), Seq(outcomeType), stringType)(slot(0, JString)),
     entry(processFqn("outcomeExitCode"), Seq(outcomeType), intType)(slot(1, JBigInteger)),
     entry(processFqn("outcomeStandardOutput"), Seq(outcomeType), stringType)(slot(2, JString)),
@@ -170,6 +183,20 @@ object SystemNatives {
   // --------------------------------------------------------------------------------------------------------------
   // Process
   // --------------------------------------------------------------------------------------------------------------
+
+  /** `registerExitCode`: stash the code for the entry point to report, and answer `unit`.
+    *
+    * The argument arrives at the `Int` boundary width — a `BigInteger`, the sound top representation every method
+    * descriptor uses — and narrows here, which is where it stops being an Eliot number: what the field holds is the
+    * `int` `System.exit` takes. A code outside the `int` range is truncated by `intValue` exactly as an operating
+    * system truncates one outside its own range; nothing checks either yet (base `registerExitCode`'s doc).
+    */
+  private def registerExitCode(mv: MethodVisitor): Unit = {
+    mv.visitVarInsn(ALOAD, 0)
+    mv.visitMethodInsn(INVOKEVIRTUAL, JBigInteger, "intValue", "()I", false)
+    mv.visitFieldInsn(PUTSTATIC, argumentsHolderClass, exitCodeField, exitCodeFieldDescriptor)
+    mv.visitInsn(ACONST_NULL)
+  }
 
   /** `run`: capture both streams. */
   private def runCapturing(mv: MethodVisitor): Unit = runProcess(mv, capturing = true)

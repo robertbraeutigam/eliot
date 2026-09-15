@@ -18,6 +18,10 @@ import java.nio.file.Path
   * One consequence of the harness: it invokes `main(String[])` reflectively with an empty array, so a program under
   * test sees no arguments — which is what the `arguments` case asserts, and is a real property (a program run with no
   * arguments must see an empty list, never a null).
+  *
+  * The `registerExitCode` cases are the exception: an exit code is a property of a real process and a non-zero one
+  * ends in `System.exit`, so they run their program out-of-process through `compileAndRunToCompletion` and assert on
+  * the code as well as on the output.
   */
 class SystemIoIntegrationTest extends FullIntegrationTest {
 
@@ -90,6 +94,46 @@ class SystemIoIntegrationTest extends FullIntegrationTest {
         |   printLine(show(code))""".stripMargin))
       .asserting(_ shouldBe "0")
   }
+
+  "registerExitCode" should "report the registered code, having run everything written after it" in {
+    compileAndRunToCompletion(exitCodeProgram("""
+        |   registerExitCode(3)
+        |   printLine("after")""".stripMargin))
+      .asserting(_ shouldBe ("after", 3))
+  }
+
+  it should "report zero for a program that registers nothing" in {
+    compileAndRunToCompletion(exitCodeProgram("""
+        |   printLine("nothing registered")""".stripMargin))
+      .asserting(_ shouldBe ("nothing registered", 0))
+  }
+
+  it should "report the last code registered, not the first" in {
+    compileAndRunToCompletion(exitCodeProgram("""
+        |   registerExitCode(3)
+        |   registerExitCode(7)
+        |   printLine("twice")""".stripMargin))
+      .asserting(_ shouldBe ("twice", 7))
+  }
+
+  it should "report a code registered back to zero as success" in {
+    compileAndRunToCompletion(exitCodeProgram("""
+        |   registerExitCode(4)
+        |   registerExitCode(0)
+        |   printLine("reconsidered")""".stripMargin))
+      .asserting(_ shouldBe ("reconsidered", 0))
+  }
+
+  /** A `{Console, Process} Unit` program: `registerExitCode` performs no I/O that can fail, so unlike the spawning
+    * operations it needs no `Throw[IoError]` discharge.
+    */
+  private def exitCodeProgram(body: String): String =
+    s"""
+       |import eliot.effect.Console
+       |import eliot.system.Process
+       |
+       |def main: {Console, Process} Unit = {$body
+       |}""".stripMargin
 
   /** A `{Console, Environment} Unit` program — no failure channel, so it needs no discharge at all. */
   private def environmentProgram(body: String): String =

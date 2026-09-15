@@ -8,6 +8,7 @@ import eliot.collection.List
 effect Process {
    def run(command: List[String], workingDirectory: Path): {Throw[IoError]} ProcessResult
    def runInheritingIo(command: List[String], workingDirectory: Path): {Throw[IoError]} Int
+   def registerExitCode(code: Int): Unit
 }
 
 // The concrete ProcessResult: the abstract accessors in the base layer merge with these generated data-field accessors,
@@ -41,6 +42,8 @@ implement Process {
 
       outcomeExitCode(outcome)
    }
+
+   def registerExitCode(code: Int): Unit = registerExitCodeInternal(code)
 }
 
 /**
@@ -63,6 +66,17 @@ private def runInternal(command: List[String], workingDirectory: Path): ProcessO
  * hold `""`. Implemented by the backend.
  */
 private def runInheritingIoInternal(command: List[String], workingDirectory: Path): ProcessOutcome
+
+/**
+ * Store `code` in the exit-code field of the entry-point class, which the synthesized entry point reads after the
+ * program's `main` returns and hands to `System.exit`. Implemented by the backend.
+ *
+ * A field for the same reason `Environment.argumentsInternal` reads one: the value has to cross from a leaf native in
+ * this class to a method of the entry-point class, which is the one class an executable jar always has. Write-only on
+ * purpose — nothing reads it back into Eliot, because a static cell a program can both write and read is one half of
+ * Landin's knot, and the recursion gate exists to keep the other half out.
+ */
+private def registerExitCodeInternal(code: Int): Unit
 
 /**
  * The error-message slot of an outcome holder (`null` when the process ran). Implemented by the backend.

@@ -76,6 +76,17 @@ trait FullIntegrationTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
   protected def compileAndRunBounded(source: String, timeoutMillis: Long): IO[String] =
     compiled(source) >> runJarBounded(shared.jarPath, timeoutMillis)
 
+  /** Compile `source` to an executable jar, run it to completion as a separate `java -jar` process, and return what it
+    * printed to standard output together with the exit code it reported.
+    *
+    * Out-of-process for the same reason [[compileAndRunBounded]] is, one step further along: a program that registers a
+    * non-zero exit code ends in `System.exit`, which a reflective in-VM call does not survive any more than it survives
+    * a program that never returns. The exit code is also the thing under test here, and it exists only as a property of
+    * a real process.
+    */
+  protected def compileAndRunToCompletion(source: String): IO[(String, Int)] =
+    compiled(source) >> runJarToCompletion(shared.jarPath)
+
   /** Compile, and fail the test *with the compiler's diagnostics* unless the build succeeded — it reported nothing and
     * produced its jar. A test that goes on to run the jar must never be allowed to read an artefact this compilation
     * did not produce: the build deletes the jar it cannot vouch for, so the alternative is an unattributable
@@ -142,6 +153,25 @@ trait FullIntegrationTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
         Files.deleteIfExists(outFile)
         ()
       }
+    }
+  }
+
+  /** Run an executable jar as its own `java -jar` process and wait for it, answering its standard output and exit
+    * code. Standard error is folded into the output so a stack trace from a program that died cannot vanish.
+    */
+  private def runJarToCompletion(jarPath: Path): IO[(String, Int)] = IO.blocking {
+    val outFile = Files.createTempFile("eliot-exit-out", ".txt")
+    val javaBin = Path.of(System.getProperty("java.home"), "bin", "java").toString
+    try {
+      val process = new ProcessBuilder(javaBin, "-jar", jarPath.toString)
+        .redirectErrorStream(true)
+        .redirectOutput(outFile.toFile)
+        .start()
+      val code    = process.waitFor()
+      (Files.readString(outFile).stripLineEnd, code)
+    } finally {
+      Files.deleteIfExists(outFile)
+      ()
     }
   }
 
