@@ -109,7 +109,7 @@ That second command is worth running before cutting a release. Every consumer's 
 those directories, derived from `eliot.pkg`'s `package`/`at` clauses — so a typo in one is invisible here,
 compiles fine, passes `./mill __.test`, and then silently mounts nothing at whoever depends on the tag.
 
-It fetches the launcher release the `launcher` line pins (`v0.2`, the first that reads packages), which needs no compiler checkout and no mill.
+It fetches the launcher release the `launcher` line pins (`v0.3`, the first that reads `asset` and `compiler` clauses), which needs no compiler checkout and no mill.
 
 ### IDE Tooling (`ide/`)
 

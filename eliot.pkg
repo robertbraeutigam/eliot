@@ -40,7 +40,7 @@
 -- it and always will. What the launcher is for here is seeing these packages the way a *consumer* sees
 -- them — `./eliotw roots examples` prints the source roots the layers' `at` clauses resolve to, which is
 -- the one check that the descriptor everybody else depends on says what it means to say.
-launcher v0.2
+launcher v0.3
 
 package lang {
   at lang/eliot
