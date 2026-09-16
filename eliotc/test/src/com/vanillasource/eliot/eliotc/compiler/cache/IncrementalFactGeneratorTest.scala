@@ -293,6 +293,71 @@ class IncrementalFactGeneratorTest extends AsyncFlatSpec with AsyncIOSpec with M
     test.asserting(_ shouldBe (Some(NumberFact("w", 100)), Some(NumberFact("m", 20)), Some(NumberFact("w", 200))))
   }
 
+  it should "keep the dependents of a value-less fact the drill proved unchanged, even when it is regenerated" in {
+    // 'mid' is value-less (a SemValue fact), so a run that needs its value regenerates it. Here 'outer' is validated
+    // through 'top' and 'mid' by the drill, which proves 'mid' unchanged; then 'user', new this run, demands 'mid'
+    // and regenerates it. A value-less entry cannot be compared, but a pure function of inputs the same run proved
+    // unchanged has not moved — so 'top' must be retained. Dropping it made every warm build rebuild what the one
+    // before it dropped, alternating fast and slow forever.
+    val test = for {
+      src    <- Ref.of[IO, Int](10)
+      counts <- counters("leaf", "mid", "top", "outer", "user")
+      proc    = graph(
+                  Map(
+                    "leaf"  -> Leaf(src),
+                    "mid"   -> Derived("leaf", _ + 1),
+                    "top"   -> Derived("mid", _ + 1),
+                    "outer" -> Derived("top", _ + 1),
+                    "user"  -> Derived("mid", _ * 2)
+                  ),
+                  counts
+                )
+      prior   = Map[CompilerFactKey[?], CacheEntry](
+                  NumberKey("leaf")  -> CacheEntry(Some(NumberFact("leaf", 10)), Set.empty),
+                  NumberKey("mid")   -> CacheEntry(None, Set(NumberKey("leaf"))),
+                  NumberKey("top")   -> CacheEntry(Some(NumberFact("top", 12)), Set(NumberKey("mid"))),
+                  NumberKey("outer") -> CacheEntry(Some(NumberFact("outer", 13)), Set(NumberKey("top")))
+                )
+      run    <- runBuild(proc, Some(FactCacheData(prior)))(g =>
+                  g.getFact(NumberKey("outer")) *> g.getFact(NumberKey("user"))
+                )
+      midN   <- counts("mid").get
+      topN   <- counts("top").get
+    } yield (run._1, midN, topN, run._2.entries.get(NumberKey("top")))
+    test.asserting { case (result, midN, topN, topEntry) =>
+      result shouldBe Some(NumberFact("user", 22))
+      midN shouldBe 1 // regenerated, because 'user' needed its value
+      topN shouldBe 0 // never recomputed
+      topEntry shouldBe Some(CacheEntry(Some(NumberFact("top", 12)), Set(NumberKey("mid")))) // and still cached
+    }
+  }
+
+  it should "drop the dependents of a value-less fact that regenerated because its inputs moved" in {
+    // The same shape with the leaf changed: the drill cannot prove 'mid' unchanged, so its regeneration is a move and
+    // 'top', never demanded this run, must not survive to be accepted against a 'mid' it never saw.
+    val test = for {
+      src    <- Ref.of[IO, Int](20)
+      counts <- counters("leaf", "mid", "top", "user")
+      proc    = graph(
+                  Map(
+                    "leaf" -> Leaf(src),
+                    "mid"  -> Derived("leaf", _ + 1),
+                    "top"  -> Derived("mid", _ + 1),
+                    "user" -> Derived("mid", _ * 2)
+                  ),
+                  counts
+                )
+      prior   = Map[CompilerFactKey[?], CacheEntry](
+                  NumberKey("leaf") -> CacheEntry(Some(NumberFact("leaf", 10)), Set.empty),
+                  NumberKey("mid")  -> CacheEntry(None, Set(NumberKey("leaf"))),
+                  NumberKey("top")  -> CacheEntry(Some(NumberFact("top", 12)), Set(NumberKey("mid")))
+                )
+      run2   <- runBuild(proc, Some(FactCacheData(prior)))(_.getFact(NumberKey("user")))
+      run3   <- runBuild(proc, Some(run2._2))(_.getFact(NumberKey("top")))
+    } yield (run2._1, run2._2.entries.contains(NumberKey("top")), run3._1)
+    test.asserting(_ shouldBe (Some(NumberFact("user", 42)), false, Some(NumberFact("top", 22))))
+  }
+
   it should "not report a diagnostic from a fact regenerated only to answer whether it changed" in {
     // The previous run's 'top' read 'old' before 'src'; this run's program has no 'old' at all — asking for it now
     // fails. Validation still walks the *prior* edges (that is how it learns 'top' moved), so 'old' is regenerated and

@@ -382,6 +382,7 @@ final class IncrementalFactGenerator(
       deps        <- directDependencies.get
       pushedBy    <- producedDuring.get
       carried     <- carriedForward.get
+      drilled     <- provenUnchanged
       regenerated <- regeneratedKeysRef.get.map(_.size)
       _           <- debug[IO](
                        s"Incremental run: regenerated $regenerated fact(s); ${factMap.size} materialised, " +
@@ -393,7 +394,7 @@ final class IncrementalFactGenerator(
         key -> CacheEntry(Some(fact), recordedDeps.getOrElse(Set.empty))
       }
       val touched  = factMap.keySet ++ deps.keySet ++ carried.keySet // resolved, materialised, or drilled this run
-      val moved    = movedKeys(factMap, deps)
+      val moved    = movedKeys(factMap, deps, drilled)
       val kept     = prior.view.filterKeys(k => !touched(k))         // untouched prior facts accumulate…
       val retained =                                                 // …unless an input moved under them
         if (moved.isEmpty) kept.toMap else kept.filter { case (_, entry) => !entry.directDeps.exists(moved) }.toMap
@@ -413,14 +414,30 @@ final class IncrementalFactGenerator(
     *
     * Only *direct* dependents need dropping: a retained entry pointing at one of them now finds no prior entry, which
     * validation already reads as changed. And a run that moved nothing (the warm no-change build) does no work here.
+    *
+    * A **value-less** entry has nothing to compare a regenerated value against, so it moved unless this run's drill
+    * proved it unchanged. That exception is not a nicety: a `SemValue` fact is regenerated whenever anything needs its
+    * value, typically in the same run whose drill just proved it unchanged, and counting that as a move dropped every
+    * dependent the run did not demand. The next run rebuilt them, regenerating other value-less facts and dropping
+    * other dependents — a warm build over an unchanged tree alternating between fast and slow indefinitely.
     */
   private def movedKeys(
       factMap: Map[CompilerFactKey[?], CompilerFact],
-      deps: Map[CompilerFactKey[?], Set[CompilerFactKey[?]]]
+      deps: Map[CompilerFactKey[?], Set[CompilerFactKey[?]]],
+      drilled: Set[CompilerFactKey[?]]
   ): Set[CompilerFactKey[?]] =
     deps.keySet.filter { key =>
-      prior.get(key).exists(entry => !factMap.get(key).exists(entry.matches))
+      prior.get(key).exists { entry =>
+        if (entry.hasValue) !factMap.get(key).exists(entry.matches)
+        else !drilled(key)
+      }
     }
+
+  /** The keys this run's validation proved unchanged. A check still pending proves nothing. */
+  private def provenUnchanged: IO[Set[CompilerFactKey[?]]] =
+    unchangedChecks.get
+      .flatMap(_.toList.traverseFilter { case (key, check) => check.tryGet.map(_.filter(identity).as(key)) })
+      .map(_.toSet)
 }
 
 object IncrementalFactGenerator {

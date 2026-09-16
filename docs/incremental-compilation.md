@@ -1586,3 +1586,39 @@ The alternative — recording, on each edge, the identity of the value consumed,
 strictly more precise (it would keep the dependents whose input moved and moved back), and is the direction to take
 if retention loss ever shows up in the warm-build numbers. It costs a per-edge identity, which the value-less
 (`SemValue`-bearing) entries do not have today.
+
+## 27. A value-less fact the drill proved unchanged has not moved (2026-09-16)
+
+§26's drop cost more than the time it promised to. A consumer building its own suite over an unchanged tree
+alternated between two warm builds forever — 7 s, 22 s, 7 s, 22 s — once any edit, even an edit and its revert, had
+happened in its target directory. A fresh cache never gets there, which is why nothing here measured it.
+
+### The mechanism
+
+§26 counts a key as moved when the run resolved it and the result does not match the cache's entry. A value-less
+(`SemValue`-bearing) entry — `NativeBinding`, `ContributedBinding` — matches **nothing**: `CachedValue.Absent` has
+nothing to compare against. And such a fact is regenerated whenever anything needs its value (`resolve` accepts only
+entries that have one), which is routinely *in the same run* whose drill has just proved it unchanged. So every
+value-less fact a run needed counted as moved, and every untouched entry recorded against one was dropped — here
+~3100 `CompilerMonomorphicValue`/`MonomorphicValue`/`RefinementTable` entries, validated by that very drill and
+therefore not in `touched`.
+
+The next run found them missing, regenerated them and their dependents, which demanded *other* value-less facts,
+which dropped *other* untouched entries. Two sets of entries took turns being absent, and the run that rebuilt one
+dropped the other: 5,487 regenerations then 13,736, indefinitely, where a clean warm build does 1,232.
+
+### The fix
+
+A value-less entry moved unless this run's validation proved it unchanged (`unchangedChecks` completed `true`). That
+is sound for the reason the drill is: a fact is a pure function of its recorded inputs, and those held. It is also
+what §26 needs, by induction — a saved cache holds no dependent recorded against a value-less entry that moved,
+because the run that moved it was, by this rule, unable to prove it unchanged and dropped the dependent then.
+
+### Verification
+
+- `IncrementalFactGeneratorTest` — a drilled-then-regenerated value-less fact keeps its untouched dependent (fails
+  before the fix), and one whose leaf moved still drops it.
+- The consumer's oscillating cache, rebuilt with the fixed compiler: one run at the old fast count, then 1,232
+  regenerations every run. From an empty cache, edit → revert → broken edit → fix returns to 1,232 on the run after
+  each step; before the fix every one of them started the alternation.
+- `./mill __.test` green.
