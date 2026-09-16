@@ -18,6 +18,48 @@ notes.
   written `Bounded(0)` / `Bounded(0 - 1)`. What remains is the general case: an *ordinary def body* is
   runtime-track, so a helper called from a brace still cannot name a `BigInteger` constant in value position —
   which is why `rangeWithin[Lo, Hi]` takes its bounds as type parameters.
+- **The meta companions read a type's *head name*; they must evaluate the type instead.** The `^Meta`
+  transfer companion and the `$Where` precondition companion type each mentioned parameter by the pure name
+  transform `Int` ⤳ `Int$Meta` (`MetaConstructorDesugarer.metaTypeSuffix`, applied by `MetaTransferDesugarer` /
+  `MetaWhereDesugarer`). That reads the *syntax* of a type expression for a bare application head, and a type is
+  an expression in general: a plain alias `type Byte = Int` already breaks it — `def asByte(x: Byte): Byte where
+  withinByte(range(x))` fails with "Name not defined." at the parameter, because `Byte$Meta` exists for nothing
+  (probed 2026-09-15). An alias of an alias, a type computed by a type-level function or a generic instantiated
+  at such a type fail the same way. The channel's one legitimate read of a type is the one `MetaInterpreter.metaTypeOf`
+  makes: the *evaluated* ground value's constructor, a value the evaluator produced. The companions should get
+  their parameter meta types the same way — by evaluating the parameter's type and taking its meta type, which the
+  channel already does for a *generic* companion (reduced at the meta type arguments) — instead of renaming at the
+  core boundary, where no lookup is possible. Minting a `T$Meta` alias per alias is *not* the fix: it is the same
+  structural read one level up and still misses every non-name type.
+- **Meta braces in parameter position: `def writeByte(b: Int {byte}): Unit`.** Decided in principle
+  2026-09-15, not built. The problem it answers is a reusable "Byte": today a bound can only be *demanded* by a
+  `where` (`where within(byte, range(b))`, with `def byte: Interval[BigInteger] = closed(0, 255)` as the
+  reusable meta *value*), which puts the restriction away from the `Int` it restricts, and a `where` leaves the
+  parameter ⊤ inside the body because a predicate does not turn back into an interval. A **type alias cannot
+  carry it**, by construction: a transparent alias is erased by normalization (`Byte` and `Int` are
+  definitionally equal, per the cornerstone), so after evaluation there is nothing to read and before it there is
+  only syntax; attaching a statement to the type value while `unify` ignores it leaks through metavariables into
+  unrelated positions (the aliasing bug class the retired bounds-as-refinements design recorded, and why
+  refinements stay out of types). So "Byte" is a meta *value*, never a type, and the bound lives on the
+  **occurrence** it bounds. **One meaning**: a brace on a type occurrence states the meta of the value at that
+  position, and *whoever supplies that value proves it* — a leaf return has no supplier the language can see, so
+  it is axiomatic (today's return brace, R2 unchanged); a parameter is supplied by the caller, so at every full
+  call the argument's meta must fit (`join(argument, stated) ≡ stated`, structurally, the comparison the reconcile
+  pass already makes) and inside the body the parameter carries the stated meta instead of ⊤ (sound: every
+  manifest call proved it); a bodied return is supplied by the body, so the derived meta must fit — this last is
+  the one decided rule it touches (R3 makes a brace on a bodied def an error), a reversal to sign off on
+  separately, or ship parameter braces first and leave R3. Everything stays **callee-keyed** and desugared from
+  the def's own text: each braced parameter yields a nullary statement companion (named by def and parameter, in
+  the meta namespace) that the channel reads exactly as it reads `$Where` (companion membership test at the call,
+  reduction through the same executor, then the structural fit instead of a `Bool`); the walk's parameter-reference
+  arm consults the companions of the value being walked; signature equality keeps ignoring braces, so the layer
+  rule for return braces applies unchanged; the bare-reference / partial-application rejection extends to any def
+  with a braced parameter. A `data` field `r: Int {byte}` is demanded at construction through the ordinary
+  constructor call and its generated accessor may state it as a leaf would (construction is the only supplier).
+  Grammar is the adjacency rule already in use: a brace *before* a type is an effect row, a brace *adjacent after*
+  a type atom is its meta. This is Option B's deferred "contract annotation in value position" minus the splice it
+  feared; the *refined alias* half of that deferral is closed for the reason above. Depends on the companion fix
+  above for any parameter not typed by a bare slotted name.
 - **Flow grades: quantitative computation tracking (cycles/WCET, stack, peak memory) on the
   effect row.** Design sketched 2026-07-10 in the bounds-as-refinements discussion. The dependency
   ladder is ranges → sizes → grades (fold cost needs sizes, frame sizes need ranges): the
