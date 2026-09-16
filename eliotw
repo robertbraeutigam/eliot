@@ -2,8 +2,8 @@
 #
 # The eliot wrapper: the one committed file that needs an eliot to be absent.
 #
-# Version-free and byte-identical in every repository — all the variance lives in `.eliot-version`
-# beside it — so "copy this script from anywhere" is literally true and no repository is ever a
+# Version-free and byte-identical in every repository — all the variance lives in the `launcher`
+# line of the `eliot.pkg` beside it — so "copy this script from anywhere" is literally true and no repository is ever a
 # version behind its own wrapper. Its whole job is four steps: find a JRE, read the pinned launcher
 # version, fetch that launcher once into a machine-level cache and verify it, then execute it.
 # Everything smart rides the dependency graph and is none of this script's business.
@@ -43,36 +43,32 @@ do
    esac
 done
 scriptDirectory=$(cd "${scriptDirectory:-./}" > /dev/null && pwd -P)
-pinFile="$scriptDirectory/.eliot-version"
+descriptorFile="$scriptDirectory/eliot.pkg"
 launcherRepository="${ELIOT_LAUNCHER_REPOSITORY:-https://github.com/eliotlang/eliot-build}"
 launcherAsset="eliot-launcher.jar"
 cacheDirectory="${ELIOT_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/eliot}"
 
-# The pin: `--` comments, then one line holding the tag. That is the whole file, and the whole of
-# what a version bump costs — one hand edit, mill's ergonomics, nothing to compute and nothing to
-# commit twice. There is deliberately no default version: a baked-in one drifts, and "no pin means
-# latest" trades reproducibility for a convenience nobody asked for.
-[ -f "$pinFile" ] || fail "no '.eliot-version' beside this script. It pins the launcher this project
-   builds with, and there is no default: write one line naming a tag, such as 'v0.0'."
+# The pin: the first line of `eliot.pkg` that starts `launcher `, and its second word. A grep and not a
+# parser, which is the whole reason the line is spelled the way it is — the top level of a descriptor
+# holds package blocks and this, a comment starts `--`, and a clause inside a block is refused by the
+# launcher, so nothing else can match. There is deliberately no default version: a baked-in one
+# drifts, and "no pin means latest" trades reproducibility for a convenience nobody asked for.
+[ -f "$descriptorFile" ] || fail "no 'eliot.pkg' beside this script. Its 'launcher' line pins the
+   launcher this project builds with, and there is no default."
 
-pinnedVersion=""
 carriageReturn=$(printf '\r')
 tab=$(printf '\t')
+pinLine=$(grep -m 1 "^launcher[ $tab]" "$descriptorFile" || true)
 
 # A carriage return is a field separator rather than part of a word, so a pin committed from a
 # Windows checkout reads as the same words it reads as everywhere else. Without this the tag carries
 # a `\r` into the download URL, and what a user sees is curl rejecting a malformed URL.
-while IFS=" $tab$carriageReturn" read -r pinnedWord _rest || [ -n "${pinnedWord:-}" ]; do
-   case "$pinnedWord" in
-      "" | --*) continue ;;
-   esac
-   [ -z "$pinnedVersion" ] || continue
+IFS=" $tab$carriageReturn" read -r _keyword pinnedVersion _rest <<PIN
+$pinLine
+PIN
 
-   pinnedVersion="$pinnedWord"
-done < "$pinFile"
-
-[ -n "$pinnedVersion" ] || fail "'$pinFile' names no launcher version. One line holding a tag, such
-   as 'v0.0', is the whole file."
+[ -n "$pinnedVersion" ] || fail "'$descriptorFile' pins no launcher version. A line such as
+   'launcher v0.2', at the top level and starting in the first column, is the pin."
 
 # A JAVA_HOME that is set and wrong is an error rather than a reason to look elsewhere. Falling
 # through to the PATH would silently run the build on a different JVM than the one the user pointed

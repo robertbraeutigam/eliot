@@ -82,21 +82,22 @@ re-upload.
 
 ### `eliotw` — this repository as a package, from the outside
 
-`eliotw` and `.eliot-version` are here, byte-identical to every other repository's, and they do **not**
+`eliotw` is here, byte-identical to every other repository's, with its pin as the `launcher` line of
+`eliot.pkg`, and they do **not**
 build this one: this repo is polyglot, the compiler in it is Scala, and `mill` builds it. What the
 wrapper is for here is reading the descriptor the way a consumer does, which is the one thing no test in
 this repository can do:
 
 ```bash
-./eliotw resolve test      # what this package's own dependencies close over (nothing, today)
-./eliotw roots test        # the eight source roots the layers' `at` clauses resolve to
+./eliotw resolve examples  # what a package's foreign dependencies close over (nothing, today)
+./eliotw roots examples    # the source roots the layers' `at` clauses resolve to
 ```
 
 That second command is worth running before cutting a release. Every consumer's build mounts exactly
 those directories, derived from `eliot.pkg`'s `package`/`at` clauses — so a typo in one is invisible here,
 compiles fine, passes `./mill __.test`, and then silently mounts nothing at whoever depends on the tag.
 
-It fetches the launcher release `.eliot-version` pins, which needs no compiler checkout and no mill.
+It fetches the launcher release the `launcher` line pins (`v0.2`, the first that reads packages), which needs no compiler checkout and no mill.
 
 ### IDE Tooling (`ide/`)
 
