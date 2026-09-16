@@ -19,12 +19,16 @@
 -- jar and the dependencies only it has; nothing is merged, so the per-package service registrations a
 -- fat jar would collapse stay separate. `ide/lsp/package.sh` already assembles exactly this shape.
 --
--- `lang` carries the `compiler` marker, and its asset is the one that is not just a layer's own jar:
--- it holds `eliotc`'s too. `eliotc` is the only directory here with no `.els` at all, which makes it
--- the one thing in this repository that cannot be an Eliot package — nothing could ever `dep` it,
--- since a dep line is a statement about sources. Its jar has to ride with a package, and `lang` is the
--- package in every program's closure. That, rather than any claim that lang is the compiler, is why
--- the marker sits here.
+-- An `asset` is nothing but a name: every asset in a build's closure goes on the compiler's classpath,
+-- and nothing here says which one holds the compiler or which word the backend answers to. The backend
+-- registers its own word, and a `compiler` line in a consumer's package either names it (`jvm run`) or
+-- leaves it to the one backend accepting the mode (`run`), which is how a platform-independent package
+-- can say "run this" at all.
+--
+-- `lang`'s asset is the one that is not just a layer's own jar: it holds `eliotc`'s too. `eliotc` is
+-- the only directory here with no `.els` at all, which makes it the one thing in this repository that
+-- cannot be an Eliot package — nothing could ever `dep` it, since a dep line is a statement about
+-- sources. Its jar has to ride with a package, and `lang` is the package in every program's closure.
 --
 -- `apidoc` is in the same position and is deliberately not declared: a backend with no sources of its
 -- own, which nothing depends on and which therefore becomes a module the day a configuration names it.
@@ -40,23 +44,19 @@ launcher v0.2
 
 package lang {
   at lang/eliot
-  plugin eliot-compiler.zip {
-    compiler
-  }
+  asset eliot-compiler.zip
 }
 
 package stdlib {
   at stdlib/eliot
   dep //lang
-  plugin eliot-stdlib.zip
+  asset eliot-stdlib.zip
 }
 
 package jvm {
   at jvm/eliot
   dep //stdlib
-  plugin eliot-jvm.zip {
-    backend jvm
-  }
+  asset eliot-jvm.zip
 }
 
 package examples {

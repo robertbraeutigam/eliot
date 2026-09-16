@@ -19,12 +19,14 @@ import com.vanillasource.eliot.eliotc.compiler.cache.OutputFileStatProcessor
 import com.vanillasource.eliot.eliotc.row.RunBoundaryFunctions
 import com.vanillasource.eliot.eliotc.jvm.classgen.processor.JvmClassGenerator
 import com.vanillasource.eliot.eliotc.module.fact.{ModuleName, ValueFQN}
-import com.vanillasource.eliot.eliotc.plugin.Configuration.demandScopedKey
+import com.vanillasource.eliot.eliotc.plugin.Configuration.{demandScopedKey, diagnosticKey}
 import com.vanillasource.eliot.eliotc.plugin.{CompilerPlugin, Configuration}
 import com.vanillasource.eliot.eliotc.processor.common.SequentialCompilerProcessors
 import com.vanillasource.eliot.eliotc.processor.{CompilationProcess, CompilerProcessor}
 import com.vanillasource.eliot.eliotc.source.scan.PathScanner
 import scopt.{OParser, OParserBuilder}
+
+import java.nio.file.Path
 
 class JvmPlugin extends CompilerPlugin {
   private val cmdLineBuilder: OParserBuilder[Configuration] = OParser.builder[Configuration]
@@ -36,20 +38,33 @@ class JvmPlugin extends CompilerPlugin {
   // always regenerated and equality-checked, so a shared cache self-heals per main (see Configuration.demandScopedKey).
   private val mainKey = demandScopedKey[ValueFQN]("mainFunction")
 
+  // Diagnostic in the key's sense — it steers what happens *after* the jar exists and changes no fact — so `run` and
+  // `exe-jar` over the same roots and main share one cache and one jar.
+  private val runKey = diagnosticKey[Unit]("runProduced")
+
+  private def mainOption =
+    opt[String]('m', "main-module")
+      .required()
+      .text("module that has a suitable main method")
+      .action((moduleName, config) => config.set(mainKey, ValueFQN(ModuleName.parse(moduleName), QualifiedName("main", Qualifier.Default))))
+
   override def commandLineParser(): OParser[?, Configuration] = OParser.sequence(
     cmd("jvm")
       .text("target the jvm backend")
       .children(
         cmd("exe-jar")
           .text("generate executable jar")
-          .children(
-            opt[String]('m', "main-module")
-              .required()
-              .text("module that has a suitable main method")
-              .action((moduleName, config) => config.set(mainKey, ValueFQN(ModuleName.parse(moduleName), QualifiedName("main", Qualifier.Default))))
-          )
+          .children(mainOption),
+        cmd("run")
+          .text("generate executable jar, then run it, exiting with its exit code")
+          .action((_, config) => config.set(runKey, ()))
+          .children(mainOption)
       )
   )
+
+  override def backendWord: Option[String] = Some("jvm")
+
+  override def backendModes: Seq[String] = Seq("exe-jar", "run")
 
   /** Mount the synthesized `main.els` entry-point module into the runtime scan pool, and register the platform run
     * boundary `runMain` as a carrier capture ([[com.vanillasource.eliot.eliotc.row.RunBoundaryFunctions]], carrier
@@ -103,6 +118,19 @@ class JvmPlugin extends CompilerPlugin {
 
   override def run(configuration: Configuration, compilation: CompilationProcess): IO[Boolean] =
     compilation.getFact(GenerateExecutableJar.Key(configuration.get(mainKey).get)).map(_.isDefined)
+
+  /** The `run` mode: `java -jar` on the jar this compilation produced, with this process's streams and working
+    * directory, answering the program's own exit code. The JVM is the one running the compiler, so a program is run by
+    * the same runtime its compiler was, with nothing looked up on the `PATH`.
+    */
+  override def execute(configuration: Configuration): IO[Int] =
+    (configuration.get(runKey), configuration.get(mainKey)) match {
+      case (Some(_), Some(main)) =>
+        val jar     = JvmProgramGenerator.jarFilePath(configuration.get(Compiler.targetPathKey).get, main)
+        val javaBin = Path.of(System.getProperty("java.home"), "bin", "java").toString
+        IO.interruptible(new ProcessBuilder(javaBin, "-jar", jar.toString).inheritIO().start().waitFor())
+      case _                     => IO.pure(0)
+    }
 }
 
 object JvmPlugin

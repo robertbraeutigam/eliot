@@ -21,7 +21,19 @@ compilation system, with multiple backends (currently JVM).
 # Compile an example to an executable jar (lands in target/HelloWorld.jar), then run it
 ./mill examples.run jvm exe-jar examples/src/ -m HelloWorld
 java -jar target/HelloWorld.jar
+
+# The same, then run it: the compiler exits with the program's exit code. The backend word may be left
+# out when exactly one backend on the classpath accepts the mode (`Compiler.withDefaultBackend`), which
+# is how a platform-independent package's `compiler run -m …` line in `eliot.pkg` works.
+./mill examples.run run -m HelloWorld examples/src/
 ```
+
+**The CLI is a compatibility promise now.** A package's `compiler <words…>` line in `eliot.pkg` is
+passed to whatever compiler MVS selects, so a mode word or a flag is renamed the way a public function
+is — on a new line, never within `v0` (eliot.build's `docs/build-system.md`, "What a build runs").
+Descriptors name assets with a bare `asset <name>` clause; nothing marks which asset is the compiler or
+which word a backend answers to, because the launcher puts every asset on one classpath and the
+backend registers its own word (`CompilerPlugin.backendWord`/`backendModes`).
 
 For a broad change, verify with the fast example sweep + byte-identity comparison rather than `examples.run`
 per example — recipes and their traps are in the `reference_verification_harness_recipes` memory.

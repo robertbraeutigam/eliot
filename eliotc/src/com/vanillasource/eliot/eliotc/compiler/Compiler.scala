@@ -1,6 +1,6 @@
 package com.vanillasource.eliot.eliotc.compiler
 
-import cats.effect.IO
+import cats.effect.{ExitCode, IO}
 import cats.effect.std.Console
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.{Logging, User}
@@ -21,22 +21,43 @@ object Compiler extends Logging {
   val visualizeFactsKey: Configuration.Key[Path] = diagnosticKey[Path]("visualizeFacts")
   val statisticsKey: Configuration.Key[Unit]     = diagnosticKey[Unit]("statistics")
 
-  /** Run the compiler, returning whether the compilation *failed* — it produced errors, or its target produced no
-    * artefact. The CLI ([[Main]]) maps that to a non-zero exit code so callers (scripts, CI, the IntelliJ before-run
-    * build task) can gate on success. Help/parse termination is not a failure here (`--help` must still exit 0); a
-    * missing target plugin is.
+  /** Run the compiler, returning the process's exit code: an error when the compilation *failed* — it produced errors,
+    * or its target produced no artefact — and otherwise whatever the selected target's
+    * [[com.vanillasource.eliot.eliotc.plugin.CompilerPlugin.execute]] answers, which is success for everything that only
+    * produces an artefact. The CLI ([[Main]]) exits with it so callers (scripts, CI, a build tool, the IntelliJ before-run
+    * build task) can gate on it. Help/parse termination is not a failure here (`--help` must still exit 0); a missing
+    * target plugin is.
     */
-  def runCompiler(args: List[String]): IO[Boolean] =
+  def runCompiler(args: List[String]): IO[ExitCode] =
     for {
       plugins   <- allLayers()
       // Run command line parsing with all options from all layers
-      configOpt <- parseCommandLine(args, plugins.map(_.commandLineParser()))
-      failed    <- configOpt match {
-                     case None                => IO.pure(false)
+      configOpt <- parseCommandLine(withDefaultBackend(args, plugins), plugins.map(_.commandLineParser()))
+      exitCode  <- configOpt match {
+                     case None                => IO.pure(ExitCode.Success)
                      case Some(configuration) =>
                        runWithConfiguration(configuration, plugins)
                    }
-    } yield failed
+    } yield exitCode
+
+  /** The command line with the backend word filled in, when it was left out and only one backend could have been meant.
+    *
+    * A line that starts with a mode word (`run -m Main`, `exe-jar -m Main`) rather than a backend word names no
+    * backend, and it is the one backend on the classpath accepting that mode which runs it. That is what lets a
+    * platform-independent package — a test framework — say "compile with this main and run it" without naming a
+    * platform, and leaves the platform to whichever backend the consumer's closure put on the classpath. Two backends
+    * accepting the mode, or none, leave the line as it is, and the parser then reports it the way it reports any line
+    * it does not understand; a line that does name its backend is never touched.
+    */
+  def withDefaultBackend(args: List[String], plugins: Seq[CompilerPlugin]): List[String] =
+    args match {
+      case first :: _ if !plugins.flatMap(_.backendWord).contains(first) =>
+        plugins.filter(_.backendModes.contains(first)).flatMap(_.backendWord) match {
+          case Seq(backend) => backend :: args
+          case _            => args
+        }
+      case _                                                              => args
+    }
 
   /** Build a resident [[CompilationSession]] for `args` without running it: discover plugins, parse the command line,
     * select the target plugin, and do the one-time session setup (configuring the processor graph, seeding the cache
@@ -77,14 +98,14 @@ object Compiler extends Logging {
   private def runWithConfiguration(
       configuration: Configuration,
       plugins: Seq[CompilerPlugin]
-  ): IO[Boolean] =
+  ): IO[ExitCode] =
     for {
       // Start the clock before session setup so the total spans the whole lifecycle: the cache load and the
       // fingerprint digest happen inside `sessionFor` (before any compile), and `--statistics` accounts for them.
       started    <- IO.monotonic
       sessionOpt <- sessionFor(configuration, plugins)
-      failed     <- sessionOpt match {
-                      case None          => IO.pure(true) // no target plugin — reported by `sessionFor`, an error exit
+      exitCode   <- sessionOpt match {
+                      case None          => IO.pure(ExitCode.Error) // no target plugin — reported by `sessionFor`
                       case Some(session) =>
                         val visualizationPath = session.effectiveConfiguration.get(visualizeFactsKey)
                         val statisticsAsked   = session.effectiveConfiguration.contains(statisticsKey)
@@ -107,9 +128,12 @@ object Compiler extends Logging {
                           // Print where the time went in this run, if requested — including the coarse cache phases
                           phases     <- session.phaseSnapshot
                           _          <- statistics.traverse_(_.report(finished - started, phases).flatMap(Console[IO].println))
-                        } yield !result.succeeded
+                          // Only a compilation that produced what it was asked for gets to do anything with it
+                          exitCode   <- if (result.succeeded) session.execute().map(ExitCode(_))
+                                        else IO.pure(ExitCode.Error)
+                        } yield exitCode
                     }
-    } yield failed
+    } yield exitCode
 
   private def collectActivatedPlugins(
       initialPlugin: CompilerPlugin,

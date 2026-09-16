@@ -124,12 +124,12 @@ class JvmProgramGenerator(targetDir: Path) extends SingleFactProcessor[GenerateE
       jos <- Resource.fromAutoCloseable(IO.blocking(new JarOutputStream(os)))
     } yield jos
 
-  private def jarFilePath(mainValue: ValueFQN): Path = targetDir.resolve(jarFileName(mainValue))
+  private def jarFilePath(mainValue: ValueFQN): Path = JvmProgramGenerator.jarFilePath(targetDir, mainValue)
 
   /** Beside the destination, so the completing move stays within one directory (and one filesystem) and is atomic. */
   private def temporaryJarFilePath(mainValue: ValueFQN): Path = targetDir.resolve(jarFileName(mainValue) + ".tmp")
 
-  private def jarFileName(mainValue: ValueFQN): String = mainValue.moduleName.name + ".jar"
+  private def jarFileName(mainValue: ValueFQN): String = JvmProgramGenerator.jarFileName(mainValue)
 
   private def generateManifest(jos: JarOutputStream): Unit = {
     jos.putNextEntry(timestamped("META-INF/MANIFEST.MF"))
@@ -159,4 +159,11 @@ object JvmProgramGenerator {
     * reproducible archive, and the earliest one representable without spilling into an extra field.
     */
   private val epoch: LocalDateTime = LocalDateTime.of(1980, 1, 1, 0, 0, 0)
+
+  /** Where the executable for `mainValue` lands under `targetDir` — the one answer, asked by the generator that writes
+    * it and by the `run` mode that executes it.
+    */
+  def jarFilePath(targetDir: Path, mainValue: ValueFQN): Path = targetDir.resolve(jarFileName(mainValue))
+
+  private def jarFileName(mainValue: ValueFQN): String = mainValue.moduleName.name + ".jar"
 }

@@ -98,6 +98,11 @@ final class CompilationSession private (
       _.traverse_(data => phaseTimings.time(PhaseTimings.cacheSave)(backend.save(data)))
     )
 
+  /** Hand what the last compilation produced to the target plugin, and answer the exit code it reports (see
+    * [[CompilerPlugin.execute]]). The CLI calls it once, after a compilation that succeeded; a resident host never does.
+    */
+  def execute(): IO[Int] = targetPlugin.execute(effectiveConfiguration)
+
   /** The coarse cache-phase timings (fingerprint, load, build, save) recorded across this session so far, by phase id.
     * `--statistics` reports them as explicit lines so the cache load/store cost — invisible to the per-processor total,
     * since it falls outside the compile window — is accounted rather than lost.

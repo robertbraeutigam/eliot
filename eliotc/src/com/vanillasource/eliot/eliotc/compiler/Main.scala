@@ -6,5 +6,5 @@ import com.vanillasource.eliot.eliotc.feedback.Logging
 
 object Main extends IOApp with Logging {
   override def run(args: List[String]): IO[ExitCode] =
-    runCompiler(args).map(hasErrors => if (hasErrors) ExitCode.Error else ExitCode.Success)
+    runCompiler(args)
 }

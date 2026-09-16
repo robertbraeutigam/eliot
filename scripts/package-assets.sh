@@ -3,7 +3,7 @@
 # Build this repository's release assets — one zip per module that ships a compiler plugin, exactly as
 # the root `eliot.pkg` declares them:
 #
-#   eliot-compiler.zip   lang's asset, and the one carrying the `compiler` marker: eliotc's jar rides
+#   eliot-compiler.zip   lang's asset, and the one holding the compiler's entry point: eliotc's jar rides
 #                        here (eliotc holds no `.els`, so it cannot be a package and nothing can ever
 #                        `dep` it), together with the third-party jars every module shares.
 #   eliot-stdlib.zip     stdlib's own jar. StdlibPlugin carries the compile-time natives behind `Int`'s

@@ -12,6 +12,17 @@ trait CompilerPlugin {
 
   def isSelectedBy(configuration: Configuration): Boolean = false
 
+  /** The word this plugin's command line starts with when it is a backend (`jvm`), or `None` for a plugin that is not
+    * one. Together with [[backendModes]] it is what lets a command line leave the backend out: see
+    * [[com.vanillasource.eliot.eliotc.compiler.Compiler.withDefaultBackend]].
+    */
+  def backendWord: Option[String] = None
+
+  /** The mode words this backend accepts right after [[backendWord]] (`exe-jar`, `run`). A command line that *starts*
+    * with one of them, and names no backend, is this backend's when no other backend accepts the same word.
+    */
+  def backendModes: Seq[String] = Seq.empty
+
   def pluginDependencies(@unused configuration: Configuration): Seq[Class[? <: CompilerPlugin]] = Seq.empty
 
   def configure(): StateT[IO, Configuration, Unit] = StateT.empty
@@ -24,4 +35,11 @@ trait CompilerPlugin {
     * single artefact to produce (a whole-workspace check) always succeed.
     */
   def run(@unused configuration: Configuration, @unused compilation: CompilationProcess): IO[Boolean] = IO.pure(true)
+
+  /** What the selected target does with what it produced, once the compilation has succeeded and its diagnostics and
+    * cache are written — the compiler's exit code is its result. A backend's `run` mode executes its own artefact here,
+    * which is what makes "compile, then run what came out" one invocation rather than two steps somebody has to chain.
+    * Everything that only produces an artefact has nothing left to do and succeeds.
+    */
+  def execute(@unused configuration: Configuration): IO[Int] = IO.pure(0)
 }
