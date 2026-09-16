@@ -1,6 +1,6 @@
 -- The eliot repository as an Eliot package: the language's own layers, described in the format the
--- build tool reads. No longer inert — v0.0 is released and eliot.build resolves this file — and it is
--- where this repo's layout stopped being folklore.
+-- build tool reads. Every tag since v0.0 is resolved through this file, and it is where this repo's
+-- layout stopped being folklore.
 --
 -- Every layer says `at` — its *package root*, the directory holding `src/` and `compiler/` — because
 -- this repository cannot have the layout the convention assumes: it is
@@ -30,8 +30,13 @@
 -- cannot be an Eliot package — nothing could ever `dep` it, since a dep line is a statement about
 -- sources. Its jar has to ride with a package, and `lang` is the package in every program's closure.
 --
--- `apidoc` is in the same position and is deliberately not declared: a backend with no sources of its
--- own, which nothing depends on and which therefore becomes a module the day a configuration names it.
+-- `apidoc` is in the same position and is deliberately not declared yet: a backend with no sources of
+-- its own, which becomes a package — `asset eliot-apidoc.zip` and `compiler apidoc` — the day a
+-- consumer wants its docs built by depending on it.
+--
+-- `examples` carries no `compiler` line, and cannot usefully carry one: a build puts on the classpath
+-- the assets of the *dependencies'* releases, and the layers `examples` deps are this repository's own,
+-- which have no release to fetch from while you stand in it. `mill` runs the examples.
 
 -- The launcher `./eliotw` runs, and the one line of this file the wrapper reads: it greps for the first
 -- line starting `launcher `. The launcher itself accepts the line and ignores it.
