@@ -93,7 +93,7 @@ this repository can do:
 ```
 
 That second command is worth running before cutting a release. Every consumer's build mounts exactly
-those directories, derived from `eliot.pkg`'s `module`/`at` clauses — so a typo in one is invisible here,
+those directories, derived from `eliot.pkg`'s `package`/`at` clauses — so a typo in one is invisible here,
 compiles fine, passes `./mill __.test`, and then silently mounts nothing at whoever depends on the tag.
 
 It fetches the launcher release `.eliot-version` pins, which needs no compiler checkout and no mill.

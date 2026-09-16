@@ -8,6 +8,11 @@
 -- sits at `lang/eliot` beside it. The names stay `lang`, `stdlib`, `jvm` — what `//lang` selects is
 -- the package, never its directory.
 --
+-- **No root package**, and none is implied: a package exists exactly where a block declares one, so
+-- this file declares no `package root` and a bare `dep` on this repository names nothing. There is no
+-- library at the repository root to name — every source here is one layer's, and a consumer selects
+-- the layer it wants.
+--
 -- One asset per package. Each layer ships its compiler plugin as a release asset of this repository at
 -- the tag the consumer already selected — no coordinate, no version, no URL, and nothing that can skew
 -- from the sources it was built from, because they are the same tag. Each asset holds that package's own
