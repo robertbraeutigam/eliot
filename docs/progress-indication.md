@@ -129,14 +129,14 @@ most of what a progress display is for — and ends by writing the total the nex
 
 A count is not a clock: cached facts cost nothing, generated ones cost milliseconds, and the time-only phases deliver
 no facts at all (F3, F7). So the ETA column is fed by a separate, time-based estimate, added once the count is in
-place. It needs per-key-type **self time**, which a wrapper around the processor tree's root measures exactly as
-`TimedCompilationProcess` does, and it extends the profile file with one **profile per run class** — `cold` (no prior
+place. It needs per-key-type **self time**, which a wrapper around the processor tree's root measures the way
+`TimedCompilationProcess` does (but see §3.7 on overlapping waits), and it extends the profile file with one **profile per run class** — `cold` (no prior
 cache), `changed` (a world leaf differed), `unchanged` — each an EWMA over past runs of that class: per key type
 `(generations, total self time)`, and the wall time of each time-only phase. The class is `cold` or `unchanged` at
 start and flips to `changed` at the first world leaf whose recompute differs (152 ms into the measured run).
 
 ```
-doneH      = Σ_type  generated[type] × avgH[type]   +  the running fact's elapsed, capped at its avgH
+doneH      = Σ_type  generated[type] × avgH[type]   +  each running leaf fact's elapsed, capped at its avgH
 expectedH  = Σ_type  max(expected[type], generated[type]) × avgH[type]
 speed      = liveElapsedInWorking / doneH               -- today's machine vs. history's, smoothed
 eta        = (expectedH − doneH) × speed  +  Σ remaining time-only phases (from the profile, × speed)
@@ -169,20 +169,44 @@ row elaboration), `checking` (both monomorphize tracks and their channel riders)
 `generating` (`GeneratedModule`), `packaging` (`GenerateExecutableJar`). The subject is a **module or a file, never a
 value**: values change 2,500 times a second, modules a few times a second.
 
-The activity shown is the innermost *described* key on the active request chain (`activeFactKeys` already carries it),
-**sampled** by the renderer rather than pushed by the engine. Because the engine is sequential, the sample is a
-statistical profile: the label shows where the time is going, which is what the user wants to know, and a label that
-flickers is a label over cheap work that the sampler mostly misses.
+The tracker keeps the **set of generations in flight** (key, parent, start time — the hook's started/ended events are
+all it takes), and the activity is **sampled** from it by the line writer rather than pushed by the engine: the
+longest-running in-flight generation that has no in-flight child, walked up its parents to the first described key.
+The sample is a statistical profile: the label shows where the time is going, which is what the user wants to know,
+and a label that flickers is a label over cheap work that the sampler mostly misses. Today the set is one chain; under
+parallel generation it is a tree with several leaves, and the same rule picks the one most worth naming (§3.7).
 
 ### 3.6 A long-running fact may report its own progress (deferred until one exists)
 
 Time interpolation (§3.4) already keeps the ETA falling through an upload. What it cannot show is *"43 % · 12 kB/s"*.
 For that, `CompilationProcess` gains a no-op-by-default `reportProgress(done: Long, total: Long, detail: String)`,
 surfaced on `CompilerIO`; the tracker attributes it to the generation that called it and a heartbeat line (§4.2) shows
-it while that fact is innermost. It changes no fact and records no dependency. Build it with the first processor that
+it while that fact is the sampled one. It changes no fact and records no dependency. Build it with the first processor that
 needs it, not before.
 
 ## 4. What is displayed
+
+### 3.7 Under parallel generation
+
+Generation is sequential today only because that is easier to debug; a processor may ask for a list of facts in
+parallel at any time, so nothing here may rest on one-at-a-time — and the engine it hooks into is already written for
+concurrency (a `Deferred` per key, a fiber per generation).
+
+- **The count and the total do not change at all.** A fact is delivered once whatever the interleaving — the engine's
+  per-key `Deferred` and memoized unchanged-check guarantee it — and the tracker is a concurrent set and two adders.
+  F5 still holds: parallel requests widen *requested − completed* from a chain to a frontier, not to the program.
+- **Activity** is sampled from the in-flight set (§3.5), which is why it is a set and not "the current key".
+- **Self time must subtract the *union* of a generation's waits, not their sum.** `TimedCompilationProcess` adds up
+  every `getFact` wait, which is right only while waits cannot overlap; ten facts requested in parallel would
+  subtract ten overlapping waits and drive the self time negative. The progress wrapper counts outstanding waits and
+  accumulates the time during which the count is non-zero. (`--statistics` has the same assumption and would need the
+  same change on the day generation goes parallel.)
+- **The ETA adapts by itself.** `speed` is live wall time over historical self time, so a run going three ways
+  parallel simply measures a speed of about a third; the running-fact interpolation sums over in-flight leaves. What
+  degrades is a run whose width changes a lot between its beginning and its end, which the smoothing lags behind.
+- **The `time` line becomes CPU time** and can sum to more than the wall time on the `ok` line; it says so
+  (`time (cpu)`) once that can happen.
+- **Output is unaffected**: only the line writer's fiber prints, from atomically read state.
 
 ### 4.1 Append-only lines, never a repaint
 
@@ -230,7 +254,7 @@ whole of "must not scroll faster than it can be read":
    which is the exploration's *"why was this rebuilt"* answered with the one thing the engine knows for certain;
 4. a single described fact took a second or more — it gets a line of its own with its duration, 1a's *"slow steps are
    visible"*;
-5. **heartbeat**: five seconds with no line. It names the innermost described fact and how long it has been running,
+5. **heartbeat**: five seconds with no line. It names the sampled activity (§3.5) and how long that fact has been running,
    with its sub-progress if it reports any (§3.6). The interval stretches to 15 s after a minute and 60 s after ten, so
    a long upload is a few lines, not hundreds.
 
@@ -347,11 +371,11 @@ the processor tree.
 
 | piece | role |
 |---|---|
-| `ProgressTracker` | the mutable core: the set of delivered keys with its two counters (delivered, from cache), current phase, the innermost active key, sub-progress; from the time stage on, per-key-type `LongAdder`s (generations, self nanos). Written by the engine hook and the wrapper, read by the line writer. |
-| `ProgressCompilerProcessor` | time stage only: wraps the **tree root only** (the `wrapTree` position), so it runs once per generation, not once per (key, processor): self time by subtracting fact waits exactly as `TimedCompilationProcess` does. |
+| `ProgressTracker` | the mutable core: the set of delivered keys with its two counters (delivered, from cache), current phase, the set of generations in flight, sub-progress; from the time stage on, per-key-type `LongAdder`s (generations, self nanos). Written by the engine hook and the wrapper, read by the line writer. |
+| `ProgressCompilerProcessor` | time stage only: wraps the **tree root only** (the `wrapTree` position), so it runs once per generation, not once per (key, processor): self time by subtracting the union of the generation's fact waits (§3.7). |
 | `ProgressProfile` | reads/writes the profile file: the total, then (time stage) the per-class EWMA profiles and the last artefact measures. |
 | `ProgressEstimator` | pure: `(profile, tracker snapshot, elapsed) ⇒ ProgressSnapshot(phase, delivered, total?, eta?, activity)`. All of §3.4's arithmetic, unit-testable with no engine. |
-| `ProgressLineWriter` | the one renderer: a fiber waking a few times a second, asking the estimator for a snapshot and applying §4.2's triggers and one-second floor; prints the header and the closing block. The compiler is single-threaded in effect, so it runs on an otherwise idle core. It owns nothing — no stream is replaced, no cursor is moved. |
+| `ProgressLineWriter` | the one renderer: a fiber waking a few times a second, asking the estimator for a snapshot and applying §4.2's triggers and one-second floor; prints the header and the closing block. It wakes a few times a second and reads atomics, so it costs the build nothing measurable. It owns nothing — no stream is replaced, no cursor is moved. |
 | `ProgressDescriber`, `progressMeasures` | the two plugin-facing pieces: §3.5's verb/subject mapping, and §4.4's measures of the produced artefact. |
 
 Phase events come from where `PhaseTimings` already brackets the same code (`CompilationSession.create`,
