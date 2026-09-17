@@ -29,7 +29,7 @@ the cache identity.
 | one-line body change | 7.8 s | 788 | 2.1 s | 0.6 s | **1.6 s** | **2.1 s** |
 | no change | 2.2 s | 478 (all world leaves) | 0.1 s | 0.6 s | 0.1 s | 0.6 s |
 
-Four facts about this engine decide the design.
+Six facts about this engine decide the design.
 
 **F1 — There is no denominator in the run itself.** Computation is demand-driven and depth-first, and nothing runs in
 parallel: a requester blocks on the fact it asked for. So *demanded − completed* is the depth of the request stack,
@@ -53,6 +53,23 @@ those were in the cone at all — the other ~200 are *value-less* (`SemValue`-be
 regenerating parent needs their value, not because anything under them moved. Simulating a live cone (pruned as facts
 recompute equal) gives 3 % → 100 % → 82 % within the first quarter of the run, when `ModuleValue`'s equality cutoff
 lands. Counting the cone is exactly the order-of-magnitude error to avoid. Do not build the estimate on it.
+
+**F5 — A live total, measured.** The obvious history-free design is `completed / requested`, with the total growing as
+facts are requested — no profile, only the counting the engine already does. On the cold trace it shows 72.7 % at 5 %
+of the wall time, 94.6 % at 10 %, 99.8 % at 30 %: requested minus completed is the request chain, at most 31 deep and
+9 on average, against 27,158 facts. This is not the sequential engine's fault alone. A fact's dependencies are known
+only once the inputs that name them are computed — the graph is *discovered by computing it* — so requests cannot run
+far ahead of completions; parallel generation widens the gap from a chain to a frontier, hundreds at best. Estimating
+the undiscovered part from the request graph was simulated too (expected subtree size per key type, learned within the
+run from completed generations): it wanders between 69 % and 99 % for the whole run, because the remaining work hangs
+under the **singletons at the top of the chain** — the root, `UsedNames`, `main`'s `WovenValue` — and a type with one
+instance has no completed sample until the run is over.
+
+**F6 — What a run does learn early is its source files.** 87 % of the files a build will ever read are read by 20 % of
+the wall time and 98 % by 30 %; module values follow (80 % at 30 %), resolved values trail (69 % at 50 %), monomorphic
+values come last (14 % at 50 %). A projection "files seen × facts per file" is therefore stable from about a fifth of
+the way in — *if* the ratio comes from somewhere: it is 298 for `Launcher` and 22 for `HelloWorld`, so it is a property
+of a project, not of the language.
 
 ## 3. The model
 
@@ -350,6 +367,12 @@ must be byte-for-byte the current code path (`wrap` returns the processor unchan
 - **D4 — a live error count.** Deliberately absent: diagnostics are only known to be *this program's* after the run
   (`currentErrors` filters by reachability), so a live count would show errors that then vanish. For the same reason
   1a's inline `warn` lines are not taken: a diagnostic is printed once, after the run, when it is known to be real.
+- **D6 — fewer first builds, and something for the ones left.** §3.2 keys the profile by configuration, so every new
+  `-m` is a first build, and keeps it under `<target>`, so every clean is one. Candidate: look a profile up in tiers —
+  this configuration, then **this project** (any configuration: per-type costs and F6's facts-per-file ratio carry
+  over), then a user-wide one, then a default shipped with the compiler — and below the first tier *project* the
+  denominator from what the run has discovered (F6), printing the percentage as rough (`[~30%]`). F5 is why the
+  fallback is a looser history and not a live total.
 - **D5 — stderr or stdout** for the progress lines (§4.6). Proposed: stderr, because of `run` mode.
 
 Two things the measurements showed that are not this feature's to fix: a one-line body change regenerates **all 44**
