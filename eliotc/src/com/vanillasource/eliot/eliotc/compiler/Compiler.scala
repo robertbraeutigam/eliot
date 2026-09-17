@@ -36,17 +36,18 @@ object Compiler extends Logging {
     * or its target produced no artefact — and otherwise whatever the selected target's
     * [[com.vanillasource.eliot.eliotc.plugin.CompilerPlugin.execute]] answers, which is success for everything that only
     * produces an artefact. The CLI ([[Main]]) exits with it so callers (scripts, CI, a build tool, the IntelliJ before-run
-    * build task) can gate on it. Help/parse termination is not a failure here (`--help` must still exit 0); a missing
-    * target plugin is.
+    * build task) can gate on it. `--help` exits 0; a command line the parser *refuses* does not, or a build tool
+    * running a compiler that rejects its line would read the refusal as a green build. A missing target plugin is a
+    * failure too.
     */
   def runCompiler(args: List[String]): IO[ExitCode] =
     for {
       plugins   <- allLayers()
       // Run command line parsing with all options from all layers
-      configOpt <- parseCommandLine(withDefaultBackend(args, plugins), plugins.map(_.commandLineParser()))
-      exitCode  <- configOpt match {
-                     case None                => IO.pure(ExitCode.Success)
-                     case Some(configuration) =>
+      parsed    <- parseCommandLine(withDefaultBackend(args, plugins), plugins.map(_.commandLineParser()))
+      exitCode  <- parsed match {
+                     case Left(code)          => IO.pure(code)
+                     case Right(configuration) =>
                        runWithConfiguration(configuration, plugins)
                    }
     } yield exitCode
@@ -83,8 +84,8 @@ object Compiler extends Logging {
   def createSession(args: List[String]): IO[Option[CompilationSession]] =
     for {
       plugins   <- allLayers()
-      configOpt <- parseCommandLine(args, plugins.map(_.commandLineParser()))
-      session   <- configOpt.flatTraverse(sessionFor(_, plugins))
+      parsed    <- parseCommandLine(args, plugins.map(_.commandLineParser()))
+      session   <- parsed.toOption.flatTraverse(sessionFor(_, plugins))
     } yield session
 
   private def sessionFor(
@@ -258,28 +259,30 @@ object Compiler extends Logging {
     )
   }
 
+  /** The configuration the command line asks for, or the exit code the parser's answer is: 0 where it terminated on
+    * its own terms (`--help`), and 1 where it refused the line.
+    */
   private def parseCommandLine(
       args: Seq[String],
       options: Seq[OParser[?, Configuration]]
-  ): IO[Option[Configuration]] = IO.blocking {
+  ): IO[Either[ExitCode, Configuration]] = IO.blocking {
     val (result, effects) = OParser.runParser(
       OParser.sequence(baseOptions(), options*),
       args,
       Configuration().set(targetPathKey, Path.of("target"))
     )
 
-    var terminateState: Option[Unit] = Some(())
+    var terminated: Option[ExitCode] = None
 
     OParser.runEffects(
       effects,
       new DefaultOEffectSetup {
-        override def terminate(exitState: Either[String, Unit]): Unit = {
-          terminateState = None
-        }
+        override def terminate(exitState: Either[String, Unit]): Unit =
+          terminated = Some(exitState.fold(_ => ExitCode.Error, _ => ExitCode.Success))
       }
     )
 
-    terminateState.flatMap(_ => result)
+    terminated.toLeft(()).flatMap(_ => result.toRight(ExitCode.Error))
   }
 
 }
