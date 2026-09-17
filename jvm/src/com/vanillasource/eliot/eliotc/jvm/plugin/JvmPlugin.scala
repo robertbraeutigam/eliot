@@ -66,6 +66,10 @@ class JvmPlugin extends CompilerPlugin {
 
   override def backendModes: Seq[String] = Seq("exe-jar", "run")
 
+  override def progressTarget(configuration: Configuration): Seq[String] =
+    Seq(if (configuration.contains(runKey)) "jvm run" else "jvm exe-jar") ++
+      configuration.get(mainKey).map(_.moduleName.show)
+
   /** Mount the synthesized `main.els` entry-point module into the runtime scan pool, and register the platform run
     * boundary `runMain` as a carrier capture ([[com.vanillasource.eliot.eliotc.row.RunBoundaryFunctions]], carrier
     * recognition source (ii)): the synthesized entry calls `runMain(main)`, whose `io: IO[A]` parameter hosts the user

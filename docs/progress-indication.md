@@ -1,6 +1,6 @@
-# Progress indication (`--progress`) — DESIGN, not built
+# Progress indication (`--progress`) — step 1 of §6 BUILT
 
-Status: design draft, 2026-09-17. Nothing here is implemented. §2–§3 are measured constraints; §4 reconciles them with
+Status: design draft, 2026-09-17; §6 step 1 (the count) is built, the rest is not. §2–§3 are measured constraints; §4 reconciles them with
 the Claude Design exploration *"Compiler output design exploration"* (three directions — **1a ledger**, **1b phases**,
 **1c quiet** — sharing one premise: output is **append-only**, every line final once printed). That premise is adopted;
 what each direction assumed that this engine cannot supply is said where it matters.
@@ -101,9 +101,13 @@ deliberately not called "compiling": with a flashing backend most of it may be a
 
 The number shown is a **count of facts**, and it is the same kind of number on every run so that runs can be compared:
 
-- **delivered** — distinct fact keys this run has, counted once each at whichever comes first: its generation ended,
-  it was accepted from the cache, or the drill proved it unchanged (F7). A cold build delivers its 27,000 facts by
-  generating them, a warm one mostly from the cache; both count to the same total.
+- **delivered** — distinct fact keys this run has, counted once each at whichever comes first: a demand for it was
+  answered with a value, it was accepted from the cache, or the drill proved it unchanged (F7). A cold build delivers
+  its 27,000 facts by generating them, a warm one mostly from the cache; both count to the same total. A fact a
+  generation merely *pushes* is not counted until something asks for it: counting registrations instead made a cold
+  `Strings` build 1,563 facts and its warm rerun 1,272, the difference being 300 `ModuleValue`s every parsed file
+  pushes and only the used ones are ever demanded. Counted on demand, cold, changed and unchanged runs of `Strings`
+  all end on 3,989, with identical counts per key type.
 - **total** — what the previous run of this configuration ended on, read from the **profile file**
   `<target>/.eliot-progress-<configFingerprint>`. It lives beside the cache but is **not** discarded with it, so the
   cold build after a compiler upgrade still has its total. A few kilobytes of text, written at the end of every
@@ -116,8 +120,9 @@ reclassification, because cold, changed and unchanged runs all count towards the
 
 It costs one hook in the engine, which is the one departure from `--statistics`' "engine untouched": acceptance and
 validation never reach a processor, so a wrapper around the processor tree cannot see them. `IncrementalFactGenerator`
-takes an optional tracker and tells it three things — generation started (key, for §3.5's activity), generation ended,
-fact delivered from cache — and with no tracker the code path is today's.
+takes an optional tracker and tells it one thing, `delivered(key, fromCache)`, from three places (a demand answered, an
+acceptance, a drill that held); with no tracker the code path is today's. §3.5's activity will add *generation
+started/ended* (key, parent) to the same hook in step 3.
 
 ### 3.3 The very first build: the count alone
 
@@ -325,7 +330,7 @@ failed 3 errors · first at eliot/build/model/Version.els:56 · 4.1s · nothing 
   them. Omitted when the run printed no progress line.
 - **`ok` / `failed`** — always printed. `N facts, M from cache` is the exploration's *"caching is stated, not
   hidden"*, and they are §3.2's own two counters, so the closing line and the last progress line agree. The clock starts at
-  JVM start (`ProcessHandle.current().info().startInstant()`), so the ~40 % of a warm build that precedes `main` is in
+  JVM start (`RuntimeMXBean.getStartTime`; `ProcessHandle`'s start instant is up to a second late on Linux), so the ~40 % of a warm build that precedes `main` is in
   the figure. `failed` repeats the error count and the first error's position so it survives the scroll; the
   diagnostics themselves print exactly as today, above it.
 - **The budget** — *"the number an embedded developer came for"*. The target plugin supplies measures of what it
@@ -388,14 +393,22 @@ insert per fact; the time stage wraps the tree once — two clock reads and two 
 clock reads per fact wait, ~10 ms on the 27k-generation build by arithmetic. The gate for shipping is a measured **< 2 %** on that cold build, flag on vs. off; with the flag off
 the hook is a `None` and `wrap` returns the processor unchanged.
 
+Measured for step 1 (the count alone), `eliot.build.Launcher`, flag off vs. on, alternated: six cold builds each,
+median 14.86 s vs. 14.82 s; eight warm builds each, mean 2.820 s vs. 2.832 s (+0.4 %). Both are inside the run-to-run
+noise (±0.5 s cold), which is itself larger than the gate, so what the measurement shows is that the count costs
+nothing it can resolve. Both runs count 28,734 facts; the warm one takes 28,192 of them from the cache.
+
 ## 6. Work list
 
 Staged so that each step is something a user can already run.
 
-1. **The count.** The engine hook, `ProgressTracker`, phase events, `ProgressLineWriter` with its triggers and
-   one-second floor (tested on a virtual clock against a recorded trace, asserting the exact lines). `--progress`
-   prints the header, first-build style lines (`[ 4,279 facts ]`, a generic verb) and the `ok` / `failed` line. Gate:
-   the cost measurement above.
+1. **The count — BUILT.** The engine hook, `ProgressTracker`, phase events, `ProgressLineWriter` with its triggers
+   and one-second floor (its decision is the pure `ProgressLineWriter.step`, tested against two traces recorded from
+   `Strings` — cold and after a one-line change — asserting the exact lines). `--progress` prints the header,
+   first-build style lines (`[ 4,279 facts ] working`, the phase as the verb) and the `ok` / `failed` line. The header
+   names the target through `CompilerPlugin.progressTarget` (`eliot · jvm exe-jar · HelloWorld`; there is no compiler
+   version to print yet). Triggers 3 and 4 wait for step 3, since both need a described key; the failure line has no
+   `nothing written`, which the engine cannot vouch for across targets. Gate: the cost measurement above.
 2. **The total.** `ProgressProfile`; lines become `[n/total]`.
 3. **What is being done.** `ProgressDescriber` for `lang` and `jvm`; the `changed <file>` line.
 4. **Time.** `ProgressCompilerProcessor`, the per-class profiles, `ProgressEstimator` tested as a pure function

@@ -6,6 +6,7 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.compiler.cache.{CacheEntry, DependencyTrackingProcess, FactCacheData}
 import com.vanillasource.eliot.eliotc.feedback.{CompilerError, Logging}
 import com.vanillasource.eliot.eliotc.processor.{CompilationProcess, CompilerFact, CompilerFactKey, CompilerProcessor}
+import com.vanillasource.eliot.eliotc.progress.ProgressTracker
 
 import scala.annotation.tailrec
 
@@ -41,6 +42,12 @@ import scala.annotation.tailrec
   *
   * With an empty `prior` (cold start) every fact is regenerated, so behavior matches a non-incremental generator plus
   * harmless dependency recording.
+  *
+  * An optional [[ProgressTracker]] is told each fact the run comes to have: demanded and answered with a value,
+  * accepted from the cache, or proven unchanged by the drill. Acceptance and validation never reach a processor, so
+  * this is the one place all three can be seen; without a tracker nothing is recorded. A fact a generation merely
+  * *pushed* is not counted until something asks for it — a cold build would otherwise count every name of every file
+  * it parsed, and a warm one only those the program uses, and the two counts would not compare.
   */
 final class IncrementalFactGenerator(
     generator: CompilerProcessor,
@@ -53,7 +60,8 @@ final class IncrementalFactGenerator(
     carriedForward: Ref[IO, Map[CompilerFactKey[?], CacheEntry]],
     unchangedChecks: Ref[IO, Map[CompilerFactKey[?], Deferred[IO, Boolean]]],
     regeneratedKeysRef: Ref[IO, Set[CompilerFactKey[?]]],
-    demandedRoots: Ref[IO, Set[CompilerFactKey[?]]]
+    demandedRoots: Ref[IO, Set[CompilerFactKey[?]]],
+    progress: Option[ProgressTracker]
 ) extends CompilationProcess
     with Logging {
 
@@ -79,6 +87,7 @@ final class IncrementalFactGenerator(
                         .start
                         .whenA(modifyResult._2) // only the first requester runs the computation
       result       <- modifyResult._1.get
+      _            <- delivered(key, fromCache = false).whenA(result.isDefined)
     } yield result
 
   /** Register a fact, completing its [[Deferred]]. Re-registering the *same* value is a no-op (the push pattern:
@@ -176,7 +185,9 @@ final class IncrementalFactGenerator(
       case Some(entry) if entry.directDeps.isEmpty => recomputeAndCompare(key, entry)
       case Some(entry)                             =>
         entry.directDeps.toList.forallM(depUnchanged).flatMap {
-          case true  => carriedForward.update(_.updated(key, entry)).unlessA(entry.hasValue).as(true)
+          case true  =>
+            carriedForward.update(_.updated(key, entry)).unlessA(entry.hasValue) >>
+              delivered(key, fromCache = true).as(true)
           case false => recomputeAndCompare(key, entry)
         }
     }
@@ -199,7 +210,11 @@ final class IncrementalFactGenerator(
       deferred: Deferred[IO, Option[CompilerFact]]
   ): IO[Unit] =
     directDependencies.update(_.updated(key, entry.directDeps)) >>
+      delivered(key, fromCache = true) >>
       deferred.complete(entry.value).void
+
+  private def delivered(key: CompilerFactKey[?], fromCache: Boolean): IO[Unit] =
+    progress.fold(IO.unit)(_.delivered(key, fromCache))
 
   /** Run the processor, recording (via [[DependencyTrackingProcess]]) the facts it reads as this key's direct
     * dependencies. The processor completes the fact's [[Deferred]] itself via [[registerFact]]; the caller's safety net
@@ -448,11 +463,14 @@ object IncrementalFactGenerator {
     *   only holds for a *complete* processor bundle — a session running all plugins — so it is enabled by
     *   [[CompilationSession]] and off by default for partial bundles (test harnesses that inject source-phase facts
     *   instead of carrying their processors).
+    * @param progress
+    *   told each fact the run comes to have, for `--progress`.
     */
   def create(
       generator: CompilerProcessor,
       prior: Option[FactCacheData],
-      strictAccounting: Boolean = false
+      strictAccounting: Boolean = false,
+      progress: Option[ProgressTracker] = None
   ): IO[IncrementalFactGenerator] =
     for {
       errors          <- Ref.of[IO, Chain[AttributedError]](Chain.empty)
@@ -474,6 +492,7 @@ object IncrementalFactGenerator {
       carriedForward,
       unchangedChecks,
       regenerated,
-      demandedRoots
+      demandedRoots,
+      progress
     )
 }

@@ -6,6 +6,7 @@ import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.{Logging, User}
 import com.vanillasource.eliot.eliotc.plugin.Configuration.{diagnosticKey, namedKey}
 import com.vanillasource.eliot.eliotc.plugin.{CompilerPlugin, Configuration}
+import com.vanillasource.eliot.eliotc.progress.{ProgressLineWriter, ProgressPhase, ProgressTracker}
 import com.vanillasource.eliot.eliotc.statistics.ProcessorStatistics
 import com.vanillasource.eliot.eliotc.visualization.FactVisualizationTracker
 import scopt.{DefaultOEffectSetup, OParser, OParserBuilder}
@@ -20,6 +21,7 @@ object Compiler extends Logging {
   // they must not enter the cache identity — otherwise a `--statistics` run could never observe a warm build.
   val visualizeFactsKey: Configuration.Key[Path] = diagnosticKey[Path]("visualizeFacts")
   val statisticsKey: Configuration.Key[Unit]     = diagnosticKey[Unit]("statistics")
+  val progressKey: Configuration.Key[Unit]       = diagnosticKey[Unit]("progress")
 
   /** Run the compiler, returning the process's exit code: an error when the compilation *failed* — it produced errors,
     * or its target produced no artefact — and otherwise whatever the selected target's
@@ -78,7 +80,8 @@ object Compiler extends Logging {
 
   private def sessionFor(
       configuration: Configuration,
-      plugins: Seq[CompilerPlugin]
+      plugins: Seq[CompilerPlugin],
+      progress: Option[ProgressTracker] = None
   ): IO[Option[CompilationSession]] =
     // Select active plugins
     plugins.find(_.isSelectedBy(configuration)) match {
@@ -91,7 +94,7 @@ object Compiler extends Logging {
           _       <-
             debug[IO](s"Selected active plugins: ${activatedPlugins.map(_.getClass.getSimpleName).mkString(", ")}")
           // One-time setup: configure plugins, collect processors, seed the cache from disk
-          session <- CompilationSession.create(targetPlugin, activatedPlugins, configuration)
+          session <- CompilationSession.create(targetPlugin, activatedPlugins, configuration, progress)
         } yield Some(session)
     }
 
@@ -102,38 +105,63 @@ object Compiler extends Logging {
     for {
       // Start the clock before session setup so the total spans the whole lifecycle: the cache load and the
       // fingerprint digest happen inside `sessionFor` (before any compile), and `--statistics` accounts for them.
-      started    <- IO.monotonic
-      sessionOpt <- sessionFor(configuration, plugins)
-      exitCode   <- sessionOpt match {
-                      case None          => IO.pure(ExitCode.Error) // no target plugin — reported by `sessionFor`
-                      case Some(session) =>
-                        val visualizationPath = session.effectiveConfiguration.get(visualizeFactsKey)
-                        val statisticsAsked   = session.effectiveConfiguration.contains(statisticsKey)
+      started  <- IO.monotonic
+      progress <- Option.when(configuration.contains(progressKey))(ProgressTracker.create()).sequence
+      writer   <- progress.traverse(ProgressLineWriter.create)
+      target    = plugins.find(_.isSelectedBy(configuration)).toSeq.flatMap(_.progressTarget(configuration))
+      // Progress lines are printed from session setup until the cache is persisted, and stop before the diagnostics
+      compiled <- writer
+                    .traverse_(_.lines(target))
+                    .surround(sessionFor(configuration, plugins, progress).flatMap(_.traverse(compile(_, progress))))
+      finished <- IO.monotonic
+      exitCode <- compiled match {
+                    case None           => IO.pure(ExitCode.Error) // no target plugin — reported by `sessionFor`
+                    case Some(compiled) =>
+                      import compiled.*
+                      val visualizationPath = session.effectiveConfiguration.get(visualizeFactsKey)
 
-                        for {
-                          // Both observe every processor invocation and every fact read, so neither is created unless
-                          // asked for: an ordinary build should not pay for a diagnostic it discards.
-                          tracker    <- visualizationPath.traverse(_ => FactVisualizationTracker.create())
-                          statistics <- Option.when(statisticsAsked)(ProcessorStatistics.create()).sequence
-                          // Run the (single, for the CLI) compilation and flush the resulting cache back to disk
-                          _          <- debug[IO]("Compiler starting...")
-                          result     <- session.compileOnce(tracker, statistics)
-                          _          <- session.persist()
-                          finished   <- IO.monotonic
-                          _          <- debug[IO]("Compiler exiting normally.")
-                          // Print the compiler errors
-                          _          <- result.errors.traverse_(_.print())
-                          // Generate visualization if requested
-                          _          <- (tracker, visualizationPath).tupled.traverse_(_.generateVisualization(_))
-                          // Print where the time went in this run, if requested — including the coarse cache phases
-                          phases     <- session.phaseSnapshot
-                          _          <- statistics.traverse_(_.report(finished - started, phases).flatMap(Console[IO].println))
-                          // Only a compilation that produced what it was asked for gets to do anything with it
-                          exitCode   <- if (result.succeeded) session.execute().map(ExitCode(_))
-                                        else IO.pure(ExitCode.Error)
-                        } yield exitCode
-                    }
+                      for {
+                        _        <- debug[IO]("Compiler exiting normally.")
+                        // Print the compiler errors
+                        _        <- result.errors.traverse_(_.print())
+                        // Generate visualization if requested
+                        _        <- (tracker, visualizationPath).tupled.traverse_(_.generateVisualization(_))
+                        // Print where the time went in this run, if requested — including the coarse cache phases
+                        phases   <- session.phaseSnapshot
+                        _        <- statistics.traverse_(_.report(finished - started, phases).flatMap(Console[IO].println))
+                        // The closing progress line comes last, so a `run` mode's program output follows a finished log
+                        _        <- writer.traverse_(_.close(result.errors, result.targetProduced))
+                        _        <- progress.traverse_(_.enter(ProgressPhase.Running))
+                        // Only a compilation that produced what it was asked for gets to do anything with it
+                        exitCode <- if (result.succeeded) session.execute().map(ExitCode(_))
+                                    else IO.pure(ExitCode.Error)
+                      } yield exitCode
+                  }
     } yield exitCode
+
+  /** A session's single compilation, with the instrumentation it ran under. */
+  private case class Compiled(
+      session: CompilationSession,
+      result: CompilationResult,
+      tracker: Option[FactVisualizationTracker],
+      statistics: Option[ProcessorStatistics]
+  )
+
+  /** Run the (single, for the CLI) compilation and flush the resulting cache back to disk. */
+  private def compile(session: CompilationSession, progress: Option[ProgressTracker]): IO[Compiled] = {
+    val visualizationPath = session.effectiveConfiguration.get(visualizeFactsKey)
+    val statisticsAsked   = session.effectiveConfiguration.contains(statisticsKey)
+
+    for {
+      // Both observe every processor invocation and every fact read, so neither is created unless
+      // asked for: an ordinary build should not pay for a diagnostic it discards.
+      tracker    <- visualizationPath.traverse(_ => FactVisualizationTracker.create())
+      statistics <- Option.when(statisticsAsked)(ProcessorStatistics.create()).sequence
+      _          <- debug[IO]("Compiler starting...")
+      result     <- session.compileOnce(tracker, statistics, progress)
+      _          <- session.persist()
+    } yield Compiled(session, result, tracker, statistics)
+  }
 
   private def collectActivatedPlugins(
       initialPlugin: CompilerPlugin,
@@ -170,7 +198,10 @@ object Compiler extends Logging {
         .action((path, config) => config.set(visualizeFactsKey, path)),
       opt[Unit]("statistics")
         .text("print how much time each processor took after the run")
-        .action((_, config) => config.set(statisticsKey, ()))
+        .action((_, config) => config.set(statisticsKey, ())),
+      opt[Unit]("progress")
+        .text("print how far along the run is while it works, to stderr")
+        .action((_, config) => config.set(progressKey, ()))
     )
   }
 

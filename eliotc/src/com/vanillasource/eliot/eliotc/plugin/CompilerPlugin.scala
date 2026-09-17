@@ -23,6 +23,11 @@ trait CompilerPlugin {
     */
   def backendModes: Seq[String] = Seq.empty
 
+  /** How `--progress` names what a run of this target builds, as the header's parts after the compiler's own name —
+    * `Seq("jvm exe-jar", "HelloWorld")` reads `eliot · jvm exe-jar · HelloWorld`. Only the selected target is asked.
+    */
+  def progressTarget(@unused configuration: Configuration): Seq[String] = backendWord.toSeq
+
   def pluginDependencies(@unused configuration: Configuration): Seq[Class[? <: CompilerPlugin]] = Seq.empty
 
   def configure(): StateT[IO, Configuration, Unit] = StateT.empty

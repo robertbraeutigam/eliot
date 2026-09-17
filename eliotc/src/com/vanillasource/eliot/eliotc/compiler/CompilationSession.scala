@@ -9,6 +9,7 @@ import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.plugin.{CompilerPlugin, Configuration}
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerProcessor}
 import com.vanillasource.eliot.eliotc.processor.common.NullProcessor
+import com.vanillasource.eliot.eliotc.progress.{ProgressPhase, ProgressTracker}
 import com.vanillasource.eliot.eliotc.statistics.{PhaseTimings, ProcessorStatistics}
 
 import scala.concurrent.duration.FiniteDuration
@@ -49,19 +50,25 @@ final class CompilationSession private (
     *   optional fact-flow visualization; omit in server mode.
     * @param statistics
     *   optional per-processor timing; omit in server mode.
+    * @param progress
+    *   optional progress counting, for `--progress`; omit in server mode. The run is `working` until its cache graph is
+    *   built, which belongs to `saving cache`.
     * @return
     *   the live generator (queryable for LSP features) plus the run's diagnostics.
     */
   def compileOnce(
       tracker: Option[FactVisualizationTracker] = None,
-      statistics: Option[ProcessorStatistics] = None
+      statistics: Option[ProcessorStatistics] = None,
+      progress: Option[ProgressTracker] = None
   ): IO[CompilationResult] =
     compileLock.lock.surround {
       for {
         prior     <- cache.get
         wrapped   <- IO.delay(wrap(processors, tracker, statistics))
-        generator <- IncrementalFactGenerator.create(wrapped, prior, strictAccounting = true)
+        generator <- IncrementalFactGenerator.create(wrapped, prior, strictAccounting = true, progress)
+        _         <- progress.traverse_(_.enter(ProgressPhase.Working))
         produced  <- targetPlugin.run(effectiveConfiguration, generator)
+        _         <- progress.traverse_(_.enter(ProgressPhase.SavingCache))
         nextCache <- phaseTimings.time(PhaseTimings.buildCache)(generator.buildCacheData())
         _         <- cache.set(Some(nextCache)) // last effect ⇒ a cancelled run keeps the old cache
         errors    <- generator.currentErrors()
@@ -114,11 +121,15 @@ object CompilationSession {
 
   /** One-time setup: let the activated plugins configure each other, collect their processors, compute fingerprints,
     * and seed the in-memory cache from disk. The returned session is then re-runnable.
+    *
+    * @param progress
+    *   told when the cache starts loading, for `--progress`.
     */
   def create(
       targetPlugin: CompilerPlugin,
       activatedPlugins: Seq[CompilerPlugin],
-      configuration: Configuration
+      configuration: Configuration,
+      progress: Option[ProgressTracker] = None
   ): IO[CompilationSession] =
     for {
       effectiveConfig <- activatedPlugins.traverse_(_.configure()).runS(configuration)
@@ -133,6 +144,7 @@ object CompilationSession {
                            configFp,
                            effectiveConfig.get(FactKeyCodecs.configKey).getOrElse(Map.empty)
                          )
+      _               <- progress.traverse_(_.enter(ProgressPhase.LoadingCache))
       seeded          <- phaseTimings.time(PhaseTimings.cacheLoad)(backend.load())
       cache           <- Ref.of[IO, Option[FactCacheData]](seeded)
       lock            <- Mutex[IO]

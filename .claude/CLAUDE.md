@@ -50,6 +50,12 @@ build):
   upper bound and diff a run with and without the flag for the true figure.
 - `--visualize-facts <path>` writes the fact-flow graph (`eliotc/…/visualization/`).
 
+A third opt-in diagnostic, `--progress` (`eliotc/…/progress/`, design `docs/progress-indication.md`), prints
+append-only progress lines to stderr. It is the one diagnostic that hooks the engine itself —
+`IncrementalFactGenerator` takes an optional `ProgressTracker` — because cache acceptance never reaches a processor.
+It counts a fact when it is **demanded**, never when it is pushed, so cold and warm runs count the same total. Only
+§6 step 1 (the count) is built.
+
 ### Module Structure
 
 Modules (see `build.mill`):
