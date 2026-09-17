@@ -29,7 +29,7 @@ the cache identity.
 | one-line body change | 7.8 s | 788 | 2.1 s | 0.6 s | **1.6 s** | **2.1 s** |
 | no change | 2.2 s | 478 (all world leaves) | 0.1 s | 0.6 s | 0.1 s | 0.6 s |
 
-Six facts about this engine decide the design.
+Seven facts about this engine decide the design.
 
 **F1 — There is no denominator in the run itself.** Computation is demand-driven and depth-first, and nothing runs in
 parallel: a requester blocks on the fact it asked for. So *demanded − completed* is the depth of the request stack,
@@ -44,7 +44,7 @@ expensive facts — tokenizer and parser, under a cold JIT) the raw completion c
 removes most of the early skew.
 
 **F3 — A third to a half of a run is not fact generation at all.** Cache persistence alone is 25 % of a cold build, and
-graph build + persist are 47 % of a one-line incremental one. A percentage driven by facts only would sit at "100 %" for four
+graph build + persist are 47 % of a one-line incremental one. A display driven by facts only would sit at "100 %" for four
 seconds. The run has to be modelled as **phases**, of which generating facts is one.
 
 **F4 — The prior graph's change cone is not an estimate.** For the one-line change the static cone (prior facts
@@ -71,6 +71,17 @@ values come last (14 % at 50 %). A projection "files seen × facts per file" is 
 the way in — *if* the ratio comes from somewhere: it is 298 for `Launcher` and 22 for `HelloWorld`, so it is a property
 of a project, not of the language.
 
+**F7 — "Facts delivered" is a usable count on a warm run too.** Count a fact once, the first time the run *has* it —
+generated, accepted from the cache, or proven unchanged by the drill. The drill visits every key of a cached subtree
+individually (27,890 memoized checks in the one-line-change trace), so nothing has to be stored about how big a cached
+tree is; and because the graph is a DAG with heavy sharing (the stdlib sits under nearly everything), stored per-tree
+sizes would count shared facts many times over, where counting distinct keys cannot. Nor do cached facts all arrive in
+one jump at the start: validation short-circuits at the first moved dependency, and the rest of a regenerating fact's
+inputs are validated when it asks for them. Over the working phase of that trace the count reads 2 % at 20 % of the
+time, 24 % at 30 %, 32 % at 40 %, 84 % at 50 %, 97 % at 80 % — lumpy, monotone, never early, and it ends on 27,944 of
+which 27,487 came from the cache. The cold trace is F2. What the count does *not* cover is F3: it is complete when
+`saving cache` begins, which on that run is the half-way point.
+
 ## 3. The model
 
 ### 3.1 A run is a fixed list of phases, one of which is open-ended
@@ -79,56 +90,67 @@ of a project, not of the language.
 |---|---|---|
 | `starting` | `Compiler.runWithConfiguration` entry (plugin discovery, fingerprint) | time only |
 | `loading cache` | around `backend.load()` | time only |
-| `working` | the fact engine (§3.2) | weighted facts |
+| `working` | the fact engine (§3.2) | facts delivered |
 | `saving cache` | around `buildCacheData` + `persist` | time only |
 | `running` | `session.execute()` | none — the closing line is already printed (§4.6) |
 
 The phase list is the engine's, not a plugin's, so it is the same whatever the pipeline turns out to be. `working` is
 deliberately not called "compiling": with a flashing backend most of it may be an upload.
 
-### 3.2 Inside `working`: weighted fact generations, denominated by history
+### 3.2 Inside `working`: facts delivered, out of the facts the last run delivered
 
-Every fact generation is one unit of work, weighted by the **average self time of its key type** (the key's class
-name). Both the weights and the expected number of generations per type come from a **history file**, because F1 says
-they cannot come from the run:
+The number shown is a **count of facts**, and it is the same kind of number on every run so that runs can be compared:
 
-- `<target>/.eliot-progress-<configFingerprint>`, beside the cache but **not** discarded with it — it is keyed by the
-  configuration only, so the cold build that follows a compiler upgrade still has an estimate. A few kilobytes of text.
-- It holds one **profile per run class** — `cold` (no prior cache), `changed` (a world leaf differed), `unchanged` —
-  each an EWMA over past runs of that class: per key type `(generations, total self time)`, and the wall time of each
-  time-only phase. The class is `cold` or `unchanged` at start and flips to `changed` at the first world leaf whose
-  recompute differs (152 ms into the measured run); the percentage is recomputed against the new profile once, early, which is
-  the only time it may move backwards.
-- The file is written at the end of every `--progress` run, success or failure (a failed run updates weights but not
-  expected counts).
+- **delivered** — distinct fact keys this run has, counted once each at whichever comes first: its generation ended,
+  it was accepted from the cache, or the drill proved it unchanged (F7). A cold build delivers its 27,000 facts by
+  generating them, a warm one mostly from the cache; both count to the same total.
+- **total** — what the previous run of this configuration ended on, read from the **profile file**
+  `<target>/.eliot-progress-<configFingerprint>`. It lives beside the cache but is **not** discarded with it, so the
+  cold build after a compiler upgrade still has its total. A few kilobytes of text, written at the end of every
+  `--progress` run (a failed run does not update the total). When a program has grown, `delivered` overtakes `total`
+  and the total simply follows it — `[28,901/28,901]` and still working is honest, 103 % is not.
 
-Work fraction and ETA, in historical milliseconds `h` so the units are consistent:
+A big denominator is what makes this steady: one fact is 0.004 % of it. It needs no run classes and no
+reclassification, because cold, changed and unchanged runs all count towards the same figure, and it is 1a's
+`[n/total]` column after all — with the total coming from the last run instead of from a task graph.
+
+It costs one hook in the engine, which is the one departure from `--statistics`' "engine untouched": acceptance and
+validation never reach a processor, so a wrapper around the processor tree cannot see them. `IncrementalFactGenerator`
+takes an optional tracker and tells it three things — generation started (key, for §3.5's activity), generation ended,
+fact delivered from cache — and with no tracker the code path is today's.
+
+### 3.3 The very first build: the count alone
+
+With no profile there is no total and no honest way to invent one (F1, F5). The first build shows the count of facts
+delivered, the elapsed time and the current activity — regular feedback that the run is alive and moving, which is
+most of what a progress display is for — and ends by writing the total the next run will use.
+
+### 3.4 Time, on top of the count (second stage)
+
+A count is not a clock: cached facts cost nothing, generated ones cost milliseconds, and the time-only phases deliver
+no facts at all (F3, F7). So the ETA column is fed by a separate, time-based estimate, added once the count is in
+place. It needs per-key-type **self time**, which a wrapper around the processor tree's root measures exactly as
+`TimedCompilationProcess` does, and it extends the profile file with one **profile per run class** — `cold` (no prior
+cache), `changed` (a world leaf differed), `unchanged` — each an EWMA over past runs of that class: per key type
+`(generations, total self time)`, and the wall time of each time-only phase. The class is `cold` or `unchanged` at
+start and flips to `changed` at the first world leaf whose recompute differs (152 ms into the measured run).
 
 ```
-doneH      = Σ_type  done[type] × avgH[type]   +  the running fact's elapsed, capped at its avgH
-expectedH  = Σ_type  max(expected[type], done[type]) × avgH[type]
-speed      = liveElapsedInWorking / doneH                 -- today's machine vs. history's, smoothed
+doneH      = Σ_type  generated[type] × avgH[type]   +  the running fact's elapsed, capped at its avgH
+expectedH  = Σ_type  max(expected[type], generated[type]) × avgH[type]
+speed      = liveElapsedInWorking / doneH               -- today's machine vs. history's, smoothed
 eta        = (expectedH − doneH) × speed  +  Σ remaining time-only phases (from the profile, × speed)
-fraction   = elapsed / (elapsed + eta)                    -- over the WHOLE run, so saving is in the percentage (F3)
 ```
 
-Three properties fall out. A project that grew simply makes `done[type]` overtake `expected[type]`, so the percentage slows
-instead of lying. A single long fact — a 200 ms class generation today, a 12 s firmware upload tomorrow — keeps the percentage
-moving, because the fact being generated is interpolated **in time** against its type's average. And a plugin nobody
-told the progress system about is estimated correctly anyway, since a key type needs no description to be weighed.
+A single long fact — a 200 ms class generation today, a 12 s firmware upload tomorrow — keeps the ETA falling, because
+the fact being generated is interpolated **in time** against its type's average; and a plugin nobody told the progress
+system about is estimated correctly anyway, since a key type needs no description to be weighed. Expected accuracy:
+`cold` and `unchanged` repeat closely; `changed` spans a body edit to a signature edit in a core module, which on the
+measured program is 7.8 s to ~15 s because the time-only phases dominate — within 2×, corrected as the run proceeds.
+The same self times give the closing `time` line (§4.4). Whether a percentage is printed as well, and whether it is
+the count's or time's, waits until both can be looked at side by side.
 
-Expected accuracy: `cold` and `unchanged` repeat closely. `changed` spans a body edit to a signature edit in a core
-module, which on the measured program is 7.8 s to ~15 s because the time-only phases dominate — within 2×, corrected
-as the run proceeds. That is the honest bound and it meets the requirement; a smarter `changed` estimator is §7's
-follow-up, behind a measurement.
-
-### 3.3 The very first build has no ETA
-
-With no history there is no denominator (F1) and no honest way to invent one: mounted source size is no guide, since
-only imported modules are ever read. The first build shows counts, elapsed time and the current activity, with `[ --%]`
-in the percentage column and no ETA. It happens once per configuration per checkout.
-
-### 3.4 What the user is told is being done
+### 3.5 What the user is told is being done
 
 Key types are internal (`UncurriedMonomorphicValue$Key`); what a user recognises is a **verb and a subject**:
 *checking `eliot.build.resolve.Resolution`*, *packaging `Launcher.jar`*, *flashing `firmware.hex`*. Plugins supply
@@ -152,9 +174,9 @@ The activity shown is the innermost *described* key on the active request chain 
 statistical profile: the label shows where the time is going, which is what the user wants to know, and a label that
 flickers is a label over cheap work that the sampler mostly misses.
 
-### 3.5 A long-running fact may report its own progress (deferred until one exists)
+### 3.6 A long-running fact may report its own progress (deferred until one exists)
 
-Time interpolation (§3.2) already keeps the percentage moving through an upload. What it cannot show is *"43 % · 12 kB/s"*.
+Time interpolation (§3.4) already keeps the ETA falling through an upload. What it cannot show is *"43 % · 12 kB/s"*.
 For that, `CompilationProcess` gains a no-op-by-default `reportProgress(done: Long, total: Long, detail: String)`,
 surfaced on `CompilerIO`; the tracker attributes it to the generation that called it and a heartbeat line (§4.2) shows
 it while that fact is innermost. It changes no fact and records no dependency. Build it with the first processor that
@@ -175,9 +197,9 @@ this document proposed a two-line live region; it is withdrawn for exactly that 
 
 What cannot be taken from the mock-ups, by direction:
 
-- **1a's `[n/total]` counter.** There is no total (F1) — "known after resolve" describes a static task graph, which
-  this is not. The column stays and holds the estimator's **percentage** instead: `[ 54%]`, and `[ --%]` on a first
-  build. **One line per task** goes too: there are 27,000 generations, and the user-sized units are not tasks either —
+- **1a's `[n/total]` counter is kept, with a different total.** "Known after resolve" describes a static task graph,
+  which this is not (F1); the total is the number of facts the previous run delivered (§3.2), and on a first build the
+  column holds the running count alone. **One line per task** is what goes: there are 27,000 generations, and the user-sized units are not tasks either —
   "typecheck `sensor.els`" is never *finished* until the run is, because any later demand may instantiate another of
   its values. Lines are therefore **samples and milestones** of one run, not a ledger of completed tasks. What survives
   is the grammar: fixed columns, every line standing alone, slow steps visible, a heartbeat on a long one.
@@ -190,76 +212,78 @@ What cannot be taken from the mock-ups, by direction:
 ### 4.2 The progress line
 
 ```
-[ 54%] checking    eliot.build.resolve.Resolution                       8.4s   ~7s left
-└pct─┘ └verb────┘  └subject, then detail──────────────────────┘   └elapsed┘ └eta────┘
+[14,211/27,181] checking    eliot.build.resolve.Resolution                8.4s   ~7s left
+└delivered/total┘ └verb───┘ └subject, then detail─────────────────┘  └elapsed┘ └eta────┘
 ```
 
-Fixed columns, as in 1a, so the eye can run down any one of them. The percentage is §3.2's fraction over the whole run;
-verb and subject are §3.4's activity, **sampled at the moment the line is written**; the right-hand columns are wall
-time so far and the rounded ETA (1 s steps under 10 s, 5 s under a minute, 15 s above; `finishing` under one second;
-absent on a first build).
+Fixed columns, as in 1a, so the eye can run down any one of them. The counter is §3.2's; verb and subject are §3.5's
+activity, **sampled at the moment the line is written**; the right-hand columns are wall time so far and, from the
+second stage on (§3.4), the rounded ETA (1 s steps under 10 s, 5 s under a minute, 15 s above; `finishing` under one
+second; absent on a first build).
 
 A line is written when a trigger fires **and at least one second has passed since the last one** — that floor is the
 whole of "must not scroll faster than it can be read":
 
 1. the run's phase changed (`loading cache` → working → `saving cache`);
-2. the percentage crossed a 10 % boundary;
-3. a world leaf was found changed — the run is reclassified `unchanged → changed` (§3.2) and the line says which file,
+2. the count crossed another tenth of the total (on a first build: doubled since the last line);
+3. a world leaf was found changed — the line says which file,
    which is the exploration's *"why was this rebuilt"* answered with the one thing the engine knows for certain;
 4. a single described fact took a second or more — it gets a line of its own with its duration, 1a's *"slow steps are
    visible"*;
 5. **heartbeat**: five seconds with no line. It names the innermost described fact and how long it has been running,
-   with its sub-progress if it reports any (§3.5). The interval stretches to 15 s after a minute and 60 s after ten, so
+   with its sub-progress if it reports any (§3.6). The interval stretches to 15 s after a minute and 60 s after ten, so
    a long upload is a few lines, not hundreds.
 
 That bounds a run at roughly ten milestone lines plus its slow steps and heartbeats, whatever its size.
 
 ### 4.3 A whole run
 
-Cold, with history (the header carries the estimate, because the most useful moment for an ETA is before anything has
-happened):
+Cold, with a profile (the header carries the estimate, because the most useful moment for an ETA is before anything
+has happened):
 
 ```
 $ eliot exe-jar -m eliot.build.Launcher
 eliot 0.5 · jvm exe-jar · eliot.build.Launcher · full build, about 16s
-[  6%] parsing     eliot/build/model/Descriptor.els                     1.0s  ~15s left
-[ 11%] resolving   eliot.build.model.Descriptor                         2.1s  ~14s left
-[ 20%] checking    eliot.build.git.Git                                  3.4s  ~12s left
-[ 31%] checking    eliot.build.resolve.Resolution                       5.0s  ~11s left
+[   335/27,181] parsing     eliot/build/model/Descriptor.els              1.0s  ~15s left
+[ 1,298/27,181] resolving   eliot.build.model.Descriptor                  2.1s  ~14s left
+[ 4,279/27,181] checking    eliot.build.git.Git                           3.4s  ~12s left
+[ 8,900/27,181] checking    eliot.build.resolve.Resolution                5.0s  ~11s left
    ⋮
-[ 68%] generating  eliot.build.Launcher                                10.4s   ~5s left
-[ 72%] saving cache                                                    11.1s   ~4s left
-[ 90%] saving cache                                                    14.2s   ~1s left
+[25,621/27,181] generating  eliot.build.Launcher                         10.4s   ~5s left
+[27,181/27,181] saving cache                                             11.1s   ~4s left
+[27,181/27,181] saving cache                                             14.2s   ~1s left
 time   parsing 1.5s · resolving 1.9s · checking 3.1s · generating 1.3s · cache 4.1s
-ok     Launcher.jar · 412 KB (+88 B) · 27,181 facts, 0 cached · 15.7s
+ok     Launcher.jar · 412 KB (+88 B) · 27,181 facts, 0 from cache · 15.7s
 ```
 
-One line changed:
+One line changed — the same total, reached mostly from the cache (F7's curve):
 
 ```
 eliot 0.5 · jvm exe-jar · eliot.build.Launcher · about 2s if nothing changed
-[  3%] changed     eliot/build/model/Version.els                        0.8s   ~7s left
-[ 24%] generating  eliot.build.model.Version                            2.2s   ~5s left
-[ 41%] saving cache                                                     3.9s   ~4s left
-[ 80%] saving cache                                                     6.6s   ~1s left
+[   597/27,944] changed     eliot/build/model/Version.els                 0.8s   ~7s left
+[ 8,950/27,944] generating  eliot.build.model.Version                     2.6s   ~5s left
+[27,010/27,944] generating  eliot.build.Launcher                          3.7s   ~4s left
+[27,944/27,944] saving cache                                              4.1s   ~4s left
+[27,944/27,944] saving cache                                              6.6s   ~1s left
 time   generating 1.0s · parsing 0.3s · checking 0.1s · cache 4.3s
-ok     Launcher.jar · 412 KB (+0 B) · 788 facts, 27,894 cached · 7.8s
+ok     Launcher.jar · 412 KB (+0 B) · 27,944 facts, 27,487 from cache · 7.8s
 ```
 
 Nothing changed — no progress line comes due, so this is 1c:
 
 ```
 eliot 0.5 · jvm exe-jar · eliot.build.Launcher · about 2s if nothing changed
-ok     Launcher.jar · up to date · 28,682 facts cached · 2.2s
+ok     Launcher.jar · up to date · 27,944 facts, all from cache · 2.2s
 ```
 
 First build ever, and a long single fact on a future target:
 
 ```
-eliot 0.5 · jvm exe-jar · eliot.build.Launcher · first build, no estimate yet
-[ --%] parsing     eliot/build/model/Descriptor.els      3,902 facts    2.1s
+eliot 0.5 · jvm exe-jar · eliot.build.Launcher · first build
+[ 1,298 facts ] parsing     eliot/build/model/Descriptor.els              2.1s
+[ 4,279 facts ] checking    eliot.build.git.Git                           3.4s
 
-[ 64%] flashing    firmware.hex · 43% · 12.4 kB/s  … 10s               16.0s   ~9s left
+[   398/   412] flashing    firmware.hex · 43% · 12.4 kB/s  … 10s        16.0s   ~9s left
 ```
 
 Failure — the exploration's closing vocabulary, which happens to be true of this compiler (a failed build leaves no
@@ -275,8 +299,8 @@ failed 3 errors · first at eliot/build/model/Version.els:56 · 4.1s · nothing 
   phases. It is 1b's per-phase timing and the exploration's *"what took the time"*, moved to the only place it can be
   true. It is also how a user learns that half their incremental build is cache work (§2), which today nothing tells
   them. Omitted when the run printed no progress line.
-- **`ok` / `failed`** — always printed. `N facts, M cached` is the exploration's *"caching is stated, not hidden"*,
-  read from the generator after the run (`regeneratedKeys`, accepted and carried-forward counts). The clock starts at
+- **`ok` / `failed`** — always printed. `N facts, M from cache` is the exploration's *"caching is stated, not
+  hidden"*, and they are §3.2's own two counters, so the closing line and the last progress line agree. The clock starts at
   JVM start (`ProcessHandle.current().info().startInstant()`), so the ~40 % of a warm build that precedes `main` is in
   the figure. `failed` repeats the error count and the first error's position so it survives the scroll; the
   diagnostics themselves print exactly as today, above it.
@@ -296,7 +320,7 @@ system's terminal kinds: bracket, times and separators *faint*; verb *muted*; su
 gives.
 
 Not a terminal, `NO_COLOR`, or `TERM=dumb`: no colour, and each line is prefixed with an absolute timestamp
-(`11:42:03 [ 54%] checking …`), as in the mock-up. One deviation: the mock-up drops heartbeats without a tty, and this
+(`11:42:03 [14,211/27,181] checking …`), as in the mock-up. One deviation: the mock-up drops heartbeats without a tty, and this
 keeps them at 30 s — CI is where a silent ten-minute step gets a job killed. Terminal detection only chooses
 decoration now, so getting it wrong is harmless (`System.console() != null`, plus `Console.isTerminal` on JDK ≥ 22).
 
@@ -317,46 +341,51 @@ looping `compileOnce` already fits); *"what did it decide about my types"* — e
 
 ## 5. Architecture
 
-Everything lives in a new `eliotc/…/progress/` package and follows the `--statistics` precedent: an add-on wrapped
-around the processor tree, created only when asked for, with the engine and the processors untouched.
+Everything lives in a new `eliotc/…/progress/` package, created only when asked for. Processors are untouched; the
+engine gains the one optional hook of §3.2, and the time stage (§3.4) is a `--statistics`-style add-on wrapped around
+the processor tree.
 
 | piece | role |
 |---|---|
-| `ProgressTracker` | the mutable core: per-key-type `LongAdder`s (generations, self nanos), current phase, the innermost active key, sub-progress. Written by the wrappers, read by the renderer. |
-| `ProgressCompilerProcessor` | wraps the **tree root only** (the `wrapTree` position), so it runs once per generation, not once per (key, processor): start/end events, self time by subtracting fact waits exactly as `TimedCompilationProcess` does, the active chain from `activeFactKeys`. |
-| `ProgressHistory` | reads/writes the profile file; pure EWMA merge. |
-| `ProgressEstimator` | pure: `(profile, tracker snapshot, elapsed) ⇒ ProgressSnapshot(phase, fraction?, eta?, activity, counts)`. All of §3.2's arithmetic, unit-testable with no engine. |
+| `ProgressTracker` | the mutable core: the set of delivered keys with its two counters (delivered, from cache), current phase, the innermost active key, sub-progress; from the time stage on, per-key-type `LongAdder`s (generations, self nanos). Written by the engine hook and the wrapper, read by the line writer. |
+| `ProgressCompilerProcessor` | time stage only: wraps the **tree root only** (the `wrapTree` position), so it runs once per generation, not once per (key, processor): self time by subtracting fact waits exactly as `TimedCompilationProcess` does. |
+| `ProgressProfile` | reads/writes the profile file: the total, then (time stage) the per-class EWMA profiles and the last artefact measures. |
+| `ProgressEstimator` | pure: `(profile, tracker snapshot, elapsed) ⇒ ProgressSnapshot(phase, delivered, total?, eta?, activity)`. All of §3.4's arithmetic, unit-testable with no engine. |
 | `ProgressLineWriter` | the one renderer: a fiber waking a few times a second, asking the estimator for a snapshot and applying §4.2's triggers and one-second floor; prints the header and the closing block. The compiler is single-threaded in effect, so it runs on an otherwise idle core. It owns nothing — no stream is replaced, no cursor is moved. |
-| `ProgressDescriber`, `progressMeasures` | the two plugin-facing pieces: §3.4's verb/subject mapping, and §4.4's measures of the produced artefact. |
+| `ProgressDescriber`, `progressMeasures` | the two plugin-facing pieces: §3.5's verb/subject mapping, and §4.4's measures of the produced artefact. |
 
 Phase events come from where `PhaseTimings` already brackets the same code (`CompilationSession.create`,
 `compileOnce`, `persist`), so `compileOnce` takes an `Option[ProgressTracker]` beside the tracker and statistics it
 already takes. `ProgressSnapshot` is writer-independent on purpose: `--log=json` is a second writer over the same
 snapshots, and the LSP can map them to `$/progress` work-done notifications, neither touching the model.
 
-**Cost gate.** `--statistics` inflates a build ~20 % because it wraps every processor. This wraps the tree once: two
-clock reads and two adder updates per generation plus two clock reads per fact wait, ~10 ms on the 27k-generation
-build by arithmetic. The gate for shipping is a measured **< 2 %** on that cold build, flag on vs. off; the flag off
-must be byte-for-byte the current code path (`wrap` returns the processor unchanged).
+**Cost gate.** `--statistics` inflates a build ~20 % because it wraps every processor. The count is one concurrent-set
+insert per fact; the time stage wraps the tree once — two clock reads and two adder updates per generation plus two
+clock reads per fact wait, ~10 ms on the 27k-generation build by arithmetic. The gate for shipping is a measured **< 2 %** on that cold build, flag on vs. off; with the flag off
+the hook is a `None` and `wrap` returns the processor unchanged.
 
 ## 6. Work list
 
-1. `ProgressTracker` + `ProgressCompilerProcessor` + phase events; `--progress` prints only the header and the
-   `time` / `ok` / `failed` lines of §4.4. Already useful, and the gate: the cost measurement above.
-2. `ProgressHistory` + `ProgressEstimator`, tested as pure functions against recorded traces (cold, changed,
-   unchanged, grown project, first build).
-3. `ProgressLineWriter`: triggers, the one-second floor, heartbeats; tested by feeding it a recorded trace on a
-   virtual clock and asserting the exact lines.
-4. `ProgressDescriber` for `lang` and `jvm`; the `changed <file>` line.
-5. `progressMeasures` for `jvm` (jar size), deltas from the history file; colour and the non-tty form (§4.5).
-6. Deferred: `reportProgress` (§3.5) with the first long-running processor; `--log=json`; LSP `$/progress`.
+Staged so that each step is something a user can already run.
+
+1. **The count.** The engine hook, `ProgressTracker`, phase events, `ProgressLineWriter` with its triggers and
+   one-second floor (tested on a virtual clock against a recorded trace, asserting the exact lines). `--progress`
+   prints the header, first-build style lines (`[ 4,279 facts ]`, a generic verb) and the `ok` / `failed` line. Gate:
+   the cost measurement above.
+2. **The total.** `ProgressProfile`; lines become `[n/total]`.
+3. **What is being done.** `ProgressDescriber` for `lang` and `jvm`; the `changed <file>` line.
+4. **Time.** `ProgressCompilerProcessor`, the per-class profiles, `ProgressEstimator` tested as a pure function
+   against recorded traces (cold, changed, unchanged, grown project); the ETA column, the header's estimate, the
+   `time` line.
+5. `progressMeasures` for `jvm` (jar size), deltas from the profile; colour and the non-tty form (§4.5).
+6. Deferred: `reportProgress` (§3.6) with the first long-running processor; `--log=json`; LSP `$/progress`.
 
 ## 7. Open decisions
 
 - **D1 — what bare `eliotc` prints.** The exploration makes quiet (1c) the default and detail opt-in. This document
   only adds `--progress`; whether the `ok` / `failed` line becomes the compiler's ordinary output without the flag is a
   separate, smaller change — it needs no tracker, only the generator's counts.
-- **D2 — a better `changed` estimate.** History is within ~2× here. If larger programs show worse, the candidate is a
+- **D2 — a better `changed` ETA.** History is within ~2× here. If larger programs show worse, the candidate is a
   **cost-weighted** live cone *plus* the value-less dependencies of its members (F4 shows why the plain cone fails),
   which also needs world leaves validated up front so the cone is known early — an engine ordering change, made only
   on a measurement that history is not enough.
@@ -371,7 +400,8 @@ must be byte-for-byte the current code path (`wrap` returns the processor unchan
   `-m` is a first build, and keeps it under `<target>`, so every clean is one. Candidate: look a profile up in tiers —
   this configuration, then **this project** (any configuration: per-type costs and F6's facts-per-file ratio carry
   over), then a user-wide one, then a default shipped with the compiler — and below the first tier *project* the
-  denominator from what the run has discovered (F6), printing the percentage as rough (`[~30%]`). F5 is why the
+  total from what the run has discovered (F6), printed as rough (`[4,279/~27,000]`). Not needed for the first cut:
+  a first build showing its count alone (§3.3) is accepted as the starting point. F5 is why the
   fallback is a looser history and not a live total.
 - **D5 — stderr or stdout** for the progress lines (§4.6). Proposed: stderr, because of `run` mode.
 
