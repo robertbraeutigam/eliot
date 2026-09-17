@@ -179,3 +179,7 @@ Nothing effect-related is tracked here; add it there.
 
 - You cannot set a pin `high` without first configuring it as an output — the type system
   should enforce this.
+
+## IDE
+
+- Should we build with the compiler in the dependencies instead of a bundled one in LSP?
