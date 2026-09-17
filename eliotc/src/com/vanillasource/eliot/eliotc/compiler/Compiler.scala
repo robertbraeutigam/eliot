@@ -3,10 +3,11 @@ package com.vanillasource.eliot.eliotc.compiler
 import cats.effect.{ExitCode, IO}
 import cats.effect.std.Console
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.compiler.cache.CacheFingerprint
 import com.vanillasource.eliot.eliotc.feedback.{Logging, User}
 import com.vanillasource.eliot.eliotc.plugin.Configuration.{diagnosticKey, namedKey}
 import com.vanillasource.eliot.eliotc.plugin.{CompilerPlugin, Configuration}
-import com.vanillasource.eliot.eliotc.progress.{ProgressLineWriter, ProgressPhase, ProgressTracker}
+import com.vanillasource.eliot.eliotc.progress.{ProgressLineWriter, ProgressPhase, ProgressProfile, ProgressTracker}
 import com.vanillasource.eliot.eliotc.statistics.ProcessorStatistics
 import com.vanillasource.eliot.eliotc.visualization.FactVisualizationTracker
 import scopt.{DefaultOEffectSetup, OParser, OParserBuilder}
@@ -106,7 +107,12 @@ object Compiler extends Logging {
       // Start the clock before session setup so the total spans the whole lifecycle: the cache load and the
       // fingerprint digest happen inside `sessionFor` (before any compile), and `--statistics` accounts for them.
       started  <- IO.monotonic
-      progress <- Option.when(configuration.contains(progressKey))(ProgressTracker.create()).sequence
+      // The profile is keyed by the command line's configuration, which is known before any plugin configures a session
+      profile   = Option.when(configuration.contains(progressKey))(
+                    ProgressProfile.fileIn(configuration.get(targetPathKey).get, CacheFingerprint.config(configuration))
+                  )
+      expected <- profile.traverse(ProgressProfile.read)
+      progress <- expected.traverse(prior => ProgressTracker.create(prior.total))
       writer   <- progress.traverse(ProgressLineWriter.create)
       target    = plugins.find(_.isSelectedBy(configuration)).toSeq.flatMap(_.progressTarget(configuration))
       // Progress lines are printed from session setup until the cache is persisted, and stop before the diagnostics
@@ -131,6 +137,8 @@ object Compiler extends Logging {
                         _        <- statistics.traverse_(_.report(finished - started, phases).flatMap(Console[IO].println))
                         // The closing progress line comes last, so a `run` mode's program output follows a finished log
                         _        <- writer.traverse_(_.close(result.errors, result.targetProduced))
+                        // Only a run that succeeded sets the next run's total: a failed one stops short of it
+                        _        <- (profile, progress).tupled.traverse_(saveTotal).whenA(result.succeeded)
                         _        <- progress.traverse_(_.enter(ProgressPhase.Running))
                         // Only a compilation that produced what it was asked for gets to do anything with it
                         exitCode <- if (result.succeeded) session.execute().map(ExitCode(_))
@@ -138,6 +146,10 @@ object Compiler extends Logging {
                       } yield exitCode
                   }
     } yield exitCode
+
+  /** Record what this run delivered in its profile, as the total the next run is measured against. */
+  private def saveTotal(profile: Path, progress: ProgressTracker): IO[Unit] =
+    progress.snapshot.flatMap(snapshot => ProgressProfile.write(profile, ProgressProfile(Some(snapshot.delivered))))
 
   /** A session's single compilation, with the instrumentation it ran under. */
   private case class Compiled(

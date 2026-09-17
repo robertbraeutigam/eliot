@@ -75,6 +75,24 @@ class ProgressTrackerTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
     test.asserting(_ shouldBe ProgressPhase.Working)
   }
 
+  it should "measure the run against the expected total" in {
+    ProgressTracker.create(Some(3989)).flatMap(_.snapshot).asserting(_.total shouldBe Some(3989))
+  }
+
+  it should "let the total follow a run that delivered more than expected" in {
+    val test = for {
+      tracker  <- ProgressTracker.create(Some(1))
+      _        <- tracker.delivered(NumberKey("a"), fromCache = false)
+      _        <- tracker.delivered(NumberKey("b"), fromCache = false)
+      snapshot <- tracker.snapshot
+    } yield snapshot.total
+    test.asserting(_ shouldBe Some(2))
+  }
+
+  it should "have no total on a first build" in {
+    ProgressTracker.create().flatMap(_.snapshot).asserting(_.total shouldBe None)
+  }
+
   private def chain(value: Int): IO[CompilerProcessor] =
     Ref.of[IO, Int](value).map(src => graph(Map("leaf" -> Leaf(src), "derived" -> Derived("leaf", _ * 2)), Map.empty))
 

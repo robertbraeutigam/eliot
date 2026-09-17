@@ -17,8 +17,9 @@ import scala.concurrent.duration.*
   *
   * A progress line looks like
   * {{{
-  * [ 4,279 facts ] working                                                 3.4s
+  * [ 4,279/27,181] working                                                 3.4s
   * }}}
+  * or, on a first build, which has no total to show, `[ 4,279 facts ] working`.
   * and is written when a trigger fires *and* at least a second has passed since the previous line (the header
   * included), which is what keeps the output readable. The decision is a pure function ([[ProgressLineWriter.step]]) of
   * what the line before showed, a [[ProgressSnapshot]] and the elapsed time; this class only samples the tracker a few
@@ -38,7 +39,7 @@ final class ProgressLineWriter private (tracker: ProgressTracker, startedAtMilli
         for {
           now      <- elapsed
           snapshot <- tracker.snapshot
-          _        <- Console[IO].errorln(ProgressLineWriter.header(target))
+          _        <- Console[IO].errorln(ProgressLineWriter.header(target, snapshot.total.isEmpty))
         } yield ProgressLineWriter.State(now, snapshot.phase, snapshot.delivered)
       )
       .flatMap(initial => loop(initial).background.void)
@@ -83,6 +84,7 @@ object ProgressLineWriter {
   /** The least time between two lines: whatever triggers, the output never scrolls faster than it can be read. */
   val lineFloor: FiniteDuration = 1.second
 
+  private val counterWidth = 15
   private val verbWidth    = 12
   private val subjectWidth = 44
 
@@ -95,7 +97,8 @@ object ProgressLineWriter {
     * last one and one of these holds:
     *
     *   - the run is in a different phase than the last line showed;
-    *   - the facts delivered at least doubled since the last line;
+    *   - the facts delivered crossed another tenth of the total since the last line or, on a first build, at least
+    *     doubled;
     *   - nothing was printed for a heartbeat interval ([[heartbeatInterval]]).
     *
     * The [[ProgressPhase.Running]] phase is never shown: the closing line is printed before it begins.
@@ -105,13 +108,21 @@ object ProgressLineWriter {
     val due       =
       sinceLast >= lineFloor && snapshot.phase != ProgressPhase.Running && (
         snapshot.phase != state.shownPhase ||
-          (snapshot.delivered > 0 && snapshot.delivered >= 2 * state.shownCount) ||
+          advanced(state.shownCount, snapshot) ||
           sinceLast >= heartbeatInterval(now)
       )
 
     if (due) (State(now, snapshot.phase, snapshot.delivered), Some(progressLine(snapshot, now)))
     else (state, None)
   }
+
+  private def advanced(shownCount: Long, snapshot: ProgressSnapshot): Boolean =
+    snapshot.total match {
+      case Some(total) => tenths(snapshot.delivered, total) > tenths(shownCount, total)
+      case None        => snapshot.delivered > 0 && snapshot.delivered >= 2 * shownCount
+    }
+
+  private def tenths(count: Long, total: Long): Long = if (total == 0) 10 else count * 10 / total
 
   /** How long the output may stay silent: five seconds, stretching to 15 after a minute and to 60 after ten, so a long
     * step is a few lines rather than hundreds.
@@ -121,12 +132,21 @@ object ProgressLineWriter {
     else if (now < 10.minutes) 15.seconds
     else 1.minute
 
-  /** The first line of a run, e.g. `eliot · jvm exe-jar · HelloWorld`. */
-  def header(target: Seq[String]): String = ("eliot" +: target).mkString(" · ")
+  /** The first line of a run, e.g. `eliot · jvm exe-jar · HelloWorld`, saying so when it is a first build — one with no
+    * total to measure it against.
+    */
+  def header(target: Seq[String], firstBuild: Boolean): String =
+    (("eliot" +: target) ++ Option.when(firstBuild)("first build")).mkString(" · ")
 
-  /** A progress line: the facts delivered so far, what the run is doing, and the time elapsed. */
+  /** A progress line: the facts delivered so far out of the total, what the run is doing, and the time elapsed. */
   def progressLine(snapshot: ProgressSnapshot, now: FiniteDuration): String = {
-    val counter = f"[${grouped(snapshot.delivered)}%6s facts ]"
+    val counter = snapshot.total match {
+      case Some(total) =>
+        val shownTotal = grouped(total)
+        val shownCount = grouped(snapshot.delivered)
+        s"[${" " * (shownTotal.length - shownCount.length)}$shownCount/$shownTotal]".padTo(counterWidth, ' ')
+      case None        => f"[${grouped(snapshot.delivered)}%6s facts ]"
+    }
 
     f"$counter ${snapshot.phase.label.padTo(verbWidth, ' ')}${"".padTo(subjectWidth, ' ')}${duration(now)}%6s"
   }

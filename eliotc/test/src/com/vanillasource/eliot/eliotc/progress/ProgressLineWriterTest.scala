@@ -21,6 +21,21 @@ class ProgressLineWriterTest extends AnyFlatSpec with Matchers {
     )
   }
 
+  it should "follow a recorded cold build against the total of the previous run" in {
+    linesOf(coldTrace.map(withTotal(3989))) shouldBe Seq(
+      "[  125/3,989]   working                                                   2.4s",
+      "[  977/3,989]   working                                                   3.4s",
+      "[3,280/3,989]   working                                                   4.4s",
+      "[3,989/3,989]   saving cache                                              5.4s"
+    )
+  }
+
+  it should "measure a run that grew past its total against what it delivered" in {
+    ProgressLineWriter.progressLine(ProgressSnapshot(Working, 28901, 0, Some(28901)), 3.seconds) should startWith(
+      "[28,901/28,901] working"
+    )
+  }
+
   it should "follow a recorded build after a one-line change" in {
     linesOf(changedTrace) shouldBe Seq(
       "[ 1,075 facts ] working                                                   2.4s"
@@ -51,7 +66,12 @@ class ProgressLineWriterTest extends AnyFlatSpec with Matchers {
   }
 
   "the header" should "name the compiler and the target" in {
-    ProgressLineWriter.header(Seq("jvm exe-jar", "HelloWorld")) shouldBe "eliot · jvm exe-jar · HelloWorld"
+    ProgressLineWriter.header(Seq("jvm exe-jar", "HelloWorld"), false) shouldBe "eliot · jvm exe-jar · HelloWorld"
+  }
+
+  it should "say when a run is a first build" in {
+    ProgressLineWriter.header(Seq("jvm exe-jar", "HelloWorld"), true) shouldBe
+      "eliot · jvm exe-jar · HelloWorld · first build"
   }
 
   "the closing line" should "state how many facts came from the cache" in {
@@ -126,6 +146,9 @@ object ProgressLineWriterTest {
 
   private def sample(millis: Long, phase: ProgressPhase, delivered: Long, fromCache: Long = 0): (FiniteDuration, ProgressSnapshot) =
     millis.millis -> ProgressSnapshot(phase, delivered, fromCache)
+
+  private def withTotal(total: Long)(sample: (FiniteDuration, ProgressSnapshot)): (FiniteDuration, ProgressSnapshot) =
+    sample._1 -> sample._2.copy(total = Some(total))
 
   private def linesOf(trace: Seq[(FiniteDuration, ProgressSnapshot)]): Seq[String] =
     trace

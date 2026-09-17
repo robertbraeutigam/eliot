@@ -1,6 +1,6 @@
-# Progress indication (`--progress`) — step 1 of §6 BUILT
+# Progress indication (`--progress`) — steps 1–2 of §6 BUILT
 
-Status: design draft, 2026-09-17; §6 step 1 (the count) is built, the rest is not. §2–§3 are measured constraints; §4 reconciles them with
+Status: design draft, 2026-09-17; §6 steps 1 (the count) and 2 (the total) are built, the rest is not. §2–§3 are measured constraints; §4 reconciles them with
 the Claude Design exploration *"Compiler output design exploration"* (three directions — **1a ledger**, **1b phases**,
 **1c quiet** — sharing one premise: output is **append-only**, every line final once printed). That premise is adopted;
 what each direction assumed that this engine cannot supply is said where it matters.
@@ -109,7 +109,9 @@ The number shown is a **count of facts**, and it is the same kind of number on e
   pushes and only the used ones are ever demanded. Counted on demand, cold, changed and unchanged runs of `Strings`
   all end on 3,989, with identical counts per key type.
 - **total** — what the previous run of this configuration ended on, read from the **profile file**
-  `<target>/.eliot-progress-<configFingerprint>`. It lives beside the cache but is **not** discarded with it, so the
+  `<target>/.eliot-progress-<configFingerprint>`. The fingerprint is that of the *command line's* configuration, not
+  the session's effective one, so the file can be read before any plugin configures a session and the header can say
+  `first build`; it is the same digest function, so it names the same configurations. It lives beside the cache but is **not** discarded with it, so the
   cold build after a compiler upgrade still has its total. A few kilobytes of text, written at the end of every
   `--progress` run (a failed run does not update the total). When a program has grown, `delivered` overtakes `total`
   and the total simply follows it — `[28,901/28,901]` and still working is honest, 103 % is not.
@@ -409,7 +411,13 @@ Staged so that each step is something a user can already run.
    names the target through `CompilerPlugin.progressTarget` (`eliot · jvm exe-jar · HelloWorld`; there is no compiler
    version to print yet). Triggers 3 and 4 wait for step 3, since both need a described key; the failure line has no
    `nothing written`, which the engine cannot vouch for across targets. Gate: the cost measurement above.
-2. **The total.** `ProgressProfile`; lines become `[n/total]`.
+2. **The total — BUILT.** `ProgressProfile` reads and writes the profile file (text, `name value` per line, unknown
+   lines ignored so step 4 can add to it; both directions fail-safe, the write atomic). `ProgressTracker` is created
+   with the expected total and its snapshot carries `total = expected max delivered`. Lines become `[n/total]`, the
+   counter padded to the first-build column's width, trigger 2 fires on a crossed tenth of the total, and the header
+   says `first build` when there is no total. Only a run that succeeded writes the total. On `Strings`: first build
+   `[ 3,975 facts ]` ending on 3,990; its warm rerun 3,990 (3,730 from cache); a cold build with the profile
+   `[  176/3,990]` … `[3,355/3,990]`.
 3. **What is being done.** `ProgressDescriber` for `lang` and `jvm`; the `changed <file>` line.
 4. **Time.** `ProgressCompilerProcessor`, the per-class profiles, `ProgressEstimator` tested as a pure function
    against recorded traces (cold, changed, unchanged, grown project); the ETA column, the header's estimate, the

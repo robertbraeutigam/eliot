@@ -53,8 +53,9 @@ build):
 A third opt-in diagnostic, `--progress` (`eliotc/…/progress/`, design `docs/progress-indication.md`), prints
 append-only progress lines to stderr. It is the one diagnostic that hooks the engine itself —
 `IncrementalFactGenerator` takes an optional `ProgressTracker` — because cache acceptance never reaches a processor.
-It counts a fact when it is **demanded**, never when it is pushed, so cold and warm runs count the same total. Only
-§6 step 1 (the count) is built.
+It counts a fact when it is **demanded**, never when it is pushed, so cold and warm runs count the same total. §6
+steps 1–2 are built: the count, and the total it is shown against (`[n/total]`), which is what the last successful
+`--progress` run delivered, kept in `<target>/.eliot-progress-<fingerprint>` (`ProgressProfile`).
 
 ### Module Structure
 
