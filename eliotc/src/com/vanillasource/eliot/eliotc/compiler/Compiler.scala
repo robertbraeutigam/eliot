@@ -10,8 +10,10 @@ import com.vanillasource.eliot.eliotc.plugin.{CompilerPlugin, Configuration}
 import com.vanillasource.eliot.eliotc.progress.{
   ProgressDescriber,
   ProgressLineWriter,
+  ProgressMeasure,
   ProgressPhase,
   ProgressProfile,
+  ProgressStyle,
   ProgressTracker
 }
 import com.vanillasource.eliot.eliotc.statistics.ProcessorStatistics
@@ -120,7 +122,8 @@ object Compiler extends Logging {
       previous <- profile.traverse(ProgressProfile.read)
       describer = ProgressDescriber.combined(plugins.flatMap(_.progressDescriber))
       progress <- previous.traverse(ProgressTracker.create(_, describer))
-      writer   <- progress.traverse(ProgressLineWriter.create)
+      style    <- ProgressStyle.detect
+      writer   <- progress.traverse(ProgressLineWriter.create(_, style))
       target    = plugins.find(_.isSelectedBy(configuration)).toSeq.flatMap(_.progressTarget(configuration))
       // Progress lines are printed from session setup until the cache is persisted, and stop before the diagnostics
       compiled <- writer
@@ -142,10 +145,22 @@ object Compiler extends Logging {
                         // Print where the time went in this run, if requested — including the coarse cache phases
                         phases   <- session.phaseSnapshot
                         _        <- statistics.traverse_(_.report(finished - started, phases).flatMap(Console[IO].println))
+                        measures <- if (result.succeeded && progress.isDefined) measuresOf(session)
+                                    else IO.pure(Seq.empty)
                         // The closing progress line comes last, so a `run` mode's program output follows a finished log
-                        _        <- writer.traverse_(_.close(target, result.errors, result.targetProduced))
+                        _        <- writer.traverse_(
+                                      _.close(
+                                        target,
+                                        result.errors,
+                                        result.targetProduced,
+                                        measures,
+                                        previous.fold(Map.empty)(_.measures)
+                                      )
+                                    )
                         // Only a run that succeeded teaches the next one: a failed one stops short of its total
-                        _        <- (profile, previous, progress).tupled.traverse_(saveProfile).whenA(result.succeeded)
+                        _        <- (profile, previous, progress).tupled
+                                      .traverse_(saveProfile(_, _, _, measures))
+                                      .whenA(result.succeeded)
                         _        <- progress.traverse_(_.enter(ProgressPhase.Running))
                         // Only a compilation that produced what it was asked for gets to do anything with it
                         exitCode <- if (result.succeeded) session.execute().map(ExitCode(_))
@@ -157,12 +172,25 @@ object Compiler extends Logging {
   /** Record in the profile what this run delivered, as the total the next run is measured against, and where its time
     * went, in the history of its class.
     */
-  private def saveProfile(file: Path, previous: ProgressProfile, progress: ProgressTracker): IO[Unit] =
+  private def saveProfile(
+      file: Path,
+      previous: ProgressProfile,
+      progress: ProgressTracker,
+      measures: Seq[ProgressMeasure]
+  ): IO[Unit] =
     progress.snapshot.flatMap(snapshot =>
       snapshot.runClass.traverse_(runClass =>
-        ProgressProfile.write(file, previous.including(snapshot.delivered, runClass, snapshot.history))
+        ProgressProfile.write(file, previous.including(snapshot.delivered, runClass, snapshot.history, measures))
       )
     )
+
+  /** What the target measures of what it produced. Fail-safe: a measure that cannot be taken costs the closing line its
+    * sizes, never the run its result.
+    */
+  private def measuresOf(session: CompilationSession): IO[Seq[ProgressMeasure]] =
+    session
+      .progressMeasures()
+      .handleErrorWith(t => warn[IO]("Could not measure what the run produced.", t).as(Seq.empty))
 
   /** A session's single compilation, with the instrumentation it ran under. */
   private case class Compiled(

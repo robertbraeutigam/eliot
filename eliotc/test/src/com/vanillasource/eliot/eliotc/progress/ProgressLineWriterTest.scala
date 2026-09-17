@@ -57,6 +57,10 @@ class ProgressLineWriterTest extends AnyFlatSpec with Matchers {
     ProgressLineWriter.heartbeatInterval(90.seconds) shouldBe 15.seconds
   }
 
+  it should "stay silent for at least 30 seconds in a log" in {
+    ProgressLineWriter.heartbeatInterval(10.seconds, log) shouldBe 30.seconds
+  }
+
   it should "never show the running phase" in {
     linesOf(Seq(sample(9000, Running, 100))) shouldBe Seq.empty
   }
@@ -118,6 +122,34 @@ class ProgressLineWriterTest extends AnyFlatSpec with Matchers {
       "[ 4,279 facts ] checking    eliot.lang.String · 1.2s                      2.5s",
       "[ 4,279 facts ] packaging   HelloWorld.jar · 3.0s                         3.5s"
     )
+  }
+
+  it should "be coloured by role, laid out on its text" in {
+    ProgressLineWriter.progressLine(working.copy(activity = Some(checkingString)), 3.seconds, style = ansi) shouldBe
+      s"$faint[ 4,279 facts ]$reset ${muted}checking$reset    ${"eliot.lang.String".padTo(44, ' ')}$faint  3.0s$reset"
+  }
+
+  it should "colour a changed input as a warning" in {
+    ProgressLineWriter.step(State(1.second, Working, 4279), working.copy(changed = Seq("src/A.els")), 2.seconds, ansi)
+      ._2
+      .exists(_.contains(s" ${sgr(33)}changed$reset   ")) shouldBe true
+  }
+
+  it should "cut a long subject with an ASCII ellipsis when it may not use Unicode" in {
+    ProgressLineWriter.progressLine(
+      working.copy(activity = Some(ProgressActivity("checking", "eliot.build.resolve.internal.dependency.Resolution"))),
+      3.seconds,
+      style = ascii
+    ) shouldBe "[ 4,279 facts ] checking    ...d.resolve.internal.dependency.Resolution   3.0s"
+  }
+
+  it should "separate its detail with an ASCII separator when it may not use Unicode" in {
+    ProgressLineWriter.step(
+      State(1.second, Working, 4279),
+      working.copy(slowSteps = Seq(ProgressStep(checkingString, 1200.millis))),
+      2.seconds,
+      ascii
+    )._2 shouldBe Some("[ 4,279 facts ] checking    eliot.lang.String - 1.2s                      2.0s")
   }
 
   "the header" should "name the compiler and the target" in {
@@ -190,6 +222,72 @@ class ProgressLineWriterTest extends AnyFlatSpec with Matchers {
       "ok     27,944 facts, 27,487 from cache · 7.8s"
   }
 
+  it should "lead with what the run produced, and how much it moved" in {
+    ProgressLineWriter.closingLine(
+      ProgressSnapshot(Running, 3990, 3730, runClass = Some(ProgressRunClass.Changed)),
+      Seq.empty,
+      true,
+      2.seconds,
+      Seq(jar),
+      Map("HelloWorld.jar" -> 421800)
+    ) shouldBe "ok     HelloWorld.jar 412 KB (+88 B) · 3,990 facts, 3,730 from cache · 2.0s"
+  }
+
+  it should "show no change for a measure the previous run did not take" in {
+    ProgressLineWriter.closingLine(ProgressSnapshot(Running, 3990, 0), Seq.empty, true, 2.seconds, Seq(jar)) shouldBe
+      "ok     HelloWorld.jar 412 KB · 3,990 facts, 0 from cache · 2.0s"
+  }
+
+  it should "say the target is up to date when nothing changed" in {
+    ProgressLineWriter.closingLine(
+      ProgressSnapshot(Running, 3990, 3990, runClass = Some(ProgressRunClass.Unchanged)),
+      Seq.empty,
+      true,
+      2.seconds,
+      Seq(jar),
+      Map("HelloWorld.jar" -> 421888)
+    ) shouldBe "ok     HelloWorld.jar 412 KB · up to date · 3,990 facts, all from cache · 2.0s"
+  }
+
+  it should "list more measures than it holds above itself" in {
+    ProgressLineWriter.closingBlock(
+      ProgressSnapshot(Running, 90, 0),
+      Seq.empty,
+      true,
+      1.second,
+      Seq(flash, ram, stack),
+      Map("flash" -> 2180),
+      ProgressStyle.undecorated
+    ) shouldBe Seq(
+      "size   flash 2.14 KB / 256 KB (+12 B)",
+      "size   ram 32 B",
+      "size   stack 184 B",
+      "ok     90 facts, 0 from cache · 1.0s"
+    )
+  }
+
+  it should "leave the measures out of a failed run" in {
+    ProgressLineWriter.closingBlock(
+      ProgressSnapshot(Running, 90, 0),
+      Seq.empty,
+      false,
+      1.second,
+      Seq(flash, ram, stack),
+      Map.empty,
+      ProgressStyle.undecorated
+    ) shouldBe Seq("failed nothing produced · 1.0s")
+  }
+
+  it should "colour success green" in {
+    ProgressLineWriter.closingLine(ProgressSnapshot(Running, 278, 278), Seq.empty, true, 2.seconds, style = ansi) shouldBe
+      s"${sgr(32)}ok$reset     278 facts, all from cache$faint · $reset${faint}2.0s$reset"
+  }
+
+  it should "colour failure red" in {
+    ProgressLineWriter.closingLine(ProgressSnapshot(Running, 9, 0), Seq.empty, false, 2.seconds, style = ansi) should
+      startWith(s"${sgr(31)}failed$reset nothing produced")
+  }
+
   it should "say all when every fact came from the cache" in {
     ProgressLineWriter.closingLine(ProgressSnapshot(Running, 278, 278), Seq.empty, true, 2.seconds) shouldBe
       "ok     278 facts, all from cache · 2.0s"
@@ -221,6 +319,20 @@ object ProgressLineWriterTest {
   private val withHistory    = ProgressSnapshot(LoadingCache, 4279, 0, Some(9000))
   private val checkingString = ProgressActivity("checking", "eliot.lang.String")
   private val packaging      = ProgressActivity("packaging", "HelloWorld.jar")
+  private val jar            = ProgressMeasure("HelloWorld.jar", 421888, ProgressMeasure.Quantity.Bytes)
+  private val flash          = ProgressMeasure("flash", 2192, ProgressMeasure.Quantity.Bytes, Some(256 * 1024))
+  private val ram            = ProgressMeasure("ram", 32, ProgressMeasure.Quantity.Bytes)
+  private val stack          = ProgressMeasure("stack", 184, ProgressMeasure.Quantity.Bytes)
+
+  private val ansi  = ProgressStyle(ProgressStyle.Colour.Ansi, unicode = true, timestamped = false)
+  private val ascii = ProgressStyle(ProgressStyle.Colour.None, unicode = false, timestamped = false)
+  private val log   = ProgressStyle(ProgressStyle.Colour.None, unicode = true, timestamped = true)
+  private val faint = sgr(90)
+  private val muted = sgr(2)
+  private val reset = sgr(0)
+
+  /** The escape sequence selecting a graphic rendition. */
+  def sgr(code: Int): String = s"${27.toChar}[${code}m"
 
   /** The header is printed shortly before the first sample, at the start of the run's `main`. */
   private val headerAt = 1400.millis

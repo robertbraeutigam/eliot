@@ -23,11 +23,11 @@ import com.vanillasource.eliot.eliotc.plugin.Configuration.{demandScopedKey, dia
 import com.vanillasource.eliot.eliotc.plugin.{CompilerPlugin, Configuration}
 import com.vanillasource.eliot.eliotc.processor.common.SequentialCompilerProcessors
 import com.vanillasource.eliot.eliotc.processor.{CompilationProcess, CompilerProcessor}
-import com.vanillasource.eliot.eliotc.progress.ProgressDescriber
+import com.vanillasource.eliot.eliotc.progress.{ProgressDescriber, ProgressMeasure}
 import com.vanillasource.eliot.eliotc.source.scan.PathScanner
 import scopt.{OParser, OParserBuilder}
 
-import java.nio.file.Path
+import java.nio.file.{Files, Path}
 
 class JvmPlugin extends CompilerPlugin {
   private val cmdLineBuilder: OParserBuilder[Configuration] = OParser.builder[Configuration]
@@ -72,6 +72,16 @@ class JvmPlugin extends CompilerPlugin {
   override def progressTarget(configuration: Configuration): Seq[String] =
     Seq(if (configuration.contains(runKey)) "jvm run" else "jvm exe-jar") ++
       configuration.get(mainKey).map(_.moduleName.show)
+
+  /** The size of the jar, named by its file. */
+  override def progressMeasures(configuration: Configuration): IO[Seq[ProgressMeasure]] =
+    configuration
+      .get(mainKey)
+      .map(JvmProgramGenerator.jarFilePath(configuration.get(Compiler.targetPathKey).get, _))
+      .toSeq
+      .traverse(jar =>
+        IO.blocking(ProgressMeasure(jar.getFileName.toString, Files.size(jar), ProgressMeasure.Quantity.Bytes))
+      )
 
   /** Mount the synthesized `main.els` entry-point module into the runtime scan pool, and register the platform run
     * boundary `runMain` as a carrier capture ([[com.vanillasource.eliot.eliotc.row.RunBoundaryFunctions]], carrier

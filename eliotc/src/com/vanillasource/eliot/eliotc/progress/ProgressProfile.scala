@@ -18,6 +18,7 @@ import scala.util.Try
   * cold facts 27181.0
   * cold phase LoadingCache 612000000
   * cold type com.vanillasource.eliot.eliotc.token.SourceTokens$Key 91.5 402000000
+  * measure 421888 HelloWorld.jar
   * }}}
   * A line this compiler does not know is ignored, so a later profile can add to it without an older compiler failing.
   *
@@ -25,14 +26,29 @@ import scala.util.Try
   *   the facts the previous successful run delivered; absent before the first one
   * @param runs
   *   where the time of each class of run went, averaged over the successful runs of that class (§3.4)
+  * @param measures
+  *   the value of each [[ProgressMeasure]] the previous successful run produced, by name (§4.4)
   */
-case class ProgressProfile(total: Option[Long], runs: Map[ProgressRunClass, ProgressHistory] = Map.empty) {
+case class ProgressProfile(
+    total: Option[Long],
+    runs: Map[ProgressRunClass, ProgressHistory] = Map.empty,
+    measures: Map[String, Long] = Map.empty
+) {
 
-  /** The profile after a successful run of class `runClass` that delivered `delivered` facts and spent its time as
-    * `run` says.
+  /** The profile after a successful run of class `runClass` that delivered `delivered` facts, spent its time as `run`
+    * says and produced what `produced` measures.
     */
-  def including(delivered: Long, runClass: ProgressRunClass, run: ProgressHistory): ProgressProfile =
-    ProgressProfile(Some(delivered), runs.updated(runClass, runs.get(runClass).fold(run)(_.including(run))))
+  def including(
+      delivered: Long,
+      runClass: ProgressRunClass,
+      run: ProgressHistory,
+      produced: Seq[ProgressMeasure] = Seq.empty
+  ): ProgressProfile =
+    ProgressProfile(
+      Some(delivered),
+      runs.updated(runClass, runs.get(runClass).fold(run)(_.including(run))),
+      produced.map(measure => measure.name -> measure.value).toMap
+    )
 
   /** The file's text. */
   def render: String = {
@@ -44,7 +60,10 @@ case class ProgressProfile(total: Option[Long], runs: Map[ProgressRunClass, Prog
                     history.types.toSeq.sortBy(_._1).map((name, cost) => s"type $name ${cost.count} ${cost.nanos.round}")
     } yield s"${runClass.label} $record"
 
-    (total.map(count => s"total $count").toSeq ++ histories).map(_ + "\n").mkString
+    // The name comes last, so it may hold spaces
+    val produced  = measures.toSeq.sorted.map((name, value) => s"measure $value $name")
+
+    (total.map(count => s"total $count").toSeq ++ histories ++ produced).map(_ + "\n").mkString
   }
 }
 
@@ -61,9 +80,9 @@ object ProgressProfile extends Logging {
     * total.
     */
   def parse(text: String): ProgressProfile = {
-    val records = text.linesIterator.map(_.trim.split("\\s+").toSeq).toSeq
-    val total   = records.collectFirst { case Seq("total", count) if natural(count).isDefined => count.toLong }
-    val entries = records.flatMap {
+    val records  = text.linesIterator.map(_.trim.split("\\s+").toSeq).toSeq
+    val total    = records.collectFirst { case Seq("total", count) if natural(count).isDefined => count.toLong }
+    val entries  = records.flatMap {
       case Seq(runClass, "facts", facts)             =>
         for {
           c <- ProgressRunClass.fromLabel(runClass)
@@ -85,12 +104,16 @@ object ProgressProfile extends Logging {
         )
       case _                                         => None
     }
-    val runs    = entries
+    val runs     = entries
       .groupMap(_._1)(_._2)
       .view
       .mapValues(_.foldLeft(ProgressHistory.empty)((history, record) => record(history)))
 
-    ProgressProfile(total, runs.toMap)
+    val measures = records.collect {
+      case Seq("measure", value, name*) if name.nonEmpty && natural(value).isDefined => name.mkString(" ") -> value.toLong
+    }
+
+    ProgressProfile(total, runs.toMap, measures.toMap)
   }
 
   private def natural(text: String): Option[Long] = text.toLongOption.filter(_ >= 0)

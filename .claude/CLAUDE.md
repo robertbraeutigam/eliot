@@ -61,6 +61,10 @@ doing — a plugin names its fact keys as a verb and a subject (`CompilerPlugin.
 (cold / changed / unchanged), per-key-type self time taken from the tracker's own engine events, and the pure
 `ProgressEstimator` is tested against runs recorded to `eliotc/test/resources/progress/`. A new fact key type should
 get a describer line, or its work shows under whichever described fact asked for it; it needs nothing to be estimated.
+Step 5 is built too: a target reports what it produced through `CompilerPlugin.progressMeasures` (jvm: the jar's size),
+the profile keeps the last values so the `ok` line shows a delta, and `ProgressStyle` decorates — colour by role, ASCII
+outside UTF-8, and a **log form** (no colour, time of day on each line, heartbeats ≥ 30 s) whenever stderr is not a
+terminal, which includes `./mill examples.run`; to see the terminal form, start `out/examples/launcher.dest/run` directly.
 
 ### Module Structure
 

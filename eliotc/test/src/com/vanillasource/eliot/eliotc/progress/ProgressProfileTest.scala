@@ -30,6 +30,21 @@ class ProgressProfileTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
       ProgressProfile(Some(3))
   }
 
+  it should "read back the measures it wrote" in {
+    temporaryFile
+      .flatMap(file => ProgressProfile.write(file, withMeasures) >> ProgressProfile.read(file))
+      .asserting(_ shouldBe withMeasures)
+  }
+
+  it should "keep only the measures of the latest run" in {
+    withMeasures.including(3, Cold, ProgressHistory.empty, Seq(ProgressMeasure("ram", 32, ProgressMeasure.Quantity.Bytes)))
+      .measures shouldBe Map("ram" -> 32)
+  }
+
+  it should "ignore a measure with no name or no value" in {
+    ProgressProfile.parse("measure 12\nmeasure many HelloWorld.jar\nmeasure -1 x\n") shouldBe ProgressProfile.empty
+  }
+
   it should "be empty when there is no file" in {
     temporaryFile.flatMap(file => ProgressProfile.read(file)).asserting(_ shouldBe ProgressProfile.empty)
   }
@@ -69,6 +84,8 @@ class ProgressProfileTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
       Unchanged -> ProgressHistory(3, Map(ProgressPhase.LoadingCache -> 1e8), Map.empty)
     )
   )
+
+  private val withMeasures = ProgressProfile(Some(3), measures = Map("Hello World.jar" -> 421888, "flash" -> 2192))
 
   /** A path in a fresh directory, where no file exists yet. */
   private def temporaryFile: IO[Path] =

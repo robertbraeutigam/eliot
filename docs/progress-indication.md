@@ -1,7 +1,7 @@
-# Progress indication (`--progress`) — steps 1–4 of §6 BUILT
+# Progress indication (`--progress`) — steps 1–5 of §6 BUILT
 
-Status: design draft, 2026-09-17; §6 steps 1 (the count), 2 (the total), 3 (the activity) and 4 (the time) are built,
-the rest is not. §2–§3 are measured constraints; §4 reconciles them with
+Status: design draft, 2026-09-17; §6 steps 1 (the count), 2 (the total), 3 (the activity), 4 (the time) and 5 (the
+measures and the decoration) are built, the rest is not. §2–§3 are measured constraints; §4 reconciles them with
 the Claude Design exploration *"Compiler output design exploration"* (three directions — **1a ledger**, **1b phases**,
 **1c quiet** — sharing one premise: output is **append-only**, every line final once printed). That premise is adopted;
 what each direction assumed that this engine cannot supply is said where it matters.
@@ -320,7 +320,7 @@ eliot 0.5 · jvm exe-jar · eliot.build.Launcher · full build, about 16s
 [27,181/27,181] saving cache                                             11.1s   ~4s left
 [27,181/27,181] saving cache                                             14.2s   ~1s left
 time   parsing 1.5s · resolving 1.9s · checking 3.1s · generating 1.3s · cache 4.1s
-ok     Launcher.jar · 412 KB (+88 B) · 27,181 facts, 0 from cache · 15.7s
+ok     Launcher.jar 412 KB (+88 B) · 27,181 facts, 0 from cache · 15.7s
 ```
 
 One line changed — the same total, reached mostly from the cache (F7's curve):
@@ -333,14 +333,14 @@ eliot 0.5 · jvm exe-jar · eliot.build.Launcher · about 2s if nothing changed
 [27,944/27,944] saving cache                                              4.1s   ~4s left
 [27,944/27,944] saving cache                                              6.6s   ~1s left
 time   generating 1.0s · parsing 0.3s · checking 0.1s · cache 4.3s
-ok     Launcher.jar · 412 KB (+0 B) · 27,944 facts, 27,487 from cache · 7.8s
+ok     Launcher.jar 412 KB (+0 B) · 27,944 facts, 27,487 from cache · 7.8s
 ```
 
 Nothing changed — no progress line comes due, so this is 1c:
 
 ```
 eliot 0.5 · jvm exe-jar · eliot.build.Launcher · about 2s if nothing changed
-ok     Launcher.jar · up to date · 27,944 facts, all from cache · 2.2s
+ok     Launcher.jar 412 KB · up to date · 27,944 facts, all from cache · 2.2s
 ```
 
 First build ever, and a long single fact on a future target:
@@ -375,7 +375,13 @@ failed 3 errors · first at eliot/build/model/Version.els:56 · 4.1s · nothing 
   produced (`CompilerPlugin.progressMeasures`: name, value, unit, optional limit): `jar 412 KB` today, `flash 2.14 KB /
   256 KB · ram 32 B · stack 184 B` on an MCU target. The progress system stores the last values in the history file
   and prints the **delta** — 1b's `Δ last`, for free. One or two measures ride the `ok` line; more become 1b's table
-  above it.
+  above it, one `size` line each. As built, a measure reads `name value[ / limit] (±delta)` — `Launcher.jar 412 KB
+  (+88 B)`, `flash 2.14 KB / 256 KB (+12 B)`, a value over its limit painted as a failure — in binary units to three
+  digits. There is no delta without a previous value of that name, and a run of class `unchanged` says `up to date`
+  in its place: nothing was recomputed differently, so the artefact is the one the last run wrote (a deleted jar is a
+  changed `OutputFileStat`, which makes the run `changed`). The profile keeps only the last successful run's measures,
+  as `measure <value> <name>` lines, the name last so it may hold spaces. Measuring is fail-safe: a measure that cannot
+  be taken is logged and the `ok` line goes without it.
 
 ### 4.5 Vocabulary, colour, degradation
 
@@ -383,13 +389,23 @@ From the exploration, unchanged: status words are fixed and lowercase — `ok` `
 carry the meaning on their own; colour is decoration and no signal is glyph-only. ANSI roles follow the design
 system's terminal kinds: bracket, times and separators *faint*; verb *muted*; subject default; `ok` signal green
 (`#2EC27E` under `COLORTERM=truecolor`, else ANSI green); `changed` and `warn` copper/yellow; `error`/`failed` red.
+As built (`ProgressStyle`), the 24-bit colours are the design system's own tokens — `--faint`, `--muted`, `--pass`,
+`--warn`, `--fail` — and the 16-colour ones bright black (faint), dim (muted), green, yellow and red. The brand rule
+"never green and copper together" is about accents; here copper is the `--warn` *status* colour the same palette
+defines beside `--pass`. Columns are laid out on the text first and painted after, so a coloured line has the same
+columns as a plain one.
 `✓` `·` `…` degrade to `ok` `-` `...` when the locale is not UTF-8. Lines are cut to 100 columns; the subject is what
 gives.
 
-Not a terminal, `NO_COLOR`, or `TERM=dumb`: no colour, and each line is prefixed with an absolute timestamp
-(`11:42:03 [14,211/27,181] checking …`), as in the mock-up. One deviation: the mock-up drops heartbeats without a tty, and this
-keeps them at 30 s — CI is where a silent ten-minute step gets a job killed. Terminal detection only chooses
-decoration now, so getting it wrong is harmless (`System.console() != null`, plus `Console.isTerminal` on JDK ≥ 22).
+Not a terminal, or `TERM=dumb`: the **log form** — no colour, and each line is prefixed with the time of day
+(`11:42:03 [14,211/27,181] checking …`), as in the mock-up. `NO_COLOR` (set and not empty, as no-color.org has it) only
+takes the colour away; a terminal user who asked for no colour still has a terminal and needs no clock. One deviation:
+the mock-up drops heartbeats without a tty, and this keeps them, at least 30 s apart (stretching to 60 s after ten
+minutes, as in a terminal) — CI is where a silent ten-minute step gets a job killed. Terminal detection only chooses
+decoration now, so getting it wrong is harmless (`System.console() != null`, plus `Console.isTerminal` on JDK ≥ 22,
+called reflectively). UTF-8 is read from `stderr.encoding`, else `native.encoding` — the JVM's own reading of the locale.
+Run under `./mill examples.run`, the compiler's stderr is a pipe, so it prints the log form; the terminal form shows
+when the compiler is started directly (`out/examples/launcher.dest/run …`).
 
 ### 4.6 Streams, and `run` mode
 
@@ -482,7 +498,14 @@ Staged so that each step is something a user can already run.
    (+2.3 %, above the +1.7 % step 3 measured on its own day) and 15.59 s at step 4 (+3.1 %, median +3.5 %). Step 4's own
    share is +0.8 %, inside one standard deviation (0.24 s), but the flag as a whole is now **over the 2 % gate** in this
    measurement; with the flag off it costs nothing.
-5. `progressMeasures` for `jvm` (jar size), deltas from the profile; colour and the non-tty form (§4.5).
+5. **Measures and decoration — BUILT.** `CompilerPlugin.progressMeasures` (asked of the selected target after a
+   successful compilation, before `execute`) and `ProgressMeasure` (`Bytes` or `Count`, optional limit); `jvm` measures
+   its jar, named by its file. The profile keeps the last values (§4.4), and the closing block shows them with their
+   delta, or `up to date`. `ProgressStyle` decides the decoration from the environment (§4.5): colour by role, 24-bit or
+   ANSI, ASCII separators outside UTF-8, and the log form with its time of day and its 30 s heartbeat. The rendering
+   functions stay pure and take the style; the time of day is the one thing added at print time. On `Strings`, in a
+   terminal: `ok Strings.jar 32.2 KB (+0 B) · 3,990 facts, 3,725 from cache · 1.7s`; under `./mill examples.run`:
+   `13:36:04 eliot · jvm exe-jar · Strings`. Neither piece touches the engine, so the cost measurement of step 4 stands.
 6. Deferred: `reportProgress` (§3.6) with the first long-running processor; `--log=json`; LSP `$/progress`.
 
 ## 7. Open decisions

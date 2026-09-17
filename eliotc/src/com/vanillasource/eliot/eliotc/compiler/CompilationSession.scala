@@ -9,7 +9,7 @@ import com.vanillasource.eliot.eliotc.feedback.Logging
 import com.vanillasource.eliot.eliotc.plugin.{CompilerPlugin, Configuration}
 import com.vanillasource.eliot.eliotc.processor.{CompilerFact, CompilerProcessor}
 import com.vanillasource.eliot.eliotc.processor.common.NullProcessor
-import com.vanillasource.eliot.eliotc.progress.{ProgressPhase, ProgressTracker}
+import com.vanillasource.eliot.eliotc.progress.{ProgressMeasure, ProgressPhase, ProgressTracker}
 import com.vanillasource.eliot.eliotc.statistics.{PhaseTimings, ProcessorStatistics}
 
 import scala.concurrent.duration.FiniteDuration
@@ -109,6 +109,9 @@ final class CompilationSession private (
     * [[CompilerPlugin.execute]]). The CLI calls it once, after a compilation that succeeded; a resident host never does.
     */
   def execute(): IO[Int] = targetPlugin.execute(effectiveConfiguration)
+
+  /** What the target plugin measures of what it produced, for `--progress`. */
+  def progressMeasures(): IO[Seq[ProgressMeasure]] = targetPlugin.progressMeasures(effectiveConfiguration)
 
   /** The coarse cache-phase timings (fingerprint, load, build, save) recorded across this session so far, by phase id.
     * `--statistics` reports them as explicit lines so the cache load/store cost — invisible to the per-processor total,

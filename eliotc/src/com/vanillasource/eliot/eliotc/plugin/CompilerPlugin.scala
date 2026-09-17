@@ -3,7 +3,7 @@ package com.vanillasource.eliot.eliotc.plugin
 import cats.data.StateT
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.processor.{CompilationProcess, CompilerProcessor}
-import com.vanillasource.eliot.eliotc.progress.ProgressDescriber
+import com.vanillasource.eliot.eliotc.progress.{ProgressDescriber, ProgressMeasure}
 import scopt.{OParser, OParserBuilder}
 
 import scala.annotation.unused
@@ -33,6 +33,12 @@ trait CompilerPlugin {
     * plugin is asked, so a plugin describes only its own keys.
     */
   def progressDescriber: Option[ProgressDescriber] = None
+
+  /** What `--progress` reports of the artefact this target produced (`HelloWorld.jar 412 KB`), once a compilation
+    * succeeded and before [[execute]]. Only the selected target is asked; each measure's name must be unique among its
+    * measures, since the next run's change is worked out by name.
+    */
+  def progressMeasures(@unused configuration: Configuration): IO[Seq[ProgressMeasure]] = IO.pure(Seq.empty)
 
   def pluginDependencies(@unused configuration: Configuration): Seq[Class[? <: CompilerPlugin]] = Seq.empty
 
