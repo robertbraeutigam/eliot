@@ -1,6 +1,6 @@
-# Progress indication (`--progress`) — steps 1–2 of §6 BUILT
+# Progress indication (`--progress`) — steps 1–3 of §6 BUILT
 
-Status: design draft, 2026-09-17; §6 steps 1 (the count) and 2 (the total) are built, the rest is not. §2–§3 are measured constraints; §4 reconciles them with
+Status: design draft, 2026-09-17; §6 steps 1 (the count), 2 (the total) and 3 (the activity) are built, the rest is not. §2–§3 are measured constraints; §4 reconciles them with
 the Claude Design exploration *"Compiler output design exploration"* (three directions — **1a ledger**, **1b phases**,
 **1c quiet** — sharing one premise: output is **append-only**, every line final once printed). That premise is adopted;
 what each direction assumed that this engine cannot supply is said where it matters.
@@ -123,8 +123,11 @@ reclassification, because cold, changed and unchanged runs all count towards the
 It costs one hook in the engine, which is the one departure from `--statistics`' "engine untouched": acceptance and
 validation never reach a processor, so a wrapper around the processor tree cannot see them. `IncrementalFactGenerator`
 takes an optional tracker and tells it one thing, `delivered(key, fromCache)`, from three places (a demand answered, an
-acceptance, a drill that held); with no tracker the code path is today's. §3.5's activity will add *generation
-started/ended* (key, parent) to the same hook in step 3.
+acceptance, a drill that held); with no tracker the code path is today's. §3.5's activity adds more events to the
+same hook (step 3): working out a fact *started* (key, requester) and *ended* — the requester waits in between — a
+generation is *waiting* for a fact someone else is working out and has *resumed*, and a fact recomputed by the drill
+came out *changed*. A validation read has an empty ancestor chain on purpose (the recursion guard), so its requester
+is passed separately: the fact whose validation asked. With no tracker, a request does exactly what it did before.
 
 ### 3.3 The very first build: the count alone
 
@@ -166,7 +169,7 @@ that mapping for the key types they own, as data:
 ```scala
 /** How a plugin's facts read to a user. Partial: a key nobody describes is still counted and weighed. */
 trait ProgressDescriber {
-  def describe(key: CompilerFactKey[?]): Option[ProgressActivity]   // ProgressActivity(verb: String, subject: String)
+  def describe(key: CompilerFactKey[?]): Option[ProgressActivity]   // ProgressActivity(verb, subject, input)
 }
 ```
 
@@ -174,11 +177,25 @@ contributed through `CompilerPlugin` (`def progressDescriber: Option[ProgressDes
 — `reading` (`FileStat`, `FileContent`, `PathScan`), `parsing` (tokens, AST, core), `resolving` (module values through
 row elaboration), `checking` (both monomorphize tracks and their channel riders), `lowering` (used, uncurry); jvm —
 `generating` (`GeneratedModule`), `packaging` (`GenerateExecutableJar`). The subject is a **module or a file, never a
-value**: values change 2,500 times a second, modules a few times a second.
+value**: values change 2,500 times a second, modules a few times a second. As built, lang's `checking` also covers
+saturation, the binding suppliers and the ability checks, and `lowering` covers reconciliation; `apidoc` describes
+nothing yet, so its own work shows as `working`.
 
-The tracker keeps the **set of generations in flight** (key, parent, start time — the hook's started/ended events are
-all it takes), and the activity is **sampled** from it by the line writer rather than pushed by the engine: the
-longest-running in-flight generation that has no in-flight child, walked up its parents to the first described key.
+`input` marks a fact that *is* one of the program's inputs — lang's `FileContent`, jvm's `OutputFileStat` (the jar on
+disk) — so that its change is reported (trigger 3). It is not the world leaf `FileStat`: a file written within the
+settle margin carries a nonce and never compares equal to itself (`FileStat.unsettled`), so every recently saved file
+would be reported changed whether it was or not. Its content, one level up, compares honestly.
+
+The tracker keeps the **set of generations in flight** (key, parent, start time, how many facts it is waiting for),
+and the activity is **sampled** from it by the line writer rather than pushed by the engine: the longest-running
+in-flight generation that is waiting for nothing, walked up its parents to the first described key — its **owner**.
+A generation waits while a fact it started is worked out, and also while it waits for one another fiber is working out
+(parallel generation, or a validation check already running) — the second is told only when the fact is not already
+there, so asking again for a fact the run has costs nothing. The same events give each described generation its **time**: whenever a generation
+waits for nothing, the time is charged to its owner. So a described fact's time is its own work plus that of every
+undescribed fact it asked for, and never that of a described fact it asked for — which is what trigger 4 and the
+heartbeat show. It is wall time spent working, not CPU time, and under parallel generation two working leaves with one
+owner both charge it.
 The sample is a statistical profile: the label shows where the time is going, which is what the user wants to know,
 and a label that flickers is a label over cheap work that the sampler mostly misses. Today the set is one chain; under
 parallel generation it is a tree with several leaves, and the same rule picks the one most worth naming (§3.7).
@@ -257,13 +274,19 @@ whole of "must not scroll faster than it can be read":
 
 1. the run's phase changed (`loading cache` → working → `saving cache`);
 2. the count crossed another tenth of the total (on a first build: doubled since the last line);
-3. a world leaf was found changed — the line says which file,
-   which is the exploration's *"why was this rebuilt"* answered with the one thing the engine knows for certain;
-4. a single described fact took a second or more — it gets a line of its own with its duration, 1a's *"slow steps are
-   visible"*;
+3. an input was found changed (§3.5's `input`) — the line says which file (`changed  src/A.els · and 2 more`, each
+   file named at most once), which is the exploration's *"why was this rebuilt"* answered with the one thing the engine
+   knows for certain;
+4. a single described fact took a second or more (its time as §3.5 charges it) — it gets a line of its own with its
+   duration (`checking  eliot.build.git.Git · 1.2s`), 1a's *"slow steps are visible"*; several are printed one per
+   line;
 5. **heartbeat**: five seconds with no line. It names the sampled activity (§3.5) and how long that fact has been running,
    with its sub-progress if it reports any (§3.6). The interval stretches to 15 s after a minute and 60 s after ten, so
    a long upload is a few lines, not hundreds.
+
+When several fire, the first in this order decides what the line says: a changed input, a slow step, then the current
+activity. A line for triggers 3 or 4 does not count as showing the phase, so a phase change they pre-empt still gets
+its line a second later.
 
 That bounds a run at roughly ten milestone lines plus its slow steps and heartbeats, whatever its size.
 
@@ -418,7 +441,20 @@ Staged so that each step is something a user can already run.
    says `first build` when there is no total. Only a run that succeeded writes the total. On `Strings`: first build
    `[ 3,975 facts ]` ending on 3,990; its warm rerun 3,990 (3,730 from cache); a cold build with the profile
    `[  176/3,990]` … `[3,355/3,990]`.
-3. **What is being done.** `ProgressDescriber` for `lang` and `jvm`; the `changed <file>` line.
+3. **What is being done — BUILT.** `ProgressDescriber` (`CompilerPlugin.progressDescriber`, every discovered plugin
+   asked) for `lang` (`LangProgressDescriber`) and `jvm` (`JvmProgressDescriber`); the tracker's in-flight set and
+   owner time (§3.5), tested against the engine's own graph harness and a hand-driven clock; progress lines name the
+   activity while the run is `working`, triggers 3 and 4, and the heartbeat's `… 4.2s`. On `Launcher`, cold: `parsing
+   lang/eliot/src/eliot/lang/Eq.els`, `checking eliot.build.Launcher`, `checking eliot.build.git.Git`, `generating
+   eliot.build.resolve.Resolution`, … — the deepest described fact wins, so resolution nested inside a check reads
+   `resolving`. After a one-line edit of `Strings`: `[4,046/4,046] changed examples/src/Strings.els`. Cost, `eliot.build.Launcher`,
+   ten alternated cold builds each: flag off 14.83 s mean / 14.75 s median, on 15.08 s / 15.05 s — +1.7 % / +2.0 %, at
+   the gate, with the minimums equal and a run-to-run spread (±1 %) as large as the difference. Against step 2,
+   interleaved in one session, warm builds cost +1 % more with the flag and nothing without it. Measured on the way,
+   and worth keeping: the tracker's own methods take ~120 ms of a cold build (plus step 1's ~85 ms of `delivered`);
+   building every activity's subject up front was a third of that, so a subject is worked out when read; looking
+   generations up by key *identity* instead of by (deep) key equality changed nothing measurable and was not kept; a
+   repeated request for a fact already there is never recorded as a wait.
 4. **Time.** `ProgressCompilerProcessor`, the per-class profiles, `ProgressEstimator` tested as a pure function
    against recorded traces (cold, changed, unchanged, grown project); the ETA column, the header's estimate, the
    `time` line.

@@ -19,6 +19,7 @@ import com.vanillasource.eliot.eliotc.plugin.Configuration.namedKey
 import com.vanillasource.eliot.eliotc.plugin.{CompilerPlugin, Configuration}
 import com.vanillasource.eliot.eliotc.processor.CompilerProcessor
 import com.vanillasource.eliot.eliotc.processor.common.SequentialCompilerProcessors
+import com.vanillasource.eliot.eliotc.progress.ProgressDescriber
 import com.vanillasource.eliot.eliotc.source.content.SourceContentReader
 import com.vanillasource.eliot.eliotc.source.file.FileContentReader
 import com.vanillasource.eliot.eliotc.source.scan.{FilesystemMount, PathScanner, PoolModulesProcessor, SourceMount}
@@ -39,6 +40,8 @@ class LangPlugin extends CompilerPlugin {
         codecs => (codecs.getOrElse(Map.empty) ++ CoreFactCodecs.keyCodecs ++ LangFactCodecs.keyCodecs).some
       )
     )
+
+  override def progressDescriber: Option[ProgressDescriber] = Some(LangProgressDescriber)
 
   private val cmdLineBuilder: OParserBuilder[Configuration] = OParser.builder[Configuration]
 

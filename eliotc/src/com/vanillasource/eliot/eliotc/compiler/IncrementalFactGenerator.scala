@@ -47,7 +47,9 @@ import scala.annotation.tailrec
   * accepted from the cache, or proven unchanged by the drill. Acceptance and validation never reach a processor, so
   * this is the one place all three can be seen; without a tracker nothing is recorded. A fact a generation merely
   * *pushed* is not counted until something asks for it — a cold build would otherwise count every name of every file
-  * it parsed, and a warm one only those the program uses, and the two counts would not compare.
+  * it parsed, and a warm one only those the program uses, and the two counts would not compare. The tracker is also
+  * told when working out a fact starts and ends, which generation asked for it, when a generation waits for a fact,
+  * and when a fact recomputed for validation came out different — what it needs to say what the run is doing.
   */
 final class IncrementalFactGenerator(
     generator: CompilerProcessor,
@@ -76,19 +78,47 @@ final class IncrementalFactGenerator(
       key: K,
       ancestors: List[CompilerFactKey[?]]
   ): IO[Option[V]] =
-    demandedRoots.update(_ + key).whenA(ancestors.isEmpty) >> request(key, ancestors).map(_.map(_.asInstanceOf[V]))
+    demandedRoots.update(_ + key).whenA(ancestors.isEmpty) >>
+      request(key, ancestors, ancestors.headOption).map(_.map(_.asInstanceOf[V]))
 
-  private def request(key: CompilerFactKey[?], ancestors: List[CompilerFactKey[?]]): IO[Option[CompilerFact]] =
+  /** Answer `key` for `requester`, the generation asking (if any), which waits until the answer arrives. The requester
+    * is the head of `ancestors` for a generation's read, and the fact being resolved for a validation read, whose chain
+    * is deliberately empty.
+    */
+  private def request(
+      key: CompilerFactKey[?],
+      ancestors: List[CompilerFactKey[?]],
+      requester: Option[CompilerFactKey[?]]
+  ): IO[Option[CompilerFact]] =
     for {
       modifyResult <- modifyAtomicallyFor(key)
-      _            <- resolve(key, modifyResult._1, ancestors)
-                        .handleErrorWith(t => error[IO](s"Resolving (${key.getClass.getName}) $key failed.", t))
-                        .flatMap(_ => modifyResult._1.complete(None).void) // safety net; no-op if already completed
-                        .start
-                        .whenA(modifyResult._2) // only the first requester runs the computation
-      result       <- modifyResult._1.get
+      result       <-
+        if (modifyResult._2) computed(key, requester, modifyResult._1, resolve(key, modifyResult._1, ancestors))
+        else awaited(modifyResult._1, requester) // only the first requester runs the computation
       _            <- delivered(key, fromCache = false).whenA(result.isDefined)
     } yield result
+
+  /** Run `computation` of `key`'s fact in a fiber of its own and wait for the fact. The tracker, if there is one, is told
+    * when the computation starts, for `requester`, and when it ends; without one, nothing else happens.
+    */
+  private def computed(
+      key: CompilerFactKey[?],
+      requester: Option[CompilerFactKey[?]],
+      deferred: Deferred[IO, Option[CompilerFact]],
+      computation: IO[Unit]
+  ): IO[Option[CompilerFact]] = {
+    def inFiber(body: IO[Unit], after: IO[Unit]): IO[Unit] =
+      body
+        .handleErrorWith(t => error[IO](s"Resolving (${key.getClass.getName}) $key failed.", t))
+        .flatMap(_ => after >> deferred.complete(None).void) // safety net; no-op if already completed
+        .start
+        .void
+
+    progress match {
+      case None          => inFiber(computation, IO.unit) >> deferred.get
+      case Some(tracker) => inFiber(tracker.started(key, requester) >> computation, tracker.ended(key)) >> deferred.get
+    }
+  }
 
   /** Register a fact, completing its [[Deferred]]. Re-registering the *same* value is a no-op (the push pattern:
     * concurrent generations over one file legitimately push identical sibling facts). Registering a **different** value
@@ -138,7 +168,7 @@ final class IncrementalFactGenerator(
   ): IO[Unit] =
     prior.get(key) match {
       case Some(entry) if entry.hasValue && entry.directDeps.nonEmpty =>
-        entry.directDeps.toList.forallM(depUnchanged).flatMap {
+        entry.directDeps.toList.forallM(depUnchanged(_, key)).flatMap {
           case true  => acceptPrior(key, entry, deferred)
           case false => regenerate(key, ancestors)
         }
@@ -146,9 +176,10 @@ final class IncrementalFactGenerator(
     }
 
   /** Whether `key`'s value is unchanged since last run, memoized once per run. The validity oracle a parent uses for
-    * each of its dependencies; it never materialises a value-less fact (see class doc).
+    * each of its dependencies; it never materialises a value-less fact (see class doc). `resolving` is the fact whose
+    * validation asks, which is what any work done here is done for.
     */
-  private def depUnchanged(key: CompilerFactKey[?]): IO[Boolean] =
+  private def depUnchanged(key: CompilerFactKey[?], resolving: CompilerFactKey[?]): IO[Boolean] =
     for {
       newDeferred <- Deferred[IO, Boolean]
       modify      <- unchangedChecks.modify { checks =>
@@ -156,12 +187,13 @@ final class IncrementalFactGenerator(
                          case Some(existing) => (checks, (existing, false))
                          case None           => (checks.updated(key, newDeferred), (newDeferred, true))
                      }
-      _           <- computeUnchanged(key)
+      _           <- computeUnchanged(key, resolving)
                        .handleError(_ => false) // any failure ⇒ treat as changed (regenerate); fail-safe
                        .flatMap(modify._1.complete)
                        .void
                        .whenA(modify._2)
-      result      <- modify._1.get
+      // a check another validation runs is waited for; one computed right here is this validation's own work
+      result      <- if (modify._2) modify._1.get else awaited(modify._1, Some(resolving))
     } yield result
 
   /** Whether the prior entry for `key` still stands, decided the cheapest way that is sound for its shape.
@@ -179,25 +211,31 @@ final class IncrementalFactGenerator(
     *     Equality here is what stops propagation: a changed input whose result recomputes the same invalidates nothing
     *     further. With no value the drill has failed and there is nothing left to try.
     */
-  private def computeUnchanged(key: CompilerFactKey[?]): IO[Boolean] =
+  private def computeUnchanged(key: CompilerFactKey[?], resolving: CompilerFactKey[?]): IO[Boolean] =
     prior.get(key) match {
       case None                                    => false.pure[IO]
-      case Some(entry) if entry.directDeps.isEmpty => recomputeAndCompare(key, entry)
+      case Some(entry) if entry.directDeps.isEmpty => recomputeAndCompare(key, entry, resolving)
       case Some(entry)                             =>
-        entry.directDeps.toList.forallM(depUnchanged).flatMap {
+        entry.directDeps.toList.forallM(depUnchanged(_, resolving)).flatMap {
           case true  =>
             carriedForward.update(_.updated(key, entry)).unlessA(entry.hasValue) >>
               delivered(key, fromCache = true).as(true)
-          case false => recomputeAndCompare(key, entry)
+          case false => recomputeAndCompare(key, entry, resolving)
         }
     }
 
-  private def recomputeAndCompare(key: CompilerFactKey[?], entry: CacheEntry): IO[Boolean] =
+  private def recomputeAndCompare(
+      key: CompilerFactKey[?],
+      entry: CacheEntry,
+      resolving: CompilerFactKey[?]
+  ): IO[Boolean] =
     if (entry.hasValue)
-      getFactUntyped(key).map {
-        case Some(current) => entry.matches(current)
-        case None          => false // no longer producible ⇒ changed
-      }
+      getFactUntyped(key, resolving)
+        .map {
+          case Some(current) => entry.matches(current)
+          case None          => false // no longer producible ⇒ changed
+        }
+        .flatTap(unchanged => progressed(_.changed(key)).unlessA(unchanged))
     else false.pure[IO]
 
   /** Accept the cached fact and carry its trace forward so it re-persists with the right metadata. This is the one
@@ -214,7 +252,27 @@ final class IncrementalFactGenerator(
       deferred.complete(entry.value).void
 
   private def delivered(key: CompilerFactKey[?], fromCache: Boolean): IO[Unit] =
-    progress.fold(IO.unit)(_.delivered(key, fromCache))
+    progressed(_.delivered(key, fromCache))
+
+  private def waiting(requester: Option[CompilerFactKey[?]]): IO[Unit] =
+    progressed(tracker => requester.fold(IO.unit)(tracker.waiting))
+
+  private def resumed(requester: Option[CompilerFactKey[?]]): IO[Unit] =
+    progressed(tracker => requester.fold(IO.unit)(tracker.resumed))
+
+  /** The value of `deferred`, which someone else computes: `requester` waits for it only if it is not already there,
+    * which for a fact asked for again is the common case and is kept cheap.
+    */
+  private def awaited[A](deferred: Deferred[IO, A], requester: Option[CompilerFactKey[?]]): IO[A] =
+    if (progress.isEmpty) deferred.get
+    else
+      deferred.tryGet.flatMap {
+        case Some(value) => IO.pure(value)
+        case None        => waiting(requester) >> deferred.get <* resumed(requester)
+      }
+
+  private def progressed(event: ProgressTracker => IO[Unit]): IO[Unit] =
+    progress.fold(IO.unit)(event)
 
   /** Run the processor, recording (via [[DependencyTrackingProcess]]) the facts it reads as this key's direct
     * dependencies. The processor completes the fact's [[Deferred]] itself via [[registerFact]]; the caller's safety net
@@ -282,7 +340,8 @@ final class IncrementalFactGenerator(
     * for facts materialised through a processor generation, and the value-less `SemValue`-bearing facts the guard
     * protects are never materialised here — they take the structural-drill branch of [[computeUnchanged]].
     */
-  private def getFactUntyped(key: CompilerFactKey[?]): IO[Option[CompilerFact]] = request(key, Nil)
+  private def getFactUntyped(key: CompilerFactKey[?], resolving: CompilerFactKey[?]): IO[Option[CompilerFact]] =
+    request(key, Nil, Some(resolving))
 
   private def modifyAtomicallyFor(
       key: CompilerFactKey[?]

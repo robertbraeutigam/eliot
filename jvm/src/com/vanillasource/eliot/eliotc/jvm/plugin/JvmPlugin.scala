@@ -23,6 +23,7 @@ import com.vanillasource.eliot.eliotc.plugin.Configuration.{demandScopedKey, dia
 import com.vanillasource.eliot.eliotc.plugin.{CompilerPlugin, Configuration}
 import com.vanillasource.eliot.eliotc.processor.common.SequentialCompilerProcessors
 import com.vanillasource.eliot.eliotc.processor.{CompilationProcess, CompilerProcessor}
+import com.vanillasource.eliot.eliotc.progress.ProgressDescriber
 import com.vanillasource.eliot.eliotc.source.scan.PathScanner
 import scopt.{OParser, OParserBuilder}
 
@@ -65,6 +66,8 @@ class JvmPlugin extends CompilerPlugin {
   override def backendWord: Option[String] = Some("jvm")
 
   override def backendModes: Seq[String] = Seq("exe-jar", "run")
+
+  override def progressDescriber: Option[ProgressDescriber] = Some(JvmProgressDescriber)
 
   override def progressTarget(configuration: Configuration): Seq[String] =
     Seq(if (configuration.contains(runKey)) "jvm run" else "jvm exe-jar") ++

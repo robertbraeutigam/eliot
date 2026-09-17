@@ -7,7 +7,13 @@ import com.vanillasource.eliot.eliotc.compiler.cache.CacheFingerprint
 import com.vanillasource.eliot.eliotc.feedback.{Logging, User}
 import com.vanillasource.eliot.eliotc.plugin.Configuration.{diagnosticKey, namedKey}
 import com.vanillasource.eliot.eliotc.plugin.{CompilerPlugin, Configuration}
-import com.vanillasource.eliot.eliotc.progress.{ProgressLineWriter, ProgressPhase, ProgressProfile, ProgressTracker}
+import com.vanillasource.eliot.eliotc.progress.{
+  ProgressDescriber,
+  ProgressLineWriter,
+  ProgressPhase,
+  ProgressProfile,
+  ProgressTracker
+}
 import com.vanillasource.eliot.eliotc.statistics.ProcessorStatistics
 import com.vanillasource.eliot.eliotc.visualization.FactVisualizationTracker
 import scopt.{DefaultOEffectSetup, OParser, OParserBuilder}
@@ -112,7 +118,8 @@ object Compiler extends Logging {
                     ProgressProfile.fileIn(configuration.get(targetPathKey).get, CacheFingerprint.config(configuration))
                   )
       expected <- profile.traverse(ProgressProfile.read)
-      progress <- expected.traverse(prior => ProgressTracker.create(prior.total))
+      describer = ProgressDescriber.combined(plugins.flatMap(_.progressDescriber))
+      progress <- expected.traverse(prior => ProgressTracker.create(prior.total, describer))
       writer   <- progress.traverse(ProgressLineWriter.create)
       target    = plugins.find(_.isSelectedBy(configuration)).toSeq.flatMap(_.progressTarget(configuration))
       // Progress lines are printed from session setup until the cache is persisted, and stop before the diagnostics

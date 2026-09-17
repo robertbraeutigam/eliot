@@ -129,7 +129,7 @@ class JvmProgramGenerator(targetDir: Path) extends SingleFactProcessor[GenerateE
   /** Beside the destination, so the completing move stays within one directory (and one filesystem) and is atomic. */
   private def temporaryJarFilePath(mainValue: ValueFQN): Path = targetDir.resolve(jarFileName(mainValue) + ".tmp")
 
-  private def jarFileName(mainValue: ValueFQN): String = JvmProgramGenerator.jarFileName(mainValue)
+  def jarFileName(mainValue: ValueFQN): String = JvmProgramGenerator.jarFileName(mainValue)
 
   private def generateManifest(jos: JarOutputStream): Unit = {
     jos.putNextEntry(timestamped("META-INF/MANIFEST.MF"))
@@ -165,5 +165,5 @@ object JvmProgramGenerator {
     */
   def jarFilePath(targetDir: Path, mainValue: ValueFQN): Path = targetDir.resolve(jarFileName(mainValue))
 
-  private def jarFileName(mainValue: ValueFQN): String = mainValue.moduleName.name + ".jar"
+  def jarFileName(mainValue: ValueFQN): String = mainValue.moduleName.name + ".jar"
 }

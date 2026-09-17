@@ -65,6 +65,61 @@ class ProgressLineWriterTest extends AnyFlatSpec with Matchers {
     ProgressLineWriter.progressLine(ProgressSnapshot(Working, 27181, 0), 65.seconds) should endWith(" 1m05s")
   }
 
+  it should "name what the run is doing while it works" in {
+    ProgressLineWriter.progressLine(working.copy(activity = Some(checkingString)), 3.seconds) shouldBe
+      "[ 4,279 facts ] checking    eliot.lang.String                             3.0s"
+  }
+
+  it should "name the phase rather than a lingering activity once the run stops working" in {
+    ProgressLineWriter.progressLine(
+      working.copy(phase = SavingCache, activity = Some(checkingString)),
+      3.seconds
+    ) should startWith("[ 4,279 facts ] saving cache  ")
+  }
+
+  it should "cut a long subject at its beginning" in {
+    ProgressLineWriter.progressLine(
+      working.copy(activity = Some(ProgressActivity("checking", "eliot.build.resolve.internal.dependency.Resolution"))),
+      3.seconds
+    ) shouldBe "[ 4,279 facts ] checking    …ild.resolve.internal.dependency.Resolution   3.0s"
+  }
+
+  it should "say in a heartbeat how long the run has been at its activity" in {
+    ProgressLineWriter.step(
+      State(1.second, Working, 4279),
+      working.copy(activity = Some(checkingString), activityTime = 4200.millis),
+      6.seconds
+    )._2 shouldBe Some("[ 4,279 facts ] checking    eliot.lang.String … 4.2s                      6.0s")
+  }
+
+  it should "name a changed input" in {
+    ProgressLineWriter.step(State(1.second, Working, 4279), working.copy(changed = Seq("src/A.els")), 2.seconds)
+      ._2 shouldBe Some("[ 4,279 facts ] changed     src/A.els                                     2.0s")
+  }
+
+  it should "name the first of several changed inputs, and count the rest" in {
+    ProgressLineWriter.step(
+      State(1.second, Working, 4279),
+      working.copy(changed = Seq("src/A.els", "src/B.els", "src/C.els")),
+      2.seconds
+    )._2 shouldBe Some("[ 4,279 facts ] changed     src/A.els · and 2 more                        2.0s")
+  }
+
+  it should "not name a changed input twice" in {
+    val snapshot = working.copy(changed = Seq("src/A.els"))
+    val first    = ProgressLineWriter.step(State(1.second, Working, 4279), snapshot, 2.seconds)._1
+    ProgressLineWriter.step(first, snapshot, 4.seconds)._2 shouldBe None
+  }
+
+  it should "print each slow step with how long it took" in {
+    val snapshot =
+      working.copy(slowSteps = Seq(ProgressStep(checkingString, 1200.millis), ProgressStep(packaging, 3.seconds)))
+    linesOf(Seq(2500.millis -> snapshot, 2700.millis -> snapshot, 3500.millis -> snapshot)) shouldBe Seq(
+      "[ 4,279 facts ] checking    eliot.lang.String · 1.2s                      2.5s",
+      "[ 4,279 facts ] packaging   HelloWorld.jar · 3.0s                         3.5s"
+    )
+  }
+
   "the header" should "name the compiler and the target" in {
     ProgressLineWriter.header(Seq("jvm exe-jar", "HelloWorld"), false) shouldBe "eliot · jvm exe-jar · HelloWorld"
   }
@@ -105,6 +160,10 @@ class ProgressLineWriterTest extends AnyFlatSpec with Matchers {
 }
 
 object ProgressLineWriterTest {
+
+  private val working        = ProgressSnapshot(Working, 4279, 0)
+  private val checkingString = ProgressActivity("checking", "eliot.lang.String")
+  private val packaging      = ProgressActivity("packaging", "HelloWorld.jar")
 
   /** The header is printed shortly before the first sample, at the start of the run's `main`. */
   private val headerAt = 1400.millis

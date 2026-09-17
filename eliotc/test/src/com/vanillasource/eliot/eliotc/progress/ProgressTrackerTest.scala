@@ -9,6 +9,9 @@ import com.vanillasource.eliot.eliotc.processor.CompilerProcessor
 import org.scalatest.flatspec.AsyncFlatSpec
 import org.scalatest.matchers.should.Matchers
 
+import java.util.concurrent.atomic.AtomicLong
+import scala.concurrent.duration.*
+
 class ProgressTrackerTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
 
   "the progress tracker" should "count every demanded fact of a cold build as generated" in {
@@ -92,6 +95,139 @@ class ProgressTrackerTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
   it should "have no total on a first build" in {
     ProgressTracker.create().flatMap(_.snapshot).asserting(_.total shouldBe None)
   }
+
+  it should "show the described fact being worked out as the activity" in {
+    val test = for {
+      clock    <- IO.delay(AtomicLong())
+      tracker  <- ProgressTracker.create(describer = describeAll, clock = () => clock.get())
+      _        <- tracker.started(top, None)
+      _        <- IO.delay(clock.set(2.seconds.toNanos))
+      snapshot <- tracker.snapshot
+    } yield (snapshot.activity, snapshot.activityTime)
+    test.asserting(_ shouldBe (Some(ProgressActivity("making", "top")), 2.seconds))
+  }
+
+  it should "show the nearest described fact that asked for an undescribed one" in {
+    val test = for {
+      tracker  <- ProgressTracker.create(describer = describeAll)
+      _        <- tracker.started(top, None)
+      _        <- tracker.started(hidden, Some(top))
+      snapshot <- tracker.snapshot
+    } yield snapshot.activity
+    test.asserting(_ shouldBe Some(ProgressActivity("making", "top")))
+  }
+
+  it should "show the fact being waited for, not the one waiting" in {
+    val test = for {
+      tracker  <- ProgressTracker.create(describer = describeAll)
+      _        <- tracker.started(top, None)
+      _        <- tracker.started(inner, Some(top))
+      snapshot <- tracker.snapshot
+    } yield snapshot.activity
+    test.asserting(_ shouldBe Some(ProgressActivity("making", "inner")))
+  }
+
+  it should "record a slow step with the undescribed work it asked for, but not the described work" in {
+    val test = for {
+      clock    <- IO.delay(AtomicLong())
+      tracker  <- ProgressTracker.create(describer = describeAll, clock = () => clock.get())
+      _        <- tracker.started(top, None)
+      _        <- advance(clock, 400.millis)
+      _        <- child(tracker, clock, "hidden", 700.millis)
+      _        <- child(tracker, clock, "inner", 5.seconds)
+      _        <- tracker.ended(top)
+      snapshot <- tracker.snapshot
+    } yield snapshot.slowSteps
+    test.asserting(
+      _ shouldBe Seq(
+        ProgressStep(ProgressActivity("making", "inner"), 5.seconds),
+        ProgressStep(ProgressActivity("making", "top"), 1100.millis)
+      )
+    )
+  }
+
+  it should "not charge a fact's time while it waits for a fact another generation works out" in {
+    val test = for {
+      clock    <- IO.delay(AtomicLong())
+      tracker  <- ProgressTracker.create(describer = describeAll, clock = () => clock.get())
+      _        <- tracker.started(top, None)
+      _        <- tracker.waiting(top)
+      _        <- advance(clock, 5.seconds)
+      _        <- tracker.resumed(top)
+      _        <- advance(clock, 200.millis)
+      snapshot <- tracker.snapshot
+    } yield snapshot.activityTime
+    test.asserting(_ shouldBe 200.millis)
+  }
+
+  it should "not record a described fact that took less than a second" in {
+    val test = for {
+      clock    <- IO.delay(AtomicLong())
+      tracker  <- ProgressTracker.create(describer = describeAll, clock = () => clock.get())
+      _        <- tracker.started(top, None)
+      _        <- child(tracker, clock, "inner", 5.seconds)
+      _        <- advance(clock, 900.millis)
+      _        <- tracker.ended(top)
+      snapshot <- tracker.snapshot
+    } yield snapshot.slowSteps.map(_.activity.subject)
+    test.asserting(_ shouldBe Seq("inner"))
+  }
+
+  it should "name each input the drill found changed" in {
+    val test = for {
+      src       <- Ref.of[IO, Int](10)
+      proc       = threeLevels(src)
+      cold      <- countBuild(proc, None, "top")
+      _         <- src.set(20)
+      tracker   <- ProgressTracker.create(describer = describeInputs("src", "mid"))
+      generator <- IncrementalFactGenerator.create(proc, Some(cold._2), strictAccounting = true, Some(tracker))
+      _         <- generator.getFact(top)
+      snapshot  <- tracker.snapshot
+    } yield snapshot.changed
+    test.asserting(_ shouldBe Seq("src", "mid"))
+  }
+
+  it should "not name a changed fact that is not an input" in {
+    val test = for {
+      src       <- Ref.of[IO, Int](10)
+      proc       = threeLevels(src)
+      cold      <- countBuild(proc, None, "top")
+      _         <- src.set(20)
+      tracker   <- ProgressTracker.create(describer = describeInputs("mid"))
+      generator <- IncrementalFactGenerator.create(proc, Some(cold._2), strictAccounting = true, Some(tracker))
+      _         <- generator.getFact(top)
+      snapshot  <- tracker.snapshot
+    } yield snapshot.changed
+    test.asserting(_ shouldBe Seq("mid"))
+  }
+
+  private val top    = NumberKey("top")
+  private val hidden = NumberKey("hidden")
+  private val inner  = NumberKey("inner")
+
+  /** Describes every key but `hidden`, as `making <name>`. */
+  private val describeAll: ProgressDescriber = {
+    case NumberKey(name) if name != "hidden" => Some(ProgressActivity("making", name))
+    case _                                   => None
+  }
+
+  /** Describes the keys named as inputs. */
+  private def describeInputs(names: String*): ProgressDescriber = {
+    case NumberKey(name) => Some(ProgressActivity("making", name, input = names.contains(name)))
+    case _               => None
+  }
+
+  private def advance(clock: AtomicLong, by: FiniteDuration): IO[Unit] = IO.delay(clock.addAndGet(by.toNanos)).void
+
+  /** `top` asking for `name`, which takes `took` to work out. */
+  private def child(tracker: ProgressTracker, clock: AtomicLong, name: String, took: FiniteDuration): IO[Unit] = {
+    val key = NumberKey(name)
+
+    tracker.started(key, Some(top)) >> advance(clock, took) >> tracker.ended(key)
+  }
+
+  private def threeLevels(src: Ref[IO, Int]): CompilerProcessor =
+    graph(Map("src" -> Leaf(src), "mid" -> Derived("src", _ + 1), "top" -> Derived("mid", _ * 2)), Map.empty)
 
   private def chain(value: Int): IO[CompilerProcessor] =
     Ref.of[IO, Int](value).map(src => graph(Map("leaf" -> Leaf(src), "derived" -> Derived("leaf", _ * 2)), Map.empty))

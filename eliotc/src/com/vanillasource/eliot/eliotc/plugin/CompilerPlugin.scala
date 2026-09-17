@@ -3,6 +3,7 @@ package com.vanillasource.eliot.eliotc.plugin
 import cats.data.StateT
 import cats.effect.IO
 import com.vanillasource.eliot.eliotc.processor.{CompilationProcess, CompilerProcessor}
+import com.vanillasource.eliot.eliotc.progress.ProgressDescriber
 import scopt.{OParser, OParserBuilder}
 
 import scala.annotation.unused
@@ -27,6 +28,11 @@ trait CompilerPlugin {
     * `Seq("jvm exe-jar", "HelloWorld")` reads `eliot · jvm exe-jar · HelloWorld`. Only the selected target is asked.
     */
   def progressTarget(@unused configuration: Configuration): Seq[String] = backendWord.toSeq
+
+  /** How `--progress` names the work on the fact keys this plugin owns (`checking eliot.lang.String`). Every discovered
+    * plugin is asked, so a plugin describes only its own keys.
+    */
+  def progressDescriber: Option[ProgressDescriber] = None
 
   def pluginDependencies(@unused configuration: Configuration): Seq[Class[? <: CompilerPlugin]] = Seq.empty
 
