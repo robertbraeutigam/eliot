@@ -52,6 +52,15 @@ object `package` extends Module {
        override def extraDeps = Seq(
          mvn"org.eclipse.lsp4j:org.eclipse.lsp4j:0.23.1",
        )
+
+       // The server's own eliot version, stamped into its jar so it can warn when a package builds with another
+       // compiler than the one it embeds. `git describe` is a tag on a release commit (`v0.6`) and says how far past
+       // one otherwise (`v0.6-3-gabc1234`), which is exactly the honest answer for a server built from a checkout.
+       def eliotVersion = Task.Input {
+         os.proc("git", "describe", "--tags", "--always", "--dirty").call(cwd = mill.api.BuildCtx.workspaceRoot).out.trim()
+       }
+
+       override def manifest = Task { super.manifest().add("Implementation-Version" -> eliotVersion()) }
      }
    }
 

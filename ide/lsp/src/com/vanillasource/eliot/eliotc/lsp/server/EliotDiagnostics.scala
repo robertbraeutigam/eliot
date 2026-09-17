@@ -3,7 +3,9 @@ package com.vanillasource.eliot.eliotc.lsp.server
 import com.vanillasource.eliot.eliotc.feedback.CompilerError
 import org.eclipse.lsp4j.{Diagnostic, DiagnosticSeverity}
 
-import java.nio.file.Paths
+import java.net.URI
+import java.nio.file.{Path, Paths}
+import scala.util.Try
 
 /** Pure mapping from compiler errors to LSP diagnostics, grouped by document URI.
   *
@@ -18,6 +20,9 @@ object EliotDiagnostics {
   /** Group all errors by the document URI they belong to, mapping each to an LSP [[Diagnostic]]. */
   def byUri(errors: Seq[CompilerError]): Map[String, Seq[Diagnostic]] =
     errors.groupMap(uriOf)(toDiagnostic)
+
+  /** The file a diagnostics URI names, when it names one. */
+  def pathOf(uri: String): Option[Path] = Try(Paths.get(URI.create(uri))).toOption
 
   private def uriOf(error: CompilerError): String =
     Paths.get(error.contentSource).toUri.toString

@@ -52,6 +52,10 @@ object LspMainRootSourceProcessor {
   def wrapperVfqn(target: ModuleName): ValueFQN =
     ValueFQN(wrapperModule(target), QualifiedName("main", Qualifier.Default))
 
+  /** The module a wrapper `main` wraps — the inverse of [[wrapperVfqn]] — or `None` for any other value. */
+  def wrappedModule(vfqn: ValueFQN): Option[ModuleName] =
+    Option.when(isRunBoundary(vfqn))(ModuleName(vfqn.moduleName.packages.tail, vfqn.moduleName.name))
+
   /** Whether a module-relative scan path names a wrapper module (`lspmain/.../M.els`). */
   def isWrapperPath(path: Path): Boolean =
     path.getNameCount >= 2 && path.getName(0).toString == reservedPackage && path.toString.endsWith(".els")

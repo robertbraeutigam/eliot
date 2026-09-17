@@ -90,7 +90,7 @@ class LspPlugin(vfs: VirtualFileSystem) extends CompilerPlugin with Logging {
 
   override def run(configuration: Configuration, compilation: CompilationProcess): IO[Boolean] =
     for {
-      modules <- workspaceModules(configuration.getOrElse(LangPlugin.pathKey, Seq.empty))
+      modules <- checkedModules(configuration)
       _       <- debug[IO](s"LSP checking ${modules.size} workspace module(s): ${modules.map(_.show).mkString(", ")}")
       _       <- modules.traverse_(checkModule(compilation, _))
       _       <- documentAllLayers(configuration, compilation)
@@ -191,6 +191,16 @@ class LspPlugin(vfs: VirtualFileSystem) extends CompilerPlugin with Logging {
       )
     }
 
+  /** The modules this compile diagnoses. Where the build tool said which roots are the project's own
+    * ([[LspPlugin.checkedRootsKey]]), every module under them — whatever its package, since a project may well be the
+    * one declaring `eliot.lang`. Otherwise every module under every source root, less the reserved library packages.
+    */
+  private def checkedModules(configuration: Configuration): IO[Seq[ModuleName]] =
+    configuration.get(LspPlugin.checkedRootsKey) match {
+      case Some(roots) => roots.flatTraverse(modulesUnder(_, _ => false)).map(_.distinct)
+      case None        => workspaceModules(configuration.getOrElse(LangPlugin.pathKey, Seq.empty))
+    }
+
   /** Walk the filesystem source roots for `.els` files and derive each one's module name from its path relative to the
     * root it was found under. Classpath resources (the bundled stdlib) are intentionally excluded — the editor
     * diagnoses the user's workspace, not its dependencies. Files in the bundled Eliot library namespace
@@ -198,11 +208,11 @@ class LspPlugin(vfs: VirtualFileSystem) extends CompilerPlugin with Logging {
     * workspace folder that merely *contains* them (opening the compiler repo itself) must not re-enumerate them.
     */
   private def workspaceModules(roots: Seq[Path]): IO[Seq[ModuleName]] =
-    roots.flatTraverse(modulesUnder).map(_.distinct)
+    roots.flatTraverse(modulesUnder(_, isLibraryModule)).map(_.distinct)
 
-  private def modulesUnder(root: Path): IO[Seq[ModuleName]] = IO.blocking {
+  private def modulesUnder(root: Path, skipped: ModuleName => Boolean): IO[Seq[ModuleName]] = IO.blocking {
     if (Files.isRegularFile(root) && isEliotSource(root)) {
-      Seq(moduleNameOf(root.getParent, root)).filterNot(isLibraryModule)
+      Seq(moduleNameOf(root.getParent, root)).filterNot(skipped)
     } else if (Files.isDirectory(root)) {
       Files
         .walk(root)
@@ -210,7 +220,7 @@ class LspPlugin(vfs: VirtualFileSystem) extends CompilerPlugin with Logging {
         .asScala
         .filter(p => Files.isRegularFile(p) && isEliotSource(p))
         .map(p => moduleNameOf(root, p))
-        .filterNot(isLibraryModule)
+        .filterNot(skipped)
         .toSeq
     } else {
       Seq.empty
@@ -251,6 +261,11 @@ class LspPlugin(vfs: VirtualFileSystem) extends CompilerPlugin with Logging {
 
 object LspPlugin {
   private val eliotExtension = ".els"
+
+  /** The source roots whose modules the driver diagnoses, when a build tool said which of the path's roots are the
+    * project's own. Absent, every root is walked and the reserved library packages are skipped instead.
+    */
+  val checkedRootsKey: Configuration.Key[Seq[Path]] = Configuration.opaqueKey[Seq[Path]]("lspCheckedRoots")
 
   /** The reserved Eliot library packages (`eliot.lang`, `eliot.effect`, `eliot.compiler`), each as its
     * directory sequence. The whole-workspace driver treats any file whose path contains one of these as a library

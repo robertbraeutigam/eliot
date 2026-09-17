@@ -139,6 +139,17 @@ Everything editor/IDE-related lives under **`ide/`**; put new editor integration
     fat assembly jar**: each layer jar carries a same-path `META-INF/services/…CompilerPlugin` file and a fat jar
     collapses those, silently dropping plugin registrations ([[gotcha_assembly_jar_breaks_layers]]). A second
     classpath dir `compiler-lib/` holds **only ASM**, the one backend dep "Run main" needs that `lib/` lacks.
+  - **The project model comes from the build tool**, one compile session per package (`server/WorkspacePlan`,
+    `server/PackageSession`): a workspace folder with `eliot.pkg` + `eliotw` is asked `./eliotw --project-model`
+    (`buildtool/ProjectModelQuery`, offline by the tool's design), and each resolved package compiles exactly its
+    build's roots — never a union, which could mix two platforms or two versions. A request about a file goes to the
+    sessions with it on their path, owner first; a file's diagnostics are merged across the sessions checking it,
+    except that a `main` is judged only by the packages where it monomorphized (a platform-less library package
+    otherwise reports "no implementation of `Console`"). Other folders get one guessed session
+    (`SourceRootDiscovery`); `eliot.paths` is gone. The jar's `Implementation-Version` (`git describe`) is compared
+    with the eliot version each package selects, and a difference is a warning — the server always compiles with its
+    own compiler. Its log config is `eliot-lsp-log4j2.xml`, selected by `LspMain`, because the apidoc jar's
+    `log4j2.xml` on the same classpath logs to **stdout** and would corrupt the protocol.
   - Shipped: whole-workspace diagnostics, hover/go-to-def (reverse `PositionIndex`), live-edit VFS overlay,
     completion, concrete-type hover hints (`TypeHintIndex` from `MonomorphicValue` facts), a `▶ Run main` code lens (`MainIndex`, fires the `eliot.runMain` command), and apidoc doc hover
     (`DocIndex` from `ValueDoc` facts; the LSP activates `ApiDocPlugin` as a *non-target* plugin so only its

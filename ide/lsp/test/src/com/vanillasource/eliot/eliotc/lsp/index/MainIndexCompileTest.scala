@@ -7,6 +7,7 @@ import com.vanillasource.eliot.eliotc.compiler.{CompilationSession, Compiler}
 import com.vanillasource.eliot.eliotc.lsp.plugin.LspPlugin
 import com.vanillasource.eliot.eliotc.lsp.virtual.VirtualFileSystem
 import com.vanillasource.eliot.eliotc.lsp.LspCompileTestLayers
+import com.vanillasource.eliot.eliotc.module.fact.ModuleName
 import com.vanillasource.eliot.eliotc.plugin.{Configuration, LangPlugin}
 import com.vanillasource.eliot.eliotc.resolve.fact.ResolvedValue
 import com.vanillasource.eliot.eliotc.stdlib.plugin.StdlibPlugin
@@ -34,6 +35,16 @@ class MainIndexCompileTest extends AsyncFlatSpec with AsyncIOSpec with Matchers 
       .asserting(_ shouldBe Some("Test"))
   }
 
+  it should "mark a main monomorphized when its module is among those that did" in {
+    withCompiledWorkspace(withMain, Set(ModuleName(Seq.empty, "Test")))((uri, index) =>
+      index.mainAt(uri).map(_.monomorphized)
+    ).asserting(_ shouldBe Some(true))
+  }
+
+  it should "not mark a main monomorphized when its module is not among those that did" in {
+    withCompiledWorkspace(withMain)((uri, index) => index.mainAt(uri).map(_.monomorphized)).asserting(_ shouldBe Some(false))
+  }
+
   it should "report no runnable main for a document that declares none" in {
     withCompiledWorkspace(withoutMain)((uri, index) => index.mainAt(uri)).asserting(_ shouldBe None)
   }
@@ -41,7 +52,9 @@ class MainIndexCompileTest extends AsyncFlatSpec with AsyncIOSpec with Matchers 
   /** Compile a one-file workspace, build the main index from the materialised facts, and hand the test the file's URI
     * alongside the index.
     */
-  private def withCompiledWorkspace[A](source: String)(body: (URI, MainIndex) => A): IO[A] =
+  private def withCompiledWorkspace[A](source: String, monomorphized: Set[ModuleName] = Set.empty)(
+      body: (URI, MainIndex) => A
+  ): IO[A] =
     tempDirectory.use { sourceDir =>
       val file          = sourceDir.resolve("Test.els")
       val lspPlugin     = LspPlugin(new VirtualFileSystem)
@@ -61,7 +74,7 @@ class MainIndexCompileTest extends AsyncFlatSpec with AsyncIOSpec with Matchers 
         facts   <- result.generator.currentFacts()
       } yield {
         val resolved = facts.values.collect { case value: ResolvedValue => value }.toSeq
-        body(file.toUri, MainIndex.build(resolved))
+        body(file.toUri, MainIndex.build(resolved, monomorphized))
       }
     }
 

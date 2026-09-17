@@ -48,11 +48,12 @@ classpath of *separate* jars keeps each layer's ServiceLoader service file disti
 `/*` wildcard itself, so there is no shell wrapper (works on Windows too), and the IDE's bundled JBR is
 the runtime, so no separately installed JDK is required.
 
-The server reads its workspace roots from the LSP `initialize` handshake (`workspaceFolders`/`rootUri`),
-which LSP4IJ fills in from the open project — so the open folder *is* the project model. The standard
-library and platform layers are **not** bundled with the plugin: like any program's dependencies they
-reach the compiler on that same path (the workspace roots today, downloaded packages once a build system
-exists), so the open project must have them on its path. No build file or configuration is needed.
+The server reads its workspace folders from the LSP `initialize` handshake (`workspaceFolders`/`rootUri`),
+which LSP4IJ fills in from the open project. A folder holding `eliot.pkg` and `eliotw` is a build-tool
+project: the server runs `./eliotw --project-model` there and compiles **each package separately**, over
+exactly the roots its build uses — the standard library and platform layers included, from the checkouts
+the build fetched. A change to `eliot.pkg` or `eliot.lock` re-reads the model. Any other folder has its
+source roots guessed. The layers are **not** bundled with the plugin.
 
 ## Running a `main`
 
@@ -127,10 +128,13 @@ Added by this plugin:
 
 ## Troubleshooting
 
-- **Every stdlib name shows "Name not defined" (e.g. `printLine`)** — the standard library and platform
-  layers are not bundled with the plugin; they must be on the open project's path. Confirm the workspace
-  actually contains the base/stdlib/jvm `eliot/src` roots (until a build system downloads them as
-  dependencies, the open project has to provide them itself).
+- **Every stdlib name shows "Name not defined" (e.g. `printLine`)** — the layers are not bundled with the
+  plugin; they come from the project model. Build the project once (`./eliotw <package>`), since the
+  model never fetches, and check the notifications: a package that could not be resolved, or a project
+  whose pinned launcher predates `--project-model` (its roots are then guessed and miss the layers), is
+  reported there.
+- **A warning that a package builds with another eliot version** — the server's compiler is the one it
+  was built from, not the one the build selects, so what it reports may differ from the build.
 - **Diagnostics never appear / a whole phase seems missing** — a fat jar may have snuck in, collapsing the
   per-layer `META-INF/services/…CompilerPlugin` files and dropping a plugin registration. The plugin must
   bundle the per-module jars from `package.sh`; never wire in `mill ide.lsp.assembly`.

@@ -3,7 +3,7 @@ package com.vanillasource.eliot.eliotc.lsp.server
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.lsp.index.CompletionIndex
 import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValueRenderer
-import com.vanillasource.eliot.eliotc.pos.PositionRange
+import com.vanillasource.eliot.eliotc.pos.{Position, PositionRange}
 import com.vanillasource.eliot.eliotc.resolve.fact.ResolvedValue
 import org.eclipse.lsp4j.jsonrpc.messages.Either as JEither
 import org.eclipse.lsp4j.services.TextDocumentService
@@ -49,30 +49,37 @@ import scala.jdk.CollectionConverters.*
 final class EliotTextDocumentService(service: EliotCompilationService) extends TextDocumentService {
   override def didOpen(params: DidOpenTextDocumentParams): Unit = {
     val document = params.getTextDocument
-    service.virtualFileSystem.update(URI.create(document.getUri), document.getText)
-    service.requestCompile()
+    val uri      = URI.create(document.getUri)
+    service.virtualFileSystem.update(uri, document.getText)
+    service.requestCompile(uri)
   }
 
   override def didChange(params: DidChangeTextDocumentParams): Unit =
     params.getContentChanges.asScala.lastOption.foreach { change =>
-      service.virtualFileSystem.update(URI.create(params.getTextDocument.getUri), change.getText)
-      service.requestCompile()
+      val uri = URI.create(params.getTextDocument.getUri)
+      service.virtualFileSystem.update(uri, change.getText)
+      service.requestCompile(uri)
     }
 
   override def didClose(params: DidCloseTextDocumentParams): Unit = {
-    service.virtualFileSystem.remove(URI.create(params.getTextDocument.getUri))
-    service.requestCompile()
+    val uri = URI.create(params.getTextDocument.getUri)
+    service.virtualFileSystem.remove(uri)
+    service.requestCompile(uri)
   }
 
-  override def didSave(params: DidSaveTextDocumentParams): Unit = service.requestCompile()
+  override def didSave(params: DidSaveTextDocumentParams): Unit =
+    service.requestCompile(URI.create(params.getTextDocument.getUri))
 
   override def definition(
       params: DefinitionParams
   ): CompletableFuture[JEither[util.List[? <: Location], util.List[? <: LocationLink]]] = {
     val uri      = URI.create(params.getTextDocument.getUri)
     val position = LspPositions.toCompilerPosition(params.getPosition)
-    val targets  = service.positionIndex
-      .definitionAt(uri, position)
+    val targets  = service
+      .indicesFor(uri)
+      .view
+      .flatMap(_.position.definitionAt(uri, position))
+      .headOption
       .map(target => new Location(target.uri.toString, LspPositions.toRange(target.range)))
       .toList
     CompletableFuture.completedFuture(
@@ -84,7 +91,14 @@ final class EliotTextDocumentService(service: EliotCompilationService) extends T
       params: CompletionParams
   ): CompletableFuture[JEither[util.List[CompletionItem], CompletionList]] = {
     val uri   = URI.create(params.getTextDocument.getUri)
-    val items = service.completionIndex.completionsAt(uri).map(EliotTextDocumentService.toCompletionItem).asJava
+    val items = service
+      .indicesFor(uri)
+      .view
+      .map(_.completion.completionsAt(uri))
+      .find(_.nonEmpty)
+      .getOrElse(Seq.empty)
+      .map(EliotTextDocumentService.toCompletionItem)
+      .asJava
     // `isIncomplete = false`: the full in-scope list is returned once and the client filters it as the user types.
     CompletableFuture.completedFuture(
       JEither.forRight[util.List[CompletionItem], CompletionList](new CompletionList(false, items))
@@ -101,62 +115,69 @@ final class EliotTextDocumentService(service: EliotCompilationService) extends T
     * `Int[0, 255] -> Int[0, 255]`, one line per instantiation) is shown below it, then the documentation. With no tile
     * it falls back to the concrete type alone, or the referenced value's declared signature when the node was never
     * monomorphized.
+    *
+    * The packages with the file on their path are asked in [[EliotCompilationService.indicesFor]]'s order, except that one
+    * holding a concrete type at the cursor goes first: code is monomorphized only in a package that runs a `main`
+    * reaching it, which is often not the package the file belongs to.
     */
   override def hover(params: HoverParams): CompletableFuture[Hover] = {
-    val uri       = URI.create(params.getTextDocument.getUri)
-    val position  = LspPositions.toCompilerPosition(params.getPosition)
-    val reference = service.positionIndex.referenceAt(uri, position)
-    val tile      = reference.flatMap(occurrence => service.docIndex.tileFor(occurrence.value).map(occurrence -> _))
-    val typeHint  = service.typeHintIndex.typeHintsAt(uri, position)
-    val interval  = typeHint.flatMap { case (range, _) => service.typeHintIndex.intervalAt(uri, range) }
-    val hover     = tile match {
-      case Some((occurrence, entry)) =>
-        val definition    = entry.signature
-          .orElse(service.positionIndex.definitionOf(occurrence.value).map(EliotTextDocumentService.signatureOf))
-          .getOrElse(occurrence.value.name.name)
-        val concreteTypes = typeHint.fold(Seq.empty[String])(_._2.map(GroundValueRenderer.render))
-        Some(
-          EliotTextDocumentService.renderHover(occurrence.range, Some(definition), concreteTypes, interval, entry.doc)
-        )
-      case None                      =>
-        typeHint match {
-          case Some((range, types)) =>
-            Some(
-              EliotTextDocumentService.renderHover(range, None, types.map(GroundValueRenderer.render), interval, None)
-            )
-          case None                 =>
-            service.positionIndex.hoverAt(uri, position).map { (occurrence, value) =>
-              EliotTextDocumentService
-                .renderHover(occurrence.range, Some(EliotTextDocumentService.signatureOf(value)), Seq.empty, None, None)
-            }
-        }
-    }
+    val uri      = URI.create(params.getTextDocument.getUri)
+    val position = LspPositions.toCompilerPosition(params.getPosition)
+    val indices  = service.indicesFor(uri)
+    val hinted   = indices.find(_.typeHint.typeHintsAt(uri, position).isDefined)
+    val ordered  = hinted.toSeq ++ indices.filterNot(candidate => hinted.exists(_ eq candidate))
+    val hover    = ordered.view.flatMap(EliotTextDocumentService.hoverFrom(_, uri, position)).headOption
     CompletableFuture.completedFuture(hover.orNull)
   }
 
   /** Offer a "Run main" lens above each runnable `main`. A lens is emitted only when the document declares a `main`
-    * ([[com.vanillasource.eliot.eliotc.lsp.index.MainIndex]]) *and* the file sits under a known workspace source root —
-    * the root paired with the module name is exactly what the JVM backend needs to build the program (`exe-jar <root>
-    * -m <module>`). The command arguments are `[buildRoot, moduleName, dependencyRoot*]`: the build root, the module,
-    * then every *other* discovered source root — the layer/library roots the build must put on the path, since none is
-    * bundled. The client (the IntelliJ plugin) launches a native run configuration from them; the command is handled
-    * client-side (no `executeCommandProvider` is advertised).
+    * ([[com.vanillasource.eliot.eliotc.lsp.index.MainIndex]]) *and* some package has the file on its path — the root
+    * holding the file, paired with the module name, is exactly what the JVM backend needs to build the program
+    * (`exe-jar <root> -m <module>`). Which package's path is used is [[EliotCompilationService.runTargetFor]]'s choice:
+    * the one whose closure can run the `main`. The command arguments are `[buildRoot, moduleName, dependencyRoot*]`: the
+    * build root, the module, then every *other* root of that package — the layer/library roots the build must put on the
+    * path, since none is bundled. The client (the IntelliJ plugin) launches a native run configuration from them; the
+    * command is handled client-side (no `executeCommandProvider` is advertised).
     */
   override def codeLens(params: CodeLensParams): CompletableFuture[util.List[? <: CodeLens]] = {
     val uri    = URI.create(params.getTextDocument.getUri)
-    val lenses = for {
-      entry <- service.mainIndex.mainAt(uri).toList
-      root  <- service.sourceRootFor(uri).toList
-    } yield {
-      val dependencyRoots = service.sourceRoots.filterNot(_ == root).map(_.toString: Object)
-      val arguments       = (List[Object](root.toString, entry.moduleName.show) ++ dependencyRoots).asJava
-      new CodeLens(LspPositions.toRange(entry.range), new Command("▶ Run main", "eliot.runMain", arguments), null)
+    val lenses = service.runTargetFor(uri).toList.map { target =>
+      val arguments = (List[Object](target.root.toString, target.entry.moduleName.show) ++
+        target.dependencyRoots.map(_.toString: Object)).asJava
+      new CodeLens(LspPositions.toRange(target.entry.range), new Command("▶ Run main", "eliot.runMain", arguments), null)
     }
     CompletableFuture.completedFuture(lenses.asJava)
   }
 }
 
 object EliotTextDocumentService {
+
+  /** The hover `indices` give for `position` in `uri`, if any — see [[EliotTextDocumentService.hover]] for what it
+    * shows.
+    */
+  private def hoverFrom(indices: PackageSession.Indices, uri: URI, position: Position): Option[Hover] = {
+    val reference = indices.position.referenceAt(uri, position)
+    val tile      = reference.flatMap(occurrence => indices.doc.tileFor(occurrence.value).map(occurrence -> _))
+    val typeHint  = indices.typeHint.typeHintsAt(uri, position)
+    val interval  = typeHint.flatMap { case (range, _) => indices.typeHint.intervalAt(uri, range) }
+    tile match {
+      case Some((occurrence, entry)) =>
+        val definition    = entry.signature
+          .orElse(indices.position.definitionOf(occurrence.value).map(signatureOf))
+          .getOrElse(occurrence.value.name.name)
+        val concreteTypes = typeHint.fold(Seq.empty[String])(_._2.map(GroundValueRenderer.render))
+        Some(renderHover(occurrence.range, Some(definition), concreteTypes, interval, entry.doc))
+      case None                      =>
+        typeHint match {
+          case Some((range, types)) =>
+            Some(renderHover(range, None, types.map(GroundValueRenderer.render), interval, None))
+          case None                 =>
+            indices.position.hoverAt(uri, position).map { (occurrence, value) =>
+              renderHover(occurrence.range, Some(signatureOf(value)), Seq.empty, None, None)
+            }
+        }
+    }
+  }
 
   /** Render a hover as Markdown from up to four parts, omitting any that is absent (never an empty block).
     *

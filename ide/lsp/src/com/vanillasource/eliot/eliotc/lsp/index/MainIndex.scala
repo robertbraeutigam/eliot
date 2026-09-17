@@ -24,22 +24,27 @@ final class MainIndex private (mainsByUri: Map[String, MainIndex.Entry]) {
 
 object MainIndex {
 
-  /** A runnable `main`: the source range of its name (the lens anchor) and the module that declares it. */
-  case class Entry(range: PositionRange, moduleName: ModuleName)
+  /** A runnable `main`: the source range of its name (the lens anchor), the module that declares it, and whether it
+    * monomorphized in the compile the index was built from — which says that compile's closure can run it.
+    */
+  case class Entry(range: PositionRange, moduleName: ModuleName, monomorphized: Boolean)
 
   val empty: MainIndex = new MainIndex(Map.empty)
 
   private val mainName = QualifiedName("main", Qualifier.Default)
 
-  /** Build the index from all resolved values in the workspace, keeping only those named `main`. A document declares at
-    * most one `main`, so the last one wins on the (degenerate) duplicate case — which the compiler would already have
-    * flagged as a redefinition.
+  /** Build the index from all resolved values in the workspace, keeping only those named `main`; `monomorphized` names
+    * the modules whose `main` monomorphized. A document declares at most one `main`, so the last one wins on the
+    * (degenerate) duplicate case — which the compiler would already have flagged as a redefinition.
     */
-  def build(values: Seq[ResolvedValue]): MainIndex =
+  def build(values: Seq[ResolvedValue], monomorphized: Set[ModuleName]): MainIndex =
     new MainIndex(
       values
         .filter(_.vfqn.name == mainName)
-        .map(value => uriKey(value.name.uri) -> Entry(value.name.range, value.vfqn.moduleName))
+        .map(value =>
+          uriKey(value.name.uri) ->
+            Entry(value.name.range, value.vfqn.moduleName, monomorphized.contains(value.vfqn.moduleName))
+        )
         .toMap
     )
 

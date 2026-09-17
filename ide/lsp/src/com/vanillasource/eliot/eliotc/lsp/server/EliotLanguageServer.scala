@@ -23,11 +23,11 @@ import java.util.concurrent.CompletableFuture
 import scala.annotation.nowarn
 import scala.jdk.CollectionConverters.*
 
-/** The lsp4j entry object: it advertises capabilities, captures the workspace roots from the `initialize` handshake
-  * (`workspaceFolders`, falling back to `rootUri`), and on `initialized` starts the resident compile engine over those
-  * roots. There is no build file — the roots from the handshake *are* the project model, and the standard library and
-  * platform layers are just more roots on that same path (dependencies the client already has on disk), never bundled
-  * with the server.
+/** The lsp4j entry object: it advertises capabilities, captures the workspace folders from the `initialize` handshake
+  * (`workspaceFolders`, falling back to `rootUri`), and on `initialized` starts the resident compile engine over them.
+  * A folder that is a build-tool project is compiled the way its build compiles it — the tool is asked for the project
+  * model ([[WorkspacePlan]]) — and the standard library and platform layers arrive on that path as the dependencies the
+  * build fetched, never bundled with the server.
   */
 final class EliotLanguageServer(service: EliotCompilationService) extends LanguageServer with LanguageClientAware {
   private val textDocumentService            = new EliotTextDocumentService(service)

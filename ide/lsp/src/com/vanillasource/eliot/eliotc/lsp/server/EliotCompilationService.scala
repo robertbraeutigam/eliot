@@ -1,25 +1,20 @@
 package com.vanillasource.eliot.eliotc.lsp.server
 
 import cats.effect.IO
+import cats.effect.std.Semaphore
 import cats.effect.unsafe.IORuntime
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.apidoc.fact.ValueDoc
-import com.vanillasource.eliot.eliotc.apidoc.plugin.ApiDocPlugin
-import com.vanillasource.eliot.eliotc.compiler.{CompilationResult, CompilationServer, CompilationSession, Compiler}
 import com.vanillasource.eliot.eliotc.feedback.Logging
-import com.vanillasource.eliot.eliotc.lsp.index.{CompletionIndex, DocIndex, MainIndex, PositionIndex, TypeHintIndex}
-import com.vanillasource.eliot.eliotc.lsp.plugin.LspPlugin
+import com.vanillasource.eliot.eliotc.lsp.index.MainIndex
+import com.vanillasource.eliot.eliotc.lsp.buildtool.ProjectModelQuery
 import com.vanillasource.eliot.eliotc.lsp.virtual.{VfsUris, VirtualFileSystem}
-import com.vanillasource.eliot.eliotc.module.fact.ModuleValue
-import com.vanillasource.eliot.eliotc.monomorphize.channel.RefinementTable
-import com.vanillasource.eliot.eliotc.monomorphize.fact.MonomorphicValue
-import com.vanillasource.eliot.eliotc.plugin.{Configuration, LangPlugin}
-import com.vanillasource.eliot.eliotc.resolve.fact.ResolvedValue
-import com.vanillasource.eliot.eliotc.stdlib.plugin.StdlibPlugin
 import org.eclipse.lsp4j.jsonrpc.messages.Either as JEither
 import org.eclipse.lsp4j.{
+  Diagnostic,
   DidChangeWatchedFilesRegistrationOptions,
   FileSystemWatcher,
+  MessageParams,
+  MessageType,
   PublishDiagnosticsParams,
   RelativePattern,
   Registration,
@@ -28,31 +23,31 @@ import org.eclipse.lsp4j.{
 import org.eclipse.lsp4j.services.LanguageClient
 
 import java.net.URI
-import java.nio.file.Path
+import java.nio.file.{Path, Paths}
 import java.util.concurrent.atomic.{AtomicBoolean, AtomicReference}
 import scala.jdk.CollectionConverters.*
 
-/** Bridges the cats-effect resident compile engine ([[CompilationSession]] + [[CompilationServer]]) to the (Java,
-  * `CompletableFuture`-based, thread-driven) lsp4j world.
+/** Bridges the cats-effect resident compile engine to the (Java, `CompletableFuture`-based, thread-driven) lsp4j world.
   *
-  * The lifecycle is: [[startWorkspace]] builds a session over the editor's workspace roots and starts the
-  * cancel-restart server, [[requestCompile]] coalesces edit/save/file-watch triggers into recompiles, and each finished
-  * compile publishes diagnostics through the connected [[LanguageClient]]. Effects are run on the supplied
-  * [[IORuntime]] at the lsp4j boundary; the long-lived server `Resource` is held open via `allocated` and released on
-  * [[shutdown]].
+  * The workspace is compiled as **one [[PackageSession]] per package**, planned by [[WorkspacePlan]]: a folder that is
+  * a build-tool project is asked for its model (`./eliotw --project-model`) and each of its packages compiles exactly
+  * the roots its build would; any other folder gets one session over guessed roots. A request about a file is answered
+  * by the sessions that have the file on their path, the package owning it first ([[sessionsFor]]), and a file's
+  * diagnostics are those of every session checking it, merged.
+  *
+  * The lifecycle is: [[startWorkspace]] plans and starts the sessions in the background, [[requestCompile]] coalesces
+  * edit/save/file-watch triggers into recompiles of the sessions a file concerns, a change to a descriptor replans
+  * ([[reloadWorkspace]]), and [[shutdown]] releases everything. Starting, replanning and shutting down are serialised,
+  * so a replan triggered mid-start waits for the start to finish.
   */
 final class EliotCompilationService(runtime: IORuntime) extends Logging {
-  private val clientRef     = new AtomicReference[Option[LanguageClient]](None)
-  private val serverRef     = new AtomicReference[Option[(CompilationServer, IO[Unit])]](None)
-  private val publishedRef  = new AtomicReference[Set[String]](Set.empty)
-  private val indexRef      = new AtomicReference[PositionIndex](PositionIndex.empty)
-  private val completionRef = new AtomicReference[CompletionIndex](CompletionIndex.empty)
-  private val typeHintRef   = new AtomicReference[TypeHintIndex](TypeHintIndex.empty)
-  private val mainRef       = new AtomicReference[MainIndex](MainIndex.empty)
-  private val docRef        = new AtomicReference[DocIndex](DocIndex.empty)
-  private val rootsRef      = new AtomicReference[Seq[Path]](Seq.empty)
-  private val codeLensPush  = new AtomicBoolean(false)
-  private val vfs           = new VirtualFileSystem
+  private val clientRef    = new AtomicReference[Option[LanguageClient]](None)
+  private val sessionsRef  = new AtomicReference[Seq[PackageSession]](Seq.empty)
+  private val publishedRef = new AtomicReference[Map[String, Seq[Diagnostic]]](Map.empty)
+  private val rootsRef     = new AtomicReference[Seq[Path]](Seq.empty)
+  private val codeLensPush = new AtomicBoolean(false)
+  private val vfs          = new VirtualFileSystem
+  private val lifecycle    = Semaphore[IO](1).unsafeRunSync()(using runtime)
 
   /** The overlay of unsaved editor buffers. The document service writes live edits here (on open/change/close) before
     * triggering a recompile; the compile's source readers consult it ahead of the on-disk files.
@@ -62,17 +57,19 @@ final class EliotCompilationService(runtime: IORuntime) extends Logging {
   /** Remember the remote client so finished compiles can push diagnostics to it. */
   def connect(client: LanguageClient): Unit = clientRef.set(Some(client))
 
-  /** Ask the editor to watch `.els` files across the workspace and notify us of on-disk changes via
-    * `workspace/didChangeWatchedFiles` (handled by [[EliotWorkspaceService.didChangeWatchedFiles]] →
-    * [[requestCompile]]). Per the LSP spec this notification is *registration-only* — a client sends it only for globs
-    * the server registers — so without this the wired handler never fires. The caller gates on the client's
-    * dynamic-registration capability; this is a no-op if no client is connected.
+  /** Ask the editor to watch `.els` files and the build tool's descriptor and lockfile across the workspace, and notify
+    * us of on-disk changes via `workspace/didChangeWatchedFiles` (handled by
+    * [[EliotWorkspaceService.didChangeWatchedFiles]]). Per the LSP spec this notification is *registration-only* — a
+    * client sends it only for globs the server registers — so without this the wired handler never fires. The caller
+    * gates on the client's dynamic-registration capability; this is a no-op if no client is connected.
     */
   def registerFileWatchers(): Unit =
     clientRef.get.foreach { client =>
-      val watcher      = new FileSystemWatcher(JEither.forLeft[String, RelativePattern]("**/*.els"))
-      val options      = new DidChangeWatchedFilesRegistrationOptions(List(watcher).asJava)
-      val registration = new Registration("eliot-watched-els", "workspace/didChangeWatchedFiles", options)
+      val watchers     = EliotCompilationService.watchedGlobs.map(glob =>
+        new FileSystemWatcher(JEither.forLeft[String, RelativePattern](glob))
+      )
+      val options      = new DidChangeWatchedFilesRegistrationOptions(watchers.asJava)
+      val registration = new Registration("eliot-watched-files", "workspace/didChangeWatchedFiles", options)
       val _            = client.registerCapability(new RegistrationParams(List(registration).asJava))
     }
 
@@ -86,145 +83,119 @@ final class EliotCompilationService(runtime: IORuntime) extends Logging {
     */
   def enableCodeLensRefresh(): Unit = codeLensPush.set(true)
 
-  /** The reverse position index from the latest finished compile, for position-based features (definition, hover).
-    * Empty until the first compile completes.
+  /** The indices of every session with `uri` on its path, the session owning it first, then those checking it, then
+    * those only mounting it; every session when none has it. A request takes the first non-empty answer, so a file is
+    * answered as its own package sees it wherever that package can say anything at all.
     */
-  def positionIndex: PositionIndex = indexRef.get
+  def indicesFor(uri: URI): Seq[PackageSession.Indices] = sessionsFor(uri).map(_.indices)
 
-  /** The in-scope-name index from the latest finished compile, for completion. Empty until the first compile completes.
+  /** What the "Run main" lens of `uri` runs, if the document declares a `main`: the session whose closure
+    * monomorphized that `main` — the owning package first — or, when none did, the first that knows of it, so a broken
+    * `main` still offers a run that reports why. The root holding the file is the build root; the session's other
+    * roots are the dependencies the build must put on the path.
     */
-  def completionIndex: CompletionIndex = completionRef.get
-
-  /** The position → concrete-type index from the latest finished compile, for hover type hints. Empty until the first
-    * compile that monomorphized a `main` completes.
-    */
-  def typeHintIndex: TypeHintIndex = typeHintRef.get
-
-  /** The document → runnable-`main` index from the latest finished compile, for the "Run main" code lens. Empty until
-    * the first compile completes.
-    */
-  def mainIndex: MainIndex = mainRef.get
-
-  /** The name → documentation index from the latest finished compile, for hover. Empty until the first compile
-    * completes.
-    */
-  def docIndex: DocIndex = docRef.get
-
-  /** The workspace source root that contains the given document, if any — the longest matching root prefix. This is the
-    * root a `main`'s [[ModuleName]] was derived against, so it is the `<path>` the backend must be given (alongside `-m
-    * <module>`) to locate and build that module the same way the resident compile did.
-    */
-  def sourceRootFor(uri: URI): Option[Path] =
-    try {
-      val file = Path.of(VfsUris.toFileUri(uri))
-      rootsRef.get.filter(file.startsWith).maxByOption(_.getNameCount)
-    } catch { case _: IllegalArgumentException | _: java.nio.file.FileSystemNotFoundException => None }
-
-  /** All runtime source roots the latest [[startWorkspace]] used — listed in `eliot.paths` ([[WorkspacePaths]]) or, in
-    * its absence, recovered by [[SourceRootDiscovery]] (layer/library roots + application roots). The one containing a
-    * given `main` is its build root; the rest are the dependency roots the "Run main" build must put on the path (since
-    * none of them is bundled). Empty until the first workspace is started.
-    */
-  def sourceRoots: Seq[Path] = rootsRef.get
-
-  /** Build a session over the workspace's Eliot source roots, start the cancel-restart server, and trigger the first
-    * compile.
-    *
-    * The abstract base, the standard library and the platform layers are *not* bundled with the server; they are
-    * ordinary dependencies that arrive on the path alongside the user's own code — downloaded packages once a build
-    * system exists. Until then the roots are found in one of two ways. If a workspace root holds an `eliot.paths` file
-    * ([[WorkspacePaths]]), that file is *authoritative*: it lists every runtime root (the project's own sources — no
-    * assumed `src/` — plus the layer `eliot/src` roots) and, separately, every explicit compile-time overlay root, so a
-    * project can sit directly under `src/` with no `compiler/` sibling to derive. Otherwise
-    * [[SourceRootDiscovery]] recovers the roots by convention from the folder the editor handed over (the `src`/`test`
-    * roots and any other `.els`-bearing directory beneath it) — the case that keeps opening the compiler repo itself
-    * working.
-    *
-    * The runtime roots feed the runtime pool via `LangPlugin.pathKey` (each also contributing its derived
-    * `compiler/` sibling to the compile-time pool); any explicit overlay roots feed it via
-    * `LangPlugin.compilerPathKey`. The whole-workspace driver ([[LspPlugin]]) recognises library modules by their
-    * reserved `eliot.*` package and leaves them undiagnosed, so listing a dependency root does not diagnose it.
-    */
-  def startWorkspace(workspaceRoots: Seq[Path]): Unit = {
-    val configured    = WorkspacePaths.load(workspaceRoots)
-    val runtimeRoots  = configured.map(_.runtimeRoots).getOrElse(SourceRootDiscovery.discover(workspaceRoots))
-    val compilerRoots = configured.map(_.compilerRoots).getOrElse(Seq.empty)
-    rootsRef.set(runtimeRoots)
-    val lspPlugin     = LspPlugin(vfs)
-    val configuration = Configuration()
-      .set(Compiler.targetPathKey, workspaceRoots.headOption.getOrElse(Path.of(".")).resolve(".eliot-lsp"))
-      .set(LangPlugin.pathKey, runtimeRoots)
-      .set(LangPlugin.compilerPathKey, compilerRoots)
-    val started       = (for {
-      session <- CompilationSession.create(
-                   lspPlugin,
-                   Seq(lspPlugin, LangPlugin(), StdlibPlugin(), ApiDocPlugin()),
-                   configuration
-                 )
-      handle  <- CompilationServer.start(session, publishResult).allocated
-    } yield handle).unsafeRunSync()(using runtime)
-    serverRef.set(Some(started))
-    requestCompile()
+  def runTargetFor(uri: URI): Option[EliotCompilationService.RunTarget] = {
+    val declaring = sessionsFor(uri).flatMap(session => session.indices.main.mainAt(uri).map(session -> _))
+    for {
+      (session, entry) <- declaring.find(_._2.monomorphized).orElse(declaring.headOption)
+      file             <- fileOf(uri)
+      root             <- session.plan.roots.filter(file.startsWith).maxByOption(_.getNameCount)
+    } yield EliotCompilationService.RunTarget(root, entry, session.plan.roots.filterNot(_ == root))
   }
 
-  /** Request a (re)compile. Non-blocking and coalescing (see [[CompilationServer.requestCompile]]). */
-  def requestCompile(): Unit =
-    serverRef.get.foreach((server, _) => server.requestCompile.unsafeRunAndForget()(using runtime))
-
-  /** Release the server (cancelling any in-flight compile) and flush its cache to disk. */
-  def shutdown(): Unit =
-    serverRef.getAndSet(None).foreach((_, release) => release.unsafeRunSync()(using runtime))
-
-  /** Rebuild the reverse position and completion indices from the result, then publish its diagnostics. The indices are
-    * built off the request path (once per finished compile) so position-based and completion requests are answered
-    * synchronously from memory.
+  /** Plan the sessions over the editor's workspace folders and start them, in the background: asking a build tool for
+    * its model may take a while (its first run fetches the pinned launcher), and requests in the meantime are answered
+    * from empty indices.
     */
-  private def publishResult(result: CompilationResult): IO[Unit] =
-    rebuildIndices(result) >> publishDiagnostics(result) >> refreshCodeLenses
+  def startWorkspace(workspaceRoots: Seq[Path]): Unit = {
+    rootsRef.set(workspaceRoots)
+    reloadWorkspace()
+  }
 
-  /** Rebuild all indices from the facts this compile materialised: the [[PositionIndex]] from [[ResolvedValue]]s
-    * (definition + reference sites), the [[CompletionIndex]] from [[ModuleValue]]s (in-scope dictionaries) plus those
-    * same [[ResolvedValue]]s (signatures), the [[TypeHintIndex]] from [[MonomorphicValue]]s (per-node concrete types),
-    * and the [[MainIndex]] from those same [[ResolvedValue]]s (documents declaring a runnable `main`). The
-    * whole-workspace driver ([[LspPlugin]]) demands every name — so every workspace value's resolved form and module
-    * dictionary are present — and additionally monomorphizes each file's own `main`, so the reachable monomorphic
-    * values exist for hover type hints, and demands a [[ValueDoc]] per documentable name across every layer so the
-    * [[DocIndex]] can show the same documentation the apidoc site would.
+  /** Replan and restart every session — what a change to a descriptor or lockfile asks for. Unsaved buffers survive,
+    * since they live in the shared [[virtualFileSystem]].
     */
-  private def rebuildIndices(result: CompilationResult): IO[Unit] =
-    result.generator.currentFacts().flatMap { facts =>
-      val resolved     = facts.values.collect { case value: ResolvedValue => value }.toSeq
-      val moduleValues = facts.values.collect { case value: ModuleValue => value }.toSeq
-      val monomorphic  = facts.values.collect { case value: MonomorphicValue => value }.toSeq
-      val refinements  = facts.values.collect { case value: RefinementTable => value }.toSeq
-      val valueDocs    = facts.values.collect { case value: ValueDoc => value }.toSeq
-      IO {
-        indexRef.set(PositionIndex.build(resolved))
-        completionRef.set(CompletionIndex.build(moduleValues, resolved))
-        typeHintRef.set(TypeHintIndex.build(monomorphic, refinements))
-        mainRef.set(MainIndex.build(resolved))
-        docRef.set(DocIndex.build(valueDocs))
-      }
+  def reloadWorkspace(): Unit = lifecycle.permit.use(_ => restart).unsafeRunAndForget()(using runtime)
+
+  /** Request a recompile of every session. Non-blocking and coalescing (see
+    * [[com.vanillasource.eliot.eliotc.compiler.CompilationServer.requestCompile]]).
+    */
+  def requestCompile(): Unit = sessionsRef.get.traverse_(_.requestCompile).unsafeRunAndForget()(using runtime)
+
+  /** Request a recompile of the sessions `uri` concerns — those with it on their path, or all when none has. */
+  def requestCompile(uri: URI): Unit = requestCompile(Seq(uri))
+
+  /** Request a recompile of the sessions any of `uris` concerns, each once. */
+  def requestCompile(uris: Seq[URI]): Unit =
+    uris.flatMap(sessionsFor).distinct.traverse_(_.requestCompile).unsafeRunAndForget()(using runtime)
+
+  /** Whether a changed file is one the workspace plan was read from: a descriptor or lockfile directly in a workspace
+    * folder.
+    */
+  def isPlanInput(uri: URI): Boolean =
+    fileOf(uri).exists(file =>
+      EliotCompilationService.planInputs.contains(file.getFileName.toString) &&
+        rootsRef.get.exists(root => Option(file.getParent).contains(root))
+    )
+
+  /** Release every session (cancelling any compile in flight) and flush their caches to disk. */
+  def shutdown(): Unit = lifecycle.permit.use(_ => stopSessions).unsafeRunSync()(using runtime)
+
+  private def restart: IO[Unit] =
+    for {
+      _        <- stopSessions
+      plan     <- WorkspacePlan.of(rootsRef.get, EliotCompilationService.serverVersion, ProjectModelQuery.query)
+      _        <- plan.warnings.traverse_(warnUser)
+      _        <- info[IO](s"LSP compiling ${plan.sessions.size} package(s): ${plan.sessions.map(_.name).mkString(", ")}")
+      sessions <- plan.sessions.traverse(PackageSession.start(_, vfs, _ => publishDiagnostics >> refreshCodeLenses))
+      _        <- IO(sessionsRef.set(sessions))
+      _        <- sessions.traverse_(_.requestCompile)
+    } yield ()
+
+  private def stopSessions: IO[Unit] = IO(sessionsRef.getAndSet(Seq.empty)).flatMap(_.traverse_(_.release))
+
+  /** The sessions with `uri` on their path, in the order they answer for it (see [[indicesFor]]). */
+  private def sessionsFor(uri: URI): Seq[PackageSession] = {
+    val sessions = sessionsRef.get
+    fileOf(uri) match {
+      case None       => sessions
+      case Some(file) =>
+        val mounting = sessions.filter(_.plan.mounts(file))
+        if (mounting.isEmpty) sessions
+        else mounting.sortBy(session => if (session.plan.owns(file)) 0 else if (session.plan.checks(file)) 1 else 2)
     }
+  }
 
-  /** Publish the result's diagnostics, clearing files that were reported last time but are now clean. */
-  private def publishDiagnostics(result: CompilationResult): IO[Unit] =
+  private def fileOf(uri: URI): Option[Path] =
+    try Some(Paths.get(VfsUris.toFileUri(uri)))
+    catch { case _: IllegalArgumentException | _: java.nio.file.FileSystemNotFoundException => None }
+
+  /** Publish every session's diagnostics, a file's merged across the sessions checking it ([[EliotCompilationService.merged]]),
+    * and clear the files that were reported last time but are clean now. Serialised, since sessions finish concurrently.
+    */
+  private def publishDiagnostics: IO[Unit] =
     clientRef.get match {
       case None         => IO.unit
       case Some(client) =>
-        IO.blocking {
-          val byUri      = EliotDiagnostics.byUri(result.errors)
-          val previously = publishedRef.getAndSet(byUri.keySet)
-          (previously diff byUri.keySet).foreach(uri =>
-            client.publishDiagnostics(new PublishDiagnosticsParams(uri, Seq.empty[org.eclipse.lsp4j.Diagnostic].asJava))
+        IO.blocking(synchronized {
+          val merged     = EliotCompilationService.merged(sessionsRef.get.map(s => (s.diagnostics, s.indices.main)))
+          val previously = publishedRef.getAndSet(merged)
+          (previously.keySet diff merged.keySet).foreach(uri =>
+            client.publishDiagnostics(new PublishDiagnosticsParams(uri, Seq.empty[Diagnostic].asJava))
           )
-          byUri.foreach((uri, diagnostics) =>
+          merged.filter((uri, diagnostics) => !previously.get(uri).contains(diagnostics)).foreach((uri, diagnostics) =>
             client.publishDiagnostics(new PublishDiagnosticsParams(uri, diagnostics.asJava))
           )
-        }
+        })
     }
 
-  /** Nudge the client to re-pull code lenses now that this compile's [[MainIndex]] is in place. Fire-and-forget: the
+  /** Tell the user something about the workspace plan: in the editor when a client is connected, and in the log. */
+  private def warnUser(message: String): IO[Unit] =
+    warn[IO](message) >> IO.blocking(
+      clientRef.get.foreach(_.showMessage(new MessageParams(MessageType.Warning, s"Eliot: $message")))
+    )
+
+  /** Nudge the client to re-pull code lenses now that a compile's [[MainIndex]] is in place. Fire-and-forget: the
     * request's completion is irrelevant, and it is skipped entirely unless the client advertised refresh support (see
     * [[enableCodeLensRefresh]]).
     */
@@ -233,4 +204,48 @@ final class EliotCompilationService(runtime: IORuntime) extends Logging {
       case Some(client) if codeLensPush.get => IO.blocking(client.refreshCodeLenses()).void
       case _                                => IO.unit
     }
+}
+
+object EliotCompilationService {
+
+  /** A runnable `main` and the roots to build it from: `root` holds the file, `dependencyRoots` are the rest of the
+    * package's path.
+    */
+  final case class RunTarget(root: Path, entry: MainIndex.Entry, dependencyRoots: Seq[Path])
+
+  /** The build tool's files a workspace plan is read from; a change to one replans. */
+  val planInputs: Set[String] = Set(ProjectModelQuery.descriptorName, "eliot.lock")
+
+  private val watchedGlobs: Seq[String] = "**/*.els" +: planInputs.toSeq.sorted.map(name => s"**/$name")
+
+  /** This server's own eliot version, from its jar's manifest — absent when it runs from class directories. */
+  private val serverVersion: Option[String] =
+    Option(classOf[EliotCompilationService].getPackage).flatMap(pkg => Option(pkg.getImplementationVersion))
+
+  /** Diagnostics by URI, merged across sessions: each file's union, without the duplicates two sessions checking the
+    * same file report alike.
+    *
+    * **A `main` is judged by the packages that can run it.** Every session checks every `main` it has on its project
+    * roots, and in a package whose closure has no platform that check fails — "no implementation of `Console`" — although
+    * no build of that package ever runs the `main`. So where a file's `main` monomorphized in some session, the sessions
+    * in which it did not are left out of that file's diagnostics. Where it monomorphized nowhere, every session's
+    * diagnostics stand: then either nothing can run it, which is worth saying, or it is broken everywhere.
+    */
+  def merged(perSession: Seq[(Map[String, Seq[Diagnostic]], MainIndex)]): Map[String, Seq[Diagnostic]] =
+    perSession
+      .flatMap(_._1.keys)
+      .distinct
+      .map { uri =>
+        val main       = (index: MainIndex) => mainAt(index, uri)
+        val runnable   = perSession.exists((_, index) => main(index).exists(_.monomorphized))
+        val judging    = perSession.filterNot((_, index) => runnable && main(index).exists(!_.monomorphized))
+        val diagnostics = judging.flatMap(_._1.getOrElse(uri, Seq.empty))
+        uri -> diagnostics.distinctBy(diagnostic => (diagnostic.getRange, diagnostic.getMessage))
+      }
+      .filter(_._2.nonEmpty)
+      .toMap
+
+  private def mainAt(index: MainIndex, uri: String): Option[MainIndex.Entry] =
+    try index.mainAt(URI.create(uri))
+    catch { case _: IllegalArgumentException => None }
 }
