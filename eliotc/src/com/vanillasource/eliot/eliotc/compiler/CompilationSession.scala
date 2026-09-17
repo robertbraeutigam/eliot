@@ -123,7 +123,7 @@ object CompilationSession {
     * and seed the in-memory cache from disk. The returned session is then re-runnable.
     *
     * @param progress
-    *   told when the cache starts loading, for `--progress`.
+    *   told when the cache starts loading and whether it held anything, for `--progress`.
     */
   def create(
       targetPlugin: CompilerPlugin,
@@ -146,6 +146,7 @@ object CompilationSession {
                          )
       _               <- progress.traverse_(_.enter(ProgressPhase.LoadingCache))
       seeded          <- phaseTimings.time(PhaseTimings.cacheLoad)(backend.load())
+      _               <- progress.traverse_(_.cacheLoaded(seeded.exists(_.entries.nonEmpty)))
       cache           <- Ref.of[IO, Option[FactCacheData]](seeded)
       lock            <- Mutex[IO]
     } yield new CompilationSession(

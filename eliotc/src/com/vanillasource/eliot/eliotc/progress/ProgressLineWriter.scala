@@ -8,59 +8,72 @@ import com.vanillasource.eliot.eliotc.pos.PositionRange
 
 import java.lang.management.ManagementFactory
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicBoolean
 import scala.concurrent.duration.*
 
 /** Prints a run's progress to stderr as **append-only lines**: a header, progress lines while the run works, and a
-  * closing line (`docs/progress-indication.md` §4). Every line is final once printed, so the output is the same bytes in
-  * a terminal, a CI log and a pipe, and anything else writing to the terminal simply lands between two lines — nothing
-  * is repainted, and no stream is taken over.
+  * closing line (`docs/progress-indication.md` §4). Every line is final once printed, so the output is the same bytes
+  * in a terminal, a CI log and a pipe, and anything else writing to the terminal simply lands between two lines —
+  * nothing is repainted, and no stream is taken over.
   *
   * A progress line looks like
   * {{{
-  * [ 4,279/27,181] checking    eliot.build.git.Git                           3.4s
+  * [ 4,279/27,181] checking    eliot.build.git.Git                           3.4s   ~12s left
   * }}}
-  * or, on a first build, which has no total to show, `[ 4,279 facts ] checking …`. The activity comes from the
-  * plugins' [[ProgressDescriber]]s; a phase with no activity is named instead (`saving cache`). A line is written when
-  * a trigger fires *and* at least a second has passed since the previous line (the header included), which is what
-  * keeps the output readable. The decision is a pure function ([[ProgressLineWriter.step]]) of
+  * or, on a first build, which has no total to show and no history to estimate from, `[ 4,279 facts ] checking …`. The
+  * activity comes from the plugins' [[ProgressDescriber]]s; a phase with no activity is named instead (`saving cache`).
+  * A line is written when a trigger fires *and* at least a second has passed since the previous line (the header
+  * included), which is what keeps the output readable. The decision is a pure function ([[ProgressLineWriter.step]]) of
   * what the line before showed, a [[ProgressSnapshot]] and the elapsed time; this class only samples the tracker a few
   * times a second and prints what that function answers.
   *
   * Times are measured from the start of the JVM, so the part of a run that precedes `main` is in the figures.
   */
-final class ProgressLineWriter private (tracker: ProgressTracker, startedAtMillis: Long) {
+final class ProgressLineWriter private (
+    tracker: ProgressTracker,
+    startedAtMillis: Long,
+    headerShown: AtomicBoolean,
+    progressShown: AtomicBoolean
+) {
 
   /** The time since the JVM started. */
   val elapsed: IO[FiniteDuration] = IO.realTime.map(_ - startedAtMillis.millis)
 
-  /** Print the header naming `target`, then progress lines until the resource is released. */
+  /** Print the header naming `target`, then progress lines until the resource is released. The header waits for the
+    * cache to be loaded, since whether there was one decides the estimate it states, but not for longer than
+    * [[ProgressLineWriter.lineFloor]].
+    */
   def lines(target: Seq[String]): Resource[IO, Unit] =
-    Resource
-      .eval(
-        for {
-          now      <- elapsed
-          snapshot <- tracker.snapshot
-          _        <- Console[IO].errorln(ProgressLineWriter.header(target, snapshot.total.isEmpty))
-        } yield ProgressLineWriter.State(now, snapshot.phase, snapshot.delivered)
-      )
-      .flatMap(initial => loop(initial).background.void)
+    Resource.eval(elapsed).flatMap(start => loop(target, start, None).background.void)
 
-  /** Print the closing line of a run that reported `errors` and did, or did not, produce its target. */
-  def close(errors: Seq[CompilerError], targetProduced: Boolean): IO[Unit] =
+  /** Print the closing block of a run that reported `errors` and did, or did not, produce its target: where the time
+    * went, if the run printed any progress line, and the closing line.
+    */
+  def close(target: Seq[String], errors: Seq[CompilerError], targetProduced: Boolean): IO[Unit] =
     for {
       now      <- elapsed
       snapshot <- tracker.snapshot
+      _        <- Console[IO].errorln(ProgressLineWriter.header(target, snapshot, now)).unlessA(headerShown.get())
+      _        <- ProgressLineWriter.timeLine(snapshot).filter(_ => progressShown.get()).traverse_(Console[IO].errorln)
       _        <- Console[IO].errorln(ProgressLineWriter.closingLine(snapshot, errors, targetProduced, now))
     } yield ()
 
-  private def loop(state: ProgressLineWriter.State): IO[Nothing] =
+  private def loop(target: Seq[String], start: FiniteDuration, shown: Option[ProgressLineWriter.State]): IO[Nothing] =
     for {
-      _        <- IO.sleep(ProgressLineWriter.samplingInterval)
       now      <- elapsed
       snapshot <- tracker.snapshot
-      (next, line) = ProgressLineWriter.step(state, snapshot, now)
-      _        <- line.traverse_(Console[IO].errorln)
-      result   <- loop(next)
+      next     <- shown match {
+                    case Some(state)                                                                        =>
+                      val (next, line) = ProgressLineWriter.step(state, snapshot, now)
+                      line.traverse_(text => Console[IO].errorln(text) >> IO.delay(progressShown.set(true))).as(Some(next))
+                    case None if snapshot.runClass.isDefined || now - start >= ProgressLineWriter.lineFloor =>
+                      Console[IO].errorln(ProgressLineWriter.header(target, snapshot, now)) >>
+                        IO.delay(headerShown.set(true))
+                          .as(Some(ProgressLineWriter.State(now, snapshot.phase, snapshot.delivered)))
+                    case None                                                                               => IO.pure(None)
+                  }
+      _        <- IO.sleep(ProgressLineWriter.samplingInterval)
+      result   <- loop(target, start, next)
     } yield result
 }
 
@@ -102,7 +115,14 @@ object ProgressLineWriter {
   def create(tracker: ProgressTracker): IO[ProgressLineWriter] =
     // The JVM's own record, in milliseconds. `ProcessHandle`'s start instant is derived from the boot time, which Linux
     // keeps in whole seconds, and read up to a second late.
-    IO.delay(new ProgressLineWriter(tracker, ManagementFactory.getRuntimeMXBean.getStartTime))
+    IO.delay(
+      new ProgressLineWriter(
+        tracker,
+        ManagementFactory.getRuntimeMXBean.getStartTime,
+        AtomicBoolean(false),
+        AtomicBoolean(false)
+      )
+    )
 
   /** Whether a line is due at `now`, and the line if so. A line is due when at least [[lineFloor]] passed since the
     * last one and one of these holds, the first that does deciding what the line says:
@@ -128,7 +148,10 @@ object ProgressLineWriter {
       val pending = snapshot.changed.drop(state.shownChanged)
       val more    = Option.when(pending.size > 1)(s"and ${grouped(pending.size - 1L)} more")
 
-      (printed.copy(shownChanged = snapshot.changed.size), Some(line(snapshot, "changed", pending.head, more.fold("")(" · " + _), now)))
+      (
+        printed.copy(shownChanged = snapshot.changed.size),
+        Some(line(snapshot, "changed", pending.head, more.fold("")(" · " + _), now))
+      )
     } else if (snapshot.slowSteps.size > state.shownSlowSteps) {
       val slow = snapshot.slowSteps(state.shownSlowSteps)
 
@@ -159,26 +182,70 @@ object ProgressLineWriter {
     else if (now < 10.minutes) 15.seconds
     else 1.minute
 
-  /** The first line of a run, e.g. `eliot · jvm exe-jar · HelloWorld`, saying so when it is a first build — one with no
-    * total to measure it against.
+  /** The first line of a run at `now`, e.g. `eliot · jvm exe-jar · HelloWorld · full build, about 16s`: the target, and
+    * what the run is expected to be — a first build, with no total to measure it against; a full build, one with no
+    * cache; or one with a cache — with how long the whole of it should take, if its history tells.
     */
-  def header(target: Seq[String], firstBuild: Boolean): String =
-    (("eliot" +: target) ++ Option.when(firstBuild)("first build")).mkString(" · ")
+  def header(target: Seq[String], snapshot: ProgressSnapshot, now: FiniteDuration): String = {
+    val about    = snapshot.remaining.map(left => s"about ${rough(now + left)}")
+    val expected =
+      if (snapshot.total.isEmpty) Some("first build")
+      else
+        snapshot.runClass match {
+          case Some(ProgressRunClass.Cold)      => Some(("full build" +: about.toSeq).mkString(", "))
+          case Some(ProgressRunClass.Unchanged) => about.map(_ + " if nothing changed")
+          case _                                => about
+        }
 
-  /** A progress line: the facts delivered so far out of the total, what the run is doing, and the time elapsed. A
-    * heartbeat also says how long the run has been at what it is doing.
+    (("eliot" +: target) ++ expected).mkString(" · ")
+  }
+
+  /** Where the run's time went, by verb and with the cache's loading and saving as `cache`, e.g. `time checking 3.1s ·
+    * parsing 1.5s · cache 4.1s`; `None` if nothing took long enough to show.
+    */
+  def timeLine(snapshot: ProgressSnapshot): Option[String] = {
+    val cache = Seq(ProgressPhase.LoadingCache, ProgressPhase.SavingCache)
+      .flatMap(snapshot.phaseTimes.get)
+      .foldLeft(Duration.Zero)(_ + _)
+    val parts = (snapshot.verbTimes.toSeq.sortBy((verb, time) => (-time, verb)) :+ ("cache" -> cache))
+      .filter(_._2 >= shownTime)
+      .map((verb, time) => s"$verb ${duration(time)}")
+
+    Option.when(parts.nonEmpty)(s"time   ${parts.mkString(" · ")}")
+  }
+
+  /** The least time the `time` line shows. */
+  private val shownTime = 50.millis
+
+  /** How long the run has left, rounded to a step that grows with it: `~7s left`, `~25s left`, `~1m15s left`, or
+    * `finishing` under a second.
+    */
+  def left(remaining: FiniteDuration): String =
+    if (remaining < 1.second) "finishing" else s"~${rough(remaining)} left"
+
+  /** A time rounded to the nearest second under ten seconds, to five under a minute, and to fifteen above. */
+  private def rough(time: FiniteDuration): String = {
+    val step    = if (time < 10.seconds) 1L else if (time < 1.minute) 5L else 15L
+    val seconds = (math.round(time.toMillis / 1000.0 / step) * step) max step
+
+    if (seconds < 60) s"${seconds}s" else "%dm%02ds".formatLocal(Locale.ROOT, seconds / 60, seconds % 60)
+  }
+
+  /** A progress line: the facts delivered so far out of the total, what the run is doing, the time elapsed and the time
+    * left. A heartbeat also says how long the run has been at what it is doing.
     */
   def progressLine(snapshot: ProgressSnapshot, now: FiniteDuration, heartbeat: Boolean = false): String =
     snapshot.activity.filter(_ => snapshot.phase == ProgressPhase.Working) match {
       case Some(activity) =>
-        val detail = if (heartbeat && snapshot.activityTime >= lineFloor) s" … ${duration(snapshot.activityTime)}" else ""
+        val detail =
+          if (heartbeat && snapshot.activityTime >= lineFloor) s" … ${duration(snapshot.activityTime)}" else ""
         line(snapshot, activity.verb, activity.subject, detail, now)
       case None           => line(snapshot, snapshot.phase.label, "", "", now)
     }
 
   /** A line in the progress columns: the counter, a verb, a subject followed by `detail` (empty, or starting with its
-    * separator), and the time elapsed. A subject too long for its column loses its beginning, the least specific part of
-    * a module or a path.
+    * separator), the time elapsed, and the time left if the run has an estimate. A subject too long for its column
+    * loses its beginning, the least specific part of a module or a path.
     */
   private def line(
       snapshot: ProgressSnapshot,
@@ -197,12 +264,14 @@ object ProgressLineWriter {
     val room    = subjectWidth - 1 - detail.length
     val fitted  = if (subject.length <= room) subject else "…" + subject.takeRight(room - 1)
 
-    f"$counter ${verb.padTo(verbWidth, ' ')}${(fitted + detail).padTo(subjectWidth, ' ')}${duration(now)}%6s"
+    val eta = snapshot.remaining.fold("")(remaining => f"${left(remaining)}%11s")
+
+    f"$counter ${verb.padTo(verbWidth, ' ')}${(fitted + detail).padTo(subjectWidth, ' ')}${duration(now)}%6s$eta"
   }
 
-  /** The line a run ends on, e.g. `ok     27,181 facts, 0 from cache · 15.7s`, or
-    * `failed 3 errors · first at Version.els:56 · 4.1s`. The first error's position is repeated so it survives the
-    * scroll; the diagnostics themselves are printed above it.
+  /** The line a run ends on, e.g. `ok 27,181 facts, 0 from cache · 15.7s`, or `failed 3 errors · first at
+    * Version.els:56 · 4.1s`. The first error's position is repeated so it survives the scroll; the diagnostics
+    * themselves are printed above it.
     */
   def closingLine(
       snapshot: ProgressSnapshot,

@@ -117,9 +117,9 @@ object Compiler extends Logging {
       profile   = Option.when(configuration.contains(progressKey))(
                     ProgressProfile.fileIn(configuration.get(targetPathKey).get, CacheFingerprint.config(configuration))
                   )
-      expected <- profile.traverse(ProgressProfile.read)
+      previous <- profile.traverse(ProgressProfile.read)
       describer = ProgressDescriber.combined(plugins.flatMap(_.progressDescriber))
-      progress <- expected.traverse(prior => ProgressTracker.create(prior.total, describer))
+      progress <- previous.traverse(ProgressTracker.create(_, describer))
       writer   <- progress.traverse(ProgressLineWriter.create)
       target    = plugins.find(_.isSelectedBy(configuration)).toSeq.flatMap(_.progressTarget(configuration))
       // Progress lines are printed from session setup until the cache is persisted, and stop before the diagnostics
@@ -143,9 +143,9 @@ object Compiler extends Logging {
                         phases   <- session.phaseSnapshot
                         _        <- statistics.traverse_(_.report(finished - started, phases).flatMap(Console[IO].println))
                         // The closing progress line comes last, so a `run` mode's program output follows a finished log
-                        _        <- writer.traverse_(_.close(result.errors, result.targetProduced))
-                        // Only a run that succeeded sets the next run's total: a failed one stops short of it
-                        _        <- (profile, progress).tupled.traverse_(saveTotal).whenA(result.succeeded)
+                        _        <- writer.traverse_(_.close(target, result.errors, result.targetProduced))
+                        // Only a run that succeeded teaches the next one: a failed one stops short of its total
+                        _        <- (profile, previous, progress).tupled.traverse_(saveProfile).whenA(result.succeeded)
                         _        <- progress.traverse_(_.enter(ProgressPhase.Running))
                         // Only a compilation that produced what it was asked for gets to do anything with it
                         exitCode <- if (result.succeeded) session.execute().map(ExitCode(_))
@@ -154,9 +154,15 @@ object Compiler extends Logging {
                   }
     } yield exitCode
 
-  /** Record what this run delivered in its profile, as the total the next run is measured against. */
-  private def saveTotal(profile: Path, progress: ProgressTracker): IO[Unit] =
-    progress.snapshot.flatMap(snapshot => ProgressProfile.write(profile, ProgressProfile(Some(snapshot.delivered))))
+  /** Record in the profile what this run delivered, as the total the next run is measured against, and where its time
+    * went, in the history of its class.
+    */
+  private def saveProfile(file: Path, previous: ProgressProfile, progress: ProgressTracker): IO[Unit] =
+    progress.snapshot.flatMap(snapshot =>
+      snapshot.runClass.traverse_(runClass =>
+        ProgressProfile.write(file, previous.including(snapshot.delivered, runClass, snapshot.history))
+      )
+    )
 
   /** A session's single compilation, with the instrumentation it ran under. */
   private case class Compiled(

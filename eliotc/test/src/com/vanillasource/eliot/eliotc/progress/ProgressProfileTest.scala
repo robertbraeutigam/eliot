@@ -2,6 +2,7 @@ package com.vanillasource.eliot.eliotc.progress
 
 import cats.effect.IO
 import cats.effect.testing.scalatest.AsyncIOSpec
+import com.vanillasource.eliot.eliotc.progress.ProgressRunClass.*
 import org.scalatest.flatspec.AsyncFlatSpec
 import org.scalatest.matchers.should.Matchers
 
@@ -12,6 +13,21 @@ class ProgressProfileTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
   "the progress profile" should "read back the total it wrote" in {
     temporaryFile.flatMap(file => ProgressProfile.write(file, ProgressProfile(Some(27181))) >> ProgressProfile.read(file))
       .asserting(_ shouldBe ProgressProfile(Some(27181)))
+  }
+
+  it should "read back the histories it wrote" in {
+    temporaryFile.flatMap(file => ProgressProfile.write(file, withHistory) >> ProgressProfile.read(file))
+      .asserting(_ shouldBe withHistory)
+  }
+
+  it should "start the history of a class with its first run" in {
+    ProgressProfile.empty.including(3, Unchanged, withHistory.runs(Unchanged)) shouldBe
+      withHistory.copy(runs = withHistory.runs - Cold)
+  }
+
+  it should "ignore a history line that does not parse" in {
+    ProgressProfile.parse("total 3\ncold type Key 1\nhot facts 2\ncold phase Nowhere 3\ncold facts many\n") shouldBe
+      ProgressProfile(Some(3))
   }
 
   it should "be empty when there is no file" in {
@@ -45,6 +61,14 @@ class ProgressProfileTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
     ProgressProfile.fileIn(Path.of("target"), "ab:cd0123456789abcdef99") shouldBe
       Path.of("target", ".eliot-progress-abcd0123456789ab")
   }
+
+  private val withHistory = ProgressProfile(
+    Some(3),
+    Map(
+      Cold      -> ProgressHistory(3, Map(ProgressPhase.SavingCache -> 5e8), Map("parse$Key" -> ProgressCost(2.5, 7e6))),
+      Unchanged -> ProgressHistory(3, Map(ProgressPhase.LoadingCache -> 1e8), Map.empty)
+    )
+  )
 
   /** A path in a fresh directory, where no file exists yet. */
   private def temporaryFile: IO[Path] =

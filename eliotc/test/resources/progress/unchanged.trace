@@ -1,0 +1,92 @@
+# A build with nothing changed, with the history of an earlier one.
+# Recorded from eliot.build.Launcher with --progress; one sample every 600 ms, and each first sample of a phase or a class. The run ended at 2.8 s.
+end 2800
+profile total 28690
+profile cold facts 28690.0
+profile cold phase Starting 214116323
+profile cold phase LoadingCache 19732895
+profile cold phase SavingCache 4196149649
+profile cold type ability.fact.AbilityImplementation$Key 74.0 24920706
+profile cold type ability.fact.AbilityImplementationCheck$Key 60.0 58544199
+profile cold type ability.fact.ModuleAbilityOverlapCheck$Key 66.0 19897373
+profile cold type ast.fact.SourceAST$Key 91.0 532607258
+profile cold type block.fact.BlockDesugaredValue$Key 1370.0 127776421
+profile cold type compiler.cache.OutputFileStat$Key 1.0 7144796
+profile cold type compiler.cache.UpToDate$Key 1.0 393459
+profile cold type core.fact.CoreAST$Key 91.0 130390500
+profile cold type jvm.classgen.fact.GeneratedModule$Key 44.0 1104993189
+profile cold type jvm.jargen.GenerateExecutableJar$Key 1.0 176982643
+profile cold type matchdesugar.fact.MatchDesugaredValue$Key 1370.0 230348762
+profile cold type module.fact.ModuleAbilities$Key 73.0 7523077
+profile cold type module.fact.ModuleConstructors$Key 70.0 26383913
+profile cold type module.fact.ModuleNames$Key 91.0 43810558
+profile cold type module.fact.ModuleValue$Key 157.0 216301552
+profile cold type module.fact.UnifiedModuleNames$Key 116.0 44315459
+profile cold type module.fact.UnifiedModuleValue$Key 1468.0 199645384
+profile cold type monomorphize.channel.MetaTransferAccounting$Key 1224.0 88116216
+profile cold type monomorphize.channel.RefinementTable$Key 770.0 244673670
+profile cold type monomorphize.channel.SuppliedRowArguments$Key 1224.0 95506073
+profile cold type monomorphize.channel.WovenValue$Key 1224.0 124297117
+profile cold type monomorphize.fact.BodyValueReferences$Key 616.0 35799353
+profile cold type monomorphize.fact.CompilerMonomorphicValue$Key 1447.0 1262558001
+profile cold type monomorphize.fact.ContributedBinding$Key 2999.0 309293919
+profile cold type monomorphize.fact.MonomorphicValue$Key 1224.0 1238080172
+profile cold type monomorphize.fact.NativeBinding$Key 638.0 148074015
+profile cold type namedvalues.fact.NamedValuesRewrittenValue$Key 1268.0 141111949
+profile cold type operator.fact.OperatorResolvedValue$Key 1370.0 347562374
+profile cold type reconcile.fact.ReconciledMonomorphicValue$Key 837.0 68690241
+profile cold type resolve.fact.ResolvedValue$Key 1370.0 790758363
+profile cold type row.fact.RowElaboratedValue$Key 1260.0 327467401
+profile cold type saturate.fact.SaturatedValue$Key 1260.0 58762135
+profile cold type source.content.SourceContent$Key 91.0 31073065
+profile cold type source.file.FileContent$Key 90.0 55064822
+profile cold type source.scan.PathScan$Key 117.0 107810306
+profile cold type source.stat.FileStat$Key 495.0 159129246
+profile cold type termination.fact.RecursionCheckedValue$Key 1260.0 287691334
+profile cold type token.SourceTokens$Key 91.0 1099115070
+profile cold type uncurry.fact.UncurriedMonomorphicValue$Key 1161.0 88479348
+profile cold type used.UsedNames$Key 1.0 177881120
+profile unchanged facts 28690.0
+profile unchanged phase Starting 204228409
+profile unchanged phase LoadingCache 647676753
+profile unchanged phase SavingCache 757861623
+profile unchanged type compiler.cache.OutputFileStat$Key 1.0 5777356
+profile unchanged type compiler.cache.UpToDate$Key 1.0 669900
+profile unchanged type jvm.jargen.GenerateExecutableJar$Key 1.0 382214377
+profile unchanged type source.content.SourceContent$Key 1.0 2626106
+profile unchanged type source.stat.FileStat$Key 495.0 222694582
+sample 555 Starting 0 0 -
+phase Starting 11627352
+sample 768 LoadingCache 0 0 -
+phase Starting 199952271
+phase LoadingCache 24204176
+sample 1370 LoadingCache 0 0 -
+phase Starting 199952271
+phase LoadingCache 626642167
+sample 1571 Working 577 411 unchanged
+phase Working 178345543
+phase Starting 199952271
+phase LoadingCache 649129663
+worked source.stat.FileStat$Key 168 120155237
+flying jvm.jargen.GenerateExecutableJar$Key 55606532
+flying source.stat.FileStat$Key 255709
+sample 1991 SavingCache 28690 28192 unchanged
+phase Working 590226949
+phase SavingCache 8110247
+phase Starting 199952271
+phase LoadingCache 649129663
+worked compiler.cache.OutputFileStat$Key 1 3517847
+worked source.content.SourceContent$Key 1 3170096
+worked source.stat.FileStat$Key 495 244303153
+worked compiler.cache.UpToDate$Key 1 1097644
+worked jvm.jargen.GenerateExecutableJar$Key 1 334063135
+sample 2595 SavingCache 28690 28192 unchanged
+phase Working 590226949
+phase SavingCache 611925353
+phase Starting 199952271
+phase LoadingCache 649129663
+worked compiler.cache.OutputFileStat$Key 1 3517847
+worked source.content.SourceContent$Key 1 3170096
+worked source.stat.FileStat$Key 495 244303153
+worked compiler.cache.UpToDate$Key 1 1097644
+worked jvm.jargen.GenerateExecutableJar$Key 1 334063135

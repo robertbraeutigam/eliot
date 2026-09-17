@@ -121,12 +121,68 @@ class ProgressLineWriterTest extends AnyFlatSpec with Matchers {
   }
 
   "the header" should "name the compiler and the target" in {
-    ProgressLineWriter.header(Seq("jvm exe-jar", "HelloWorld"), false) shouldBe "eliot · jvm exe-jar · HelloWorld"
+    ProgressLineWriter.header(Seq("jvm exe-jar", "HelloWorld"), withHistory, 1.second) shouldBe
+      "eliot · jvm exe-jar · HelloWorld"
   }
 
   it should "say when a run is a first build" in {
-    ProgressLineWriter.header(Seq("jvm exe-jar", "HelloWorld"), true) shouldBe
+    ProgressLineWriter.header(Seq("jvm exe-jar", "HelloWorld"), ProgressSnapshot(LoadingCache, 0, 0), 1.second) shouldBe
       "eliot · jvm exe-jar · HelloWorld · first build"
+  }
+
+  it should "say when a run is a full build, and how long it should take" in {
+    ProgressLineWriter.header(
+      Seq("HelloWorld"),
+      withHistory.copy(runClass = Some(ProgressRunClass.Cold), remaining = Some(14800.millis)),
+      1200.millis
+    ) shouldBe "eliot · HelloWorld · full build, about 15s"
+  }
+
+  it should "say a full build even when it cannot say how long it takes" in {
+    ProgressLineWriter.header(Seq("HelloWorld"), withHistory.copy(runClass = Some(ProgressRunClass.Cold)), 1.second) shouldBe
+      "eliot · HelloWorld · full build"
+  }
+
+  it should "say how long a run takes if nothing changed" in {
+    ProgressLineWriter.header(
+      Seq("HelloWorld"),
+      withHistory.copy(runClass = Some(ProgressRunClass.Unchanged), remaining = Some(1100.millis)),
+      800.millis
+    ) shouldBe "eliot · HelloWorld · about 2s if nothing changed"
+  }
+
+  "the time left" should "be rounded to seconds under ten seconds" in {
+    ProgressLineWriter.left(7400.millis) shouldBe "~7s left"
+  }
+
+  it should "be rounded to five seconds under a minute" in {
+    ProgressLineWriter.left(23.seconds) shouldBe "~25s left"
+  }
+
+  it should "be rounded to fifteen seconds above a minute" in {
+    ProgressLineWriter.left(68.seconds) shouldBe "~1m15s left"
+  }
+
+  it should "read finishing under a second" in {
+    ProgressLineWriter.left(900.millis) shouldBe "finishing"
+  }
+
+  it should "follow the elapsed time on a progress line" in {
+    ProgressLineWriter.progressLine(withHistory.copy(phase = Working, remaining = Some(7.seconds)), 8400.millis) shouldBe
+      "[4,279/9,000]   working                                                   8.4s   ~7s left"
+  }
+
+  "the time line" should "show the time of each verb, the longest first, and the cache's last" in {
+    ProgressLineWriter.timeLine(
+      working.copy(
+        verbTimes = Map("parsing" -> 1500.millis, "checking" -> 3100.millis, "working" -> Duration.Zero),
+        phaseTimes = Map(LoadingCache -> 100.millis, Working -> 5.seconds, SavingCache -> 4.seconds)
+      )
+    ) shouldBe Some("time   checking 3.1s · parsing 1.5s · cache 4.1s")
+  }
+
+  it should "be left out when nothing took long enough to show" in {
+    ProgressLineWriter.timeLine(working.copy(verbTimes = Map("parsing" -> 10.millis))) shouldBe None
   }
 
   "the closing line" should "state how many facts came from the cache" in {
@@ -162,6 +218,7 @@ class ProgressLineWriterTest extends AnyFlatSpec with Matchers {
 object ProgressLineWriterTest {
 
   private val working        = ProgressSnapshot(Working, 4279, 0)
+  private val withHistory    = ProgressSnapshot(LoadingCache, 4279, 0, Some(9000))
   private val checkingString = ProgressActivity("checking", "eliot.lang.String")
   private val packaging      = ProgressActivity("packaging", "HelloWorld.jar")
 

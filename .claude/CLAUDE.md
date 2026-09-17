@@ -54,11 +54,13 @@ A third opt-in diagnostic, `--progress` (`eliotc/…/progress/`, design `docs/pr
 append-only progress lines to stderr. It is the one diagnostic that hooks the engine itself —
 `IncrementalFactGenerator` takes an optional `ProgressTracker` — because cache acceptance never reaches a processor.
 It counts a fact when it is **demanded**, never when it is pushed, so cold and warm runs count the same total. §6
-steps 1–3 are built: the count, the total it is shown against (`[n/total]`), which is what the last successful
-`--progress` run delivered, kept in `<target>/.eliot-progress-<fingerprint>` (`ProgressProfile`), and what the run is
+steps 1–4 are built: the count, the total it is shown against (`[n/total]`), which is what the last successful
+`--progress` run delivered, kept in `<target>/.eliot-progress-<fingerprint>` (`ProgressProfile`), what the run is
 doing — a plugin names its fact keys as a verb and a subject (`CompilerPlugin.progressDescriber`;
-`LangProgressDescriber`, `JvmProgressDescriber`). A new fact key type should get a line there, or its work shows under
-whichever described fact asked for it.
+`LangProgressDescriber`, `JvmProgressDescriber`) — and the time left: the same profile keeps a history per run class
+(cold / changed / unchanged), per-key-type self time taken from the tracker's own engine events, and the pure
+`ProgressEstimator` is tested against runs recorded to `eliotc/test/resources/progress/`. A new fact key type should
+get a describer line, or its work shows under whichever described fact asked for it; it needs nothing to be estimated.
 
 ### Module Structure
 

@@ -1,0 +1,998 @@
+# A cold build with the history of examples/src/Strings.els: a program seven times the size the history knows.
+# Recorded from eliot.build.Launcher with --progress; one sample every 600 ms, and each first sample of a phase or a class. The run ended at 15.2 s.
+end 15200
+profile total 3989
+profile cold facts 3989.0
+profile cold phase Starting 230344230
+profile cold phase LoadingCache 32108784
+profile cold phase SavingCache 684332659
+profile cold type ability.fact.AbilityImplementation$Key 14.0 15128309
+profile cold type ability.fact.AbilityImplementationCheck$Key 12.0 38678380
+profile cold type ability.fact.ModuleAbilityOverlapCheck$Key 16.0 7602969
+profile cold type ast.fact.SourceAST$Key 58.0 291432626
+profile cold type block.fact.BlockDesugaredValue$Key 213.0 37534239
+profile cold type compiler.cache.OutputFileStat$Key 1.0 3780468
+profile cold type compiler.cache.UpToDate$Key 1.0 491328
+profile cold type core.fact.CoreAST$Key 58.0 104883656
+profile cold type jvm.classgen.fact.GeneratedModule$Key 10.0 178961608
+profile cold type jvm.jargen.GenerateExecutableJar$Key 1.0 81598595
+profile cold type matchdesugar.fact.MatchDesugaredValue$Key 213.0 70948552
+profile cold type module.fact.ModuleAbilities$Key 22.0 4539815
+profile cold type module.fact.ModuleConstructors$Key 20.0 12442455
+profile cold type module.fact.ModuleNames$Key 58.0 34388121
+profile cold type module.fact.ModuleValue$Key 71.0 114106278
+profile cold type module.fact.UnifiedModuleNames$Key 62.0 36788578
+profile cold type module.fact.UnifiedModuleValue$Key 239.0 79093722
+profile cold type monomorphize.channel.MetaTransferAccounting$Key 51.0 10502780
+profile cold type monomorphize.channel.RefinementTable$Key 24.0 33258483
+profile cold type monomorphize.channel.SuppliedRowArguments$Key 51.0 11653173
+profile cold type monomorphize.channel.WovenValue$Key 51.0 16236811
+profile cold type monomorphize.fact.BodyValueReferences$Key 82.0 11012582
+profile cold type monomorphize.fact.CompilerMonomorphicValue$Key 142.0 267163225
+profile cold type monomorphize.fact.ContributedBinding$Key 449.0 91842888
+profile cold type monomorphize.fact.MonomorphicValue$Key 51.0 135504470
+profile cold type monomorphize.fact.NativeBinding$Key 100.0 37506025
+profile cold type namedvalues.fact.NamedValuesRewrittenValue$Key 173.0 31555600
+profile cold type operator.fact.OperatorResolvedValue$Key 213.0 78079068
+profile cold type reconcile.fact.ReconciledMonomorphicValue$Key 24.0 8448642
+profile cold type resolve.fact.ResolvedValue$Key 213.0 211556852
+profile cold type row.fact.RowElaboratedValue$Key 165.0 92295485
+profile cold type saturate.fact.SaturatedValue$Key 165.0 19745068
+profile cold type source.content.SourceContent$Key 58.0 36402641
+profile cold type source.file.FileContent$Key 57.0 40449585
+profile cold type source.scan.PathScan$Key 63.0 73497141
+profile cold type source.stat.FileStat$Key 256.0 102025842
+profile cold type termination.fact.RecursionCheckedValue$Key 165.0 35707319
+profile cold type token.SourceTokens$Key 58.0 733537024
+profile cold type uncurry.fact.UncurriedMonomorphicValue$Key 51.0 11975108
+profile cold type used.UsedNames$Key 1.0 22874297
+sample 583 Starting 0 0 -
+phase Starting 11648693
+sample 798 Working 0 0 cold
+phase Working 8432607
+phase Starting 198637766
+phase LoadingCache 18439543
+flying jvm.jargen.GenerateExecutableJar$Key 6146122
+sample 1415 Working 72 0 cold
+phase Working 625907928
+phase Starting 198637766
+phase LoadingCache 18439543
+worked core.fact.CoreAST$Key 7 31796422
+worked token.SourceTokens$Key 7 336841045
+worked source.content.SourceContent$Key 7 8094425
+worked module.fact.ModuleNames$Key 7 7018356
+worked source.file.FileContent$Key 6 12374966
+worked source.stat.FileStat$Key 22 24254555
+worked source.scan.PathScan$Key 5 25695917
+worked ast.fact.SourceAST$Key 7 134062869
+worked module.fact.UnifiedModuleNames$Key 4 7749210
+flying module.fact.UnifiedModuleNames$Key 626587
+flying module.fact.ModuleValue$Key 4516974
+flying source.scan.PathScan$Key 662221
+flying saturate.fact.SaturatedValue$Key 390005
+flying row.fact.RowElaboratedValue$Key 570564
+flying termination.fact.RecursionCheckedValue$Key 491407
+flying namedvalues.fact.NamedValuesRewrittenValue$Key 414741
+flying operator.fact.OperatorResolvedValue$Key 484227
+flying matchdesugar.fact.MatchDesugaredValue$Key 430256
+flying block.fact.BlockDesugaredValue$Key 865954
+flying resolve.fact.ResolvedValue$Key 551690
+flying module.fact.UnifiedModuleValue$Key 2488655
+flying monomorphize.channel.WovenValue$Key 687073
+flying monomorphize.fact.MonomorphicValue$Key 470774
+flying used.UsedNames$Key 3264642
+flying source.stat.FileStat$Key 117195
+flying jvm.jargen.GenerateExecutableJar$Key 18995820
+sample 2020 Working 442 0 cold
+phase Working 1230920706
+phase Starting 198637766
+phase LoadingCache 18439543
+worked core.fact.CoreAST$Key 46 80906813
+worked token.SourceTokens$Key 46 621741376
+worked source.content.SourceContent$Key 46 24566900
+worked module.fact.ModuleNames$Key 46 25594946
+worked source.file.FileContent$Key 45 32970063
+worked source.stat.FileStat$Key 113 59611152
+worked source.scan.PathScan$Key 28 48297104
+worked ast.fact.SourceAST$Key 46 270763342
+worked module.fact.UnifiedModuleNames$Key 26 22132646
+flying module.fact.UnifiedModuleNames$Key 271826
+flying module.fact.ModuleValue$Key 11596033
+flying saturate.fact.SaturatedValue$Key 390005
+flying row.fact.RowElaboratedValue$Key 570564
+flying termination.fact.RecursionCheckedValue$Key 491407
+flying namedvalues.fact.NamedValuesRewrittenValue$Key 414741
+flying operator.fact.OperatorResolvedValue$Key 484227
+flying matchdesugar.fact.MatchDesugaredValue$Key 430256
+flying block.fact.BlockDesugaredValue$Key 865954
+flying resolve.fact.ResolvedValue$Key 551690
+flying module.fact.UnifiedModuleValue$Key 2488655
+flying monomorphize.channel.WovenValue$Key 687073
+flying monomorphize.fact.MonomorphicValue$Key 470774
+flying used.UsedNames$Key 3264642
+flying jvm.jargen.GenerateExecutableJar$Key 18995820
+flying module.fact.ModuleNames$Key 204539
+flying core.fact.CoreAST$Key 147247
+flying ast.fact.SourceAST$Key 117216
+flying token.SourceTokens$Key 114746
+sample 2633 Working 744 0 cold
+phase Working 1843936620
+phase Starting 198637766
+phase LoadingCache 18439543
+worked resolve.fact.ResolvedValue$Key 1 17882753
+worked core.fact.CoreAST$Key 73 114415104
+worked token.SourceTokens$Key 73 904936614
+worked module.fact.UnifiedModuleValue$Key 3 7138346
+worked module.fact.ModuleNames$Key 73 36028421
+worked source.file.FileContent$Key 72 44569361
+worked source.scan.PathScan$Key 47 62336085
+worked ast.fact.SourceAST$Key 73 437093359
+worked namedvalues.fact.NamedValuesRewrittenValue$Key 1 2213363
+worked operator.fact.OperatorResolvedValue$Key 1 2683103
+worked block.fact.BlockDesugaredValue$Key 1 3025643
+worked source.content.SourceContent$Key 73 31788388
+worked source.stat.FileStat$Key 202 83033179
+worked module.fact.ModuleValue$Key 4 29366935
+worked module.fact.UnifiedModuleNames$Key 46 30303774
+worked matchdesugar.fact.MatchDesugaredValue$Key 1 5124621
+flying namedvalues.fact.NamedValuesRewrittenValue$Key 166412
+flying operator.fact.OperatorResolvedValue$Key 72248
+flying matchdesugar.fact.MatchDesugaredValue$Key 47328
+flying block.fact.BlockDesugaredValue$Key 44012
+flying resolve.fact.ResolvedValue$Key 3733720
+flying saturate.fact.SaturatedValue$Key 390005
+flying row.fact.RowElaboratedValue$Key 570564
+flying termination.fact.RecursionCheckedValue$Key 1894332
+flying monomorphize.channel.WovenValue$Key 687073
+flying monomorphize.fact.MonomorphicValue$Key 470774
+flying used.UsedNames$Key 3264642
+flying jvm.jargen.GenerateExecutableJar$Key 18995820
+sample 3238 Working 1745 0 cold
+phase Working 2448449129
+phase Starting 198637766
+phase LoadingCache 18439543
+worked resolve.fact.ResolvedValue$Key 108 146770241
+worked core.fact.CoreAST$Key 83 121217765
+worked token.SourceTokens$Key 83 1003298428
+worked module.fact.UnifiedModuleValue$Key 157 46578314
+worked module.fact.ModuleNames$Key 83 38608971
+worked module.fact.ModuleConstructors$Key 6 9589578
+worked source.file.FileContent$Key 82 48150879
+worked module.fact.ModuleAbilities$Key 9 2295408
+worked source.scan.PathScan$Key 57 69453639
+worked ast.fact.SourceAST$Key 83 481749926
+worked namedvalues.fact.NamedValuesRewrittenValue$Key 98 29224506
+worked operator.fact.OperatorResolvedValue$Key 98 64918858
+worked block.fact.BlockDesugaredValue$Key 107 29863079
+worked source.content.SourceContent$Key 83 34025307
+worked source.stat.FileStat$Key 250 95855870
+worked module.fact.ModuleValue$Key 57 103844616
+worked module.fact.UnifiedModuleNames$Key 54 32640916
+worked matchdesugar.fact.MatchDesugaredValue$Key 107 52761727
+flying saturate.fact.SaturatedValue$Key 390005
+flying row.fact.RowElaboratedValue$Key 570564
+flying termination.fact.RecursionCheckedValue$Key 13472697
+flying monomorphize.channel.WovenValue$Key 687073
+flying monomorphize.fact.MonomorphicValue$Key 470774
+flying used.UsedNames$Key 3264642
+flying jvm.jargen.GenerateExecutableJar$Key 18995820
+flying namedvalues.fact.NamedValuesRewrittenValue$Key 119726
+flying operator.fact.OperatorResolvedValue$Key 344770
+sample 3841 Working 3542 0 cold
+phase Working 3051524087
+phase Starting 198637766
+phase LoadingCache 18439543
+worked resolve.fact.ResolvedValue$Key 356 363580464
+worked core.fact.CoreAST$Key 83 121217765
+worked token.SourceTokens$Key 83 1003298428
+worked module.fact.UnifiedModuleValue$Key 420 97512827
+worked module.fact.ModuleNames$Key 83 38608971
+worked module.fact.ModuleConstructors$Key 12 12920749
+worked source.file.FileContent$Key 82 48150879
+worked module.fact.ModuleAbilities$Key 15 3661208
+worked source.scan.PathScan$Key 57 69453639
+worked ast.fact.SourceAST$Key 83 481749926
+worked termination.fact.RecursionCheckedValue$Key 1 37209548
+worked namedvalues.fact.NamedValuesRewrittenValue$Key 353 78552827
+worked operator.fact.OperatorResolvedValue$Key 353 189949937
+worked block.fact.BlockDesugaredValue$Key 355 73050185
+worked source.content.SourceContent$Key 83 34025307
+worked source.stat.FileStat$Key 250 95855870
+worked module.fact.ModuleValue$Key 65 116232564
+worked module.fact.UnifiedModuleNames$Key 54 32640916
+worked matchdesugar.fact.MatchDesugaredValue$Key 355 118584654
+flying saturate.fact.SaturatedValue$Key 390005
+flying row.fact.RowElaboratedValue$Key 12034310
+flying monomorphize.channel.WovenValue$Key 687073
+flying monomorphize.fact.MonomorphicValue$Key 470774
+flying used.UsedNames$Key 3264642
+flying jvm.jargen.GenerateExecutableJar$Key 18995820
+sample 4450 Working 5512 0 cold
+phase Working 3660768354
+phase Starting 198637766
+phase LoadingCache 18439543
+worked resolve.fact.ResolvedValue$Key 558 519284462
+worked core.fact.CoreAST$Key 90 124352246
+worked token.SourceTokens$Key 90 1039881711
+worked module.fact.UnifiedModuleValue$Key 683 134198807
+worked module.fact.ModuleNames$Key 90 39631556
+worked source.file.FileContent$Key 89 50389155
+worked module.fact.ModuleAbilities$Key 28 5078847
+worked source.scan.PathScan$Key 115 112610779
+worked ast.fact.SourceAST$Key 90 499468147
+worked termination.fact.RecursionCheckedValue$Key 1 37209548
+worked namedvalues.fact.NamedValuesRewrittenValue$Key 535 103675445
+worked operator.fact.OperatorResolvedValue$Key 535 243252550
+worked block.fact.BlockDesugaredValue$Key 555 95499542
+worked source.content.SourceContent$Key 90 34854681
+worked row.fact.RowElaboratedValue$Key 1 15572743
+worked saturate.fact.SaturatedValue$Key 1 678754
+worked module.fact.ModuleConstructors$Key 22 15884127
+worked source.stat.FileStat$Key 486 157016708
+worked module.fact.ModuleValue$Key 133 201253148
+worked module.fact.UnifiedModuleNames$Key 108 44083507
+worked matchdesugar.fact.MatchDesugaredValue$Key 555 156034855
+flying monomorphize.fact.CompilerMonomorphicValue$Key 146630
+flying monomorphize.channel.WovenValue$Key 687073
+flying monomorphize.fact.MonomorphicValue$Key 1486695
+flying namedvalues.fact.NamedValuesRewrittenValue$Key 90953
+flying operator.fact.OperatorResolvedValue$Key 59887
+flying matchdesugar.fact.MatchDesugaredValue$Key 55504
+flying block.fact.BlockDesugaredValue$Key 108599
+flying used.UsedNames$Key 3264642
+flying jvm.jargen.GenerateExecutableJar$Key 18995820
+flying saturate.fact.SaturatedValue$Key 65180
+flying row.fact.RowElaboratedValue$Key 64727
+flying termination.fact.RecursionCheckedValue$Key 9325034
+sample 5052 Working 8432 0 cold
+phase Working 4262767263
+phase Starting 198637766
+phase LoadingCache 18439543
+worked resolve.fact.ResolvedValue$Key 755 600757991
+worked core.fact.CoreAST$Key 91 125008871
+worked monomorphize.fact.BodyValueReferences$Key 3 1211893
+worked token.SourceTokens$Key 91 1051809252
+worked module.fact.UnifiedModuleValue$Key 848 151464124
+worked module.fact.ModuleNames$Key 91 39831355
+worked source.file.FileContent$Key 90 50718176
+worked module.fact.ModuleAbilities$Key 30 5334658
+worked source.scan.PathScan$Key 116 113191610
+worked namedvalues.fact.NamedValuesRewrittenValue$Key 710 119878213
+worked block.fact.BlockDesugaredValue$Key 753 108806522
+worked source.content.SourceContent$Key 91 34954714
+worked row.fact.RowElaboratedValue$Key 206 117432018
+worked saturate.fact.SaturatedValue$Key 206 14478080
+worked module.fact.ModuleConstructors$Key 24 17104612
+worked source.stat.FileStat$Key 495 158460958
+worked module.fact.ModuleValue$Key 138 206831487
+worked monomorphize.fact.CompilerMonomorphicValue$Key 1 38850844
+worked monomorphize.fact.NativeBinding$Key 147 41396872
+worked ast.fact.SourceAST$Key 91 504821233
+worked termination.fact.RecursionCheckedValue$Key 206 106652210
+worked compiler.cache.UpToDate$Key 1 458891
+worked module.fact.UnifiedModuleNames$Key 113 44637516
+worked matchdesugar.fact.MatchDesugaredValue$Key 753 180265461
+worked operator.fact.OperatorResolvedValue$Key 753 287300292
+worked monomorphize.fact.ContributedBinding$Key 808 112369144
+flying monomorphize.fact.NativeBinding$Key 228978
+flying monomorphize.fact.NativeBinding$Key 1571101
+flying monomorphize.fact.NativeBinding$Key 151685
+flying monomorphize.fact.NativeBinding$Key 308856
+flying monomorphize.fact.NativeBinding$Key 209476
+flying monomorphize.fact.NativeBinding$Key 97319
+flying monomorphize.fact.ContributedBinding$Key 105433
+flying monomorphize.channel.WovenValue$Key 687073
+flying monomorphize.fact.MonomorphicValue$Key 5246452
+flying used.UsedNames$Key 3264642
+flying jvm.jargen.GenerateExecutableJar$Key 18995820
+flying monomorphize.fact.NativeBinding$Key 543266
+flying monomorphize.fact.NativeBinding$Key 515217
+flying monomorphize.fact.NativeBinding$Key 820980
+flying monomorphize.fact.NativeBinding$Key 745260
+flying monomorphize.fact.NativeBinding$Key 84856
+sample 5654 Working 11879 0 cold
+phase Working 4864968692
+phase Starting 198637766
+phase LoadingCache 18439543
+worked ability.fact.AbilityImplementation$Key 3 3470473
+worked resolve.fact.ResolvedValue$Key 786 612912360
+worked monomorphize.fact.BodyValueReferences$Key 367 25509817
+worked token.SourceTokens$Key 91 1051809252
+worked module.fact.UnifiedModuleValue$Key 865 154076866
+worked module.fact.ModuleNames$Key 91 39831355
+worked source.file.FileContent$Key 90 50718176
+worked monomorphize.channel.SuppliedRowArguments$Key 7 1853468
+worked module.fact.ModuleAbilities$Key 32 5885294
+worked source.scan.PathScan$Key 117 113458803
+worked monomorphize.fact.MonomorphicValue$Key 8 92850197
+worked core.fact.CoreAST$Key 91 125008871
+worked monomorphize.channel.MetaTransferAccounting$Key 7 2885441
+worked block.fact.BlockDesugaredValue$Key 784 110085136
+worked source.content.SourceContent$Key 91 34954714
+worked row.fact.RowElaboratedValue$Key 727 235932938
+worked saturate.fact.SaturatedValue$Key 727 38258196
+worked module.fact.ModuleConstructors$Key 24 17104612
+worked source.stat.FileStat$Key 495 158460958
+worked module.fact.ModuleValue$Key 141 212445757
+worked monomorphize.fact.CompilerMonomorphicValue$Key 14 66077196
+worked monomorphize.channel.WovenValue$Key 7 3775042
+worked monomorphize.fact.NativeBinding$Key 369 99761797
+worked ast.fact.SourceAST$Key 91 504821233
+worked termination.fact.RecursionCheckedValue$Key 727 228930849
+worked compiler.cache.UpToDate$Key 1 458891
+worked namedvalues.fact.NamedValuesRewrittenValue$Key 727 120935206
+worked ability.fact.AbilityImplementationCheck$Key 2 10905187
+worked ability.fact.ModuleAbilityOverlapCheck$Key 2 1635114
+worked module.fact.UnifiedModuleNames$Key 115 44893177
+worked matchdesugar.fact.MatchDesugaredValue$Key 784 182543479
+worked operator.fact.OperatorResolvedValue$Key 784 290397574
+worked monomorphize.fact.ContributedBinding$Key 1875 200528249
+flying monomorphize.channel.WovenValue$Key 62108
+flying monomorphize.fact.MonomorphicValue$Key 681318
+flying used.UsedNames$Key 7988013
+flying jvm.jargen.GenerateExecutableJar$Key 18995820
+sample 6257 Working 13889 0 cold
+phase Working 5468151005
+phase Starting 198637766
+phase LoadingCache 18439543
+worked ability.fact.AbilityImplementation$Key 19 10010662
+worked resolve.fact.ResolvedValue$Key 924 667284557
+worked monomorphize.fact.BodyValueReferences$Key 405 27453221
+worked token.SourceTokens$Key 91 1051809252
+worked module.fact.UnifiedModuleValue$Key 1016 167323606
+worked module.fact.ModuleNames$Key 91 39831355
+worked source.file.FileContent$Key 90 50718176
+worked monomorphize.channel.SuppliedRowArguments$Key 121 12450390
+worked module.fact.ModuleAbilities$Key 48 6834547
+worked source.scan.PathScan$Key 117 113458803
+worked monomorphize.fact.MonomorphicValue$Key 121 293323228
+worked core.fact.CoreAST$Key 91 125008871
+worked monomorphize.channel.MetaTransferAccounting$Key 121 10445063
+worked block.fact.BlockDesugaredValue$Key 922 118447013
+worked source.content.SourceContent$Key 91 34954714
+worked row.fact.RowElaboratedValue$Key 800 249125821
+worked saturate.fact.SaturatedValue$Key 800 41433808
+worked module.fact.ModuleConstructors$Key 33 19247877
+worked source.stat.FileStat$Key 495 158460958
+worked module.fact.ModuleValue$Key 141 212445757
+worked monomorphize.fact.CompilerMonomorphicValue$Key 136 214240068
+worked monomorphize.channel.WovenValue$Key 121 18157161
+worked monomorphize.fact.NativeBinding$Key 407 104773887
+worked ast.fact.SourceAST$Key 91 504821233
+worked termination.fact.RecursionCheckedValue$Key 800 234237173
+worked compiler.cache.UpToDate$Key 1 458891
+worked namedvalues.fact.NamedValuesRewrittenValue$Key 800 125073596
+worked ability.fact.AbilityImplementationCheck$Key 18 31699591
+worked ability.fact.ModuleAbilityOverlapCheck$Key 21 7452771
+worked module.fact.UnifiedModuleNames$Key 115 44893177
+worked matchdesugar.fact.MatchDesugaredValue$Key 922 201292295
+worked operator.fact.OperatorResolvedValue$Key 915 311405460
+worked monomorphize.fact.ContributedBinding$Key 2001 213253963
+flying used.UsedNames$Key 31653907
+flying jvm.jargen.GenerateExecutableJar$Key 18995820
+flying monomorphize.channel.WovenValue$Key 45619
+flying monomorphize.fact.MonomorphicValue$Key 872042
+sample 6860 Working 16311 0 cold
+phase Working 6070223470
+phase Starting 198637766
+phase LoadingCache 18439543
+worked ability.fact.AbilityImplementation$Key 29 13183189
+worked resolve.fact.ResolvedValue$Key 1031 706099190
+worked monomorphize.fact.BodyValueReferences$Key 465 30135649
+worked token.SourceTokens$Key 91 1051809252
+worked module.fact.UnifiedModuleValue$Key 1116 174299477
+worked module.fact.ModuleNames$Key 91 39831355
+worked source.file.FileContent$Key 90 50718176
+worked monomorphize.channel.SuppliedRowArguments$Key 302 26477321
+worked module.fact.ModuleAbilities$Key 52 7135635
+worked source.scan.PathScan$Key 117 113458803
+worked monomorphize.fact.MonomorphicValue$Key 302 481874776
+worked core.fact.CoreAST$Key 91 125008871
+worked monomorphize.channel.MetaTransferAccounting$Key 302 20805190
+worked block.fact.BlockDesugaredValue$Key 1029 123517945
+worked source.content.SourceContent$Key 91 34954714
+worked row.fact.RowElaboratedValue$Key 916 266664534
+worked saturate.fact.SaturatedValue$Key 916 45630140
+worked module.fact.ModuleConstructors$Key 34 19493052
+worked source.stat.FileStat$Key 495 158460958
+worked module.fact.ModuleValue$Key 143 215131777
+worked monomorphize.fact.CompilerMonomorphicValue$Key 325 403284429
+worked monomorphize.channel.WovenValue$Key 302 36601417
+worked monomorphize.fact.NativeBinding$Key 467 113759465
+worked ast.fact.SourceAST$Key 91 504821233
+worked termination.fact.RecursionCheckedValue$Key 916 244941072
+worked compiler.cache.UpToDate$Key 1 458891
+worked namedvalues.fact.NamedValuesRewrittenValue$Key 919 130338355
+worked ability.fact.AbilityImplementationCheck$Key 27 38131270
+worked ability.fact.ModuleAbilityOverlapCheck$Key 30 8489549
+worked module.fact.UnifiedModuleNames$Key 115 44893177
+worked matchdesugar.fact.MatchDesugaredValue$Key 1029 210023422
+worked operator.fact.OperatorResolvedValue$Key 1026 322540612
+worked monomorphize.fact.ContributedBinding$Key 2253 232371961
+flying monomorphize.fact.ContributedBinding$Key 68749
+flying monomorphize.fact.NativeBinding$Key 77896
+flying saturate.fact.SaturatedValue$Key 35301
+flying row.fact.RowElaboratedValue$Key 31491
+flying termination.fact.RecursionCheckedValue$Key 42358
+flying monomorphize.channel.WovenValue$Key 27341
+flying monomorphize.fact.MonomorphicValue$Key 1012941
+flying used.UsedNames$Key 59337855
+flying jvm.jargen.GenerateExecutableJar$Key 18995820
+flying monomorphize.fact.CompilerMonomorphicValue$Key 604401
+sample 7462 Working 17950 0 cold
+phase Working 6672423808
+phase Starting 198637766
+phase LoadingCache 18439543
+worked ability.fact.AbilityImplementation$Key 36 15006114
+worked resolve.fact.ResolvedValue$Key 1046 709984030
+worked monomorphize.fact.BodyValueReferences$Key 475 30438532
+worked token.SourceTokens$Key 91 1051809252
+worked module.fact.UnifiedModuleValue$Key 1128 175215396
+worked module.fact.ModuleNames$Key 91 39831355
+worked source.file.FileContent$Key 90 50718176
+worked monomorphize.channel.SuppliedRowArguments$Key 584 45127737
+worked module.fact.ModuleAbilities$Key 55 7260490
+worked source.scan.PathScan$Key 117 113458803
+worked monomorphize.fact.MonomorphicValue$Key 584 755332000
+worked core.fact.CoreAST$Key 91 125008871
+worked monomorphize.channel.MetaTransferAccounting$Key 584 34710014
+worked block.fact.BlockDesugaredValue$Key 1044 123974390
+worked source.content.SourceContent$Key 91 34954714
+worked row.fact.RowElaboratedValue$Key 933 268358520
+worked saturate.fact.SaturatedValue$Key 933 46190512
+worked module.fact.ModuleConstructors$Key 34 19493052
+worked source.stat.FileStat$Key 495 158460958
+worked module.fact.ModuleValue$Key 143 215131777
+worked monomorphize.fact.CompilerMonomorphicValue$Key 613 623875707
+worked monomorphize.channel.WovenValue$Key 584 58967693
+worked monomorphize.fact.NativeBinding$Key 477 114519275
+worked ast.fact.SourceAST$Key 91 504821233
+worked termination.fact.RecursionCheckedValue$Key 933 245689955
+worked compiler.cache.UpToDate$Key 1 458891
+worked namedvalues.fact.NamedValuesRewrittenValue$Key 934 130877630
+worked ability.fact.AbilityImplementationCheck$Key 33 41410407
+worked ability.fact.ModuleAbilityOverlapCheck$Key 39 9015072
+worked module.fact.UnifiedModuleNames$Key 115 44893177
+worked matchdesugar.fact.MatchDesugaredValue$Key 1044 210805151
+worked operator.fact.OperatorResolvedValue$Key 1041 323513964
+worked monomorphize.fact.ContributedBinding$Key 2281 234366276
+flying used.UsedNames$Key 94975306
+flying jvm.jargen.GenerateExecutableJar$Key 18995820
+flying monomorphize.channel.WovenValue$Key 18916
+flying monomorphize.fact.MonomorphicValue$Key 107488
+sample 8063 Working 20655 0 cold
+phase Working 7274023918
+phase Starting 198637766
+phase LoadingCache 18439543
+worked ability.fact.AbilityImplementation$Key 46 17403110
+worked resolve.fact.ResolvedValue$Key 1168 765478484
+worked monomorphize.fact.BodyValueReferences$Key 540 34218146
+worked token.SourceTokens$Key 91 1051809252
+worked module.fact.UnifiedModuleValue$Key 1252 185748502
+worked module.fact.ModuleNames$Key 91 39831355
+worked source.file.FileContent$Key 90 50718176
+worked monomorphize.channel.SuppliedRowArguments$Key 770 60526835
+worked module.fact.ModuleAbilities$Key 57 7410713
+worked source.scan.PathScan$Key 117 113458803
+worked monomorphize.fact.MonomorphicValue$Key 770 935668520
+worked core.fact.CoreAST$Key 91 125008871
+worked monomorphize.channel.MetaTransferAccounting$Key 770 43482578
+worked block.fact.BlockDesugaredValue$Key 1166 132033801
+worked source.content.SourceContent$Key 91 34954714
+worked row.fact.RowElaboratedValue$Key 1073 294958339
+worked saturate.fact.SaturatedValue$Key 1073 51795766
+worked module.fact.ModuleConstructors$Key 36 19943322
+worked source.stat.FileStat$Key 495 158460958
+worked module.fact.ModuleValue$Key 143 215131777
+worked monomorphize.fact.CompilerMonomorphicValue$Key 800 757075819
+worked monomorphize.channel.WovenValue$Key 770 72495302
+worked monomorphize.fact.NativeBinding$Key 542 127239650
+worked ast.fact.SourceAST$Key 91 504821233
+worked termination.fact.RecursionCheckedValue$Key 1073 265393919
+worked compiler.cache.UpToDate$Key 1 458891
+worked namedvalues.fact.NamedValuesRewrittenValue$Key 1074 140851869
+worked ability.fact.AbilityImplementationCheck$Key 39 44664433
+worked ability.fact.ModuleAbilityOverlapCheck$Key 45 9422054
+worked module.fact.UnifiedModuleNames$Key 115 44893177
+worked matchdesugar.fact.MatchDesugaredValue$Key 1166 225881010
+worked operator.fact.OperatorResolvedValue$Key 1166 347047529
+worked monomorphize.fact.ContributedBinding$Key 2589 262177009
+flying monomorphize.channel.WovenValue$Key 54991
+flying monomorphize.fact.MonomorphicValue$Key 54363
+flying monomorphize.fact.CompilerMonomorphicValue$Key 42755
+flying used.UsedNames$Key 120264014
+flying jvm.jargen.GenerateExecutableJar$Key 18995820
+sample 8666 Working 22913 0 cold
+phase Working 7876270242
+phase Starting 198637766
+phase LoadingCache 18439543
+worked ability.fact.AbilityImplementation$Key 59 21121679
+worked resolve.fact.ResolvedValue$Key 1253 795385653
+worked monomorphize.fact.BodyValueReferences$Key 574 35801691
+worked token.SourceTokens$Key 91 1051809252
+worked module.fact.UnifiedModuleValue$Key 1341 191981828
+worked module.fact.ModuleNames$Key 91 39831355
+worked source.file.FileContent$Key 90 50718176
+worked monomorphize.channel.SuppliedRowArguments$Key 996 77048128
+worked module.fact.ModuleAbilities$Key 61 7766047
+worked source.scan.PathScan$Key 117 113458803
+worked monomorphize.fact.MonomorphicValue$Key 996 1140262449
+worked core.fact.CoreAST$Key 91 125008871
+worked monomorphize.channel.MetaTransferAccounting$Key 996 54327818
+worked block.fact.BlockDesugaredValue$Key 1253 135904345
+worked source.content.SourceContent$Key 91 34954714
+worked row.fact.RowElaboratedValue$Key 1157 311107216
+worked saturate.fact.SaturatedValue$Key 1157 55347053
+worked module.fact.ModuleConstructors$Key 40 20582211
+worked source.stat.FileStat$Key 495 158460958
+worked module.fact.ModuleValue$Key 145 217425543
+worked monomorphize.fact.CompilerMonomorphicValue$Key 1025 932021839
+worked monomorphize.channel.WovenValue$Key 996 90276158
+worked monomorphize.fact.NativeBinding$Key 576 133877096
+worked ast.fact.SourceAST$Key 91 504821233
+worked termination.fact.RecursionCheckedValue$Key 1157 278798512
+worked compiler.cache.UpToDate$Key 1 458891
+worked namedvalues.fact.NamedValuesRewrittenValue$Key 1158 145989609
+worked ability.fact.AbilityImplementationCheck$Key 52 53013953
+worked ability.fact.ModuleAbilityOverlapCheck$Key 54 10661737
+worked module.fact.UnifiedModuleNames$Key 115 44893177
+worked matchdesugar.fact.MatchDesugaredValue$Key 1253 233743195
+worked operator.fact.OperatorResolvedValue$Key 1253 362812604
+worked monomorphize.fact.ContributedBinding$Key 2747 283164913
+flying used.UsedNames$Key 150219726
+flying jvm.jargen.GenerateExecutableJar$Key 18995820
+flying monomorphize.channel.WovenValue$Key 31002
+flying monomorphize.fact.MonomorphicValue$Key 163510
+sample 9268 Working 24890 0 cold
+phase Working 8478563315
+phase Starting 198637766
+phase LoadingCache 18439543
+worked resolve.fact.ResolvedValue$Key 1346 827133158
+worked monomorphize.fact.BodyValueReferences$Key 613 37361152
+worked token.SourceTokens$Key 91 1051809252
+worked used.UsedNames$Key 1 160638414
+worked module.fact.UnifiedModuleValue$Key 1444 201109114
+worked module.fact.ModuleNames$Key 91 39831355
+worked source.file.FileContent$Key 90 50718176
+worked monomorphize.channel.SuppliedRowArguments$Key 1052 80700771
+worked module.fact.ModuleAbilities$Key 73 8420543
+worked source.scan.PathScan$Key 117 113458803
+worked monomorphize.fact.MonomorphicValue$Key 1053 1174033485
+worked reconcile.fact.ReconciledMonomorphicValue$Key 70 9928896
+worked ability.fact.AbilityImplementation$Key 67 23111855
+worked core.fact.CoreAST$Key 91 125008871
+worked monomorphize.channel.MetaTransferAccounting$Key 1052 57634046
+worked block.fact.BlockDesugaredValue$Key 1346 139815243
+worked source.content.SourceContent$Key 91 34954714
+worked monomorphize.channel.RefinementTable$Key 70 48004125
+worked row.fact.RowElaboratedValue$Key 1229 322365929
+worked saturate.fact.SaturatedValue$Key 1229 57865257
+worked module.fact.ModuleConstructors$Key 49 22478526
+worked source.stat.FileStat$Key 495 158460958
+worked module.fact.ModuleValue$Key 157 222331285
+worked monomorphize.fact.CompilerMonomorphicValue$Key 1166 1030421394
+worked monomorphize.channel.WovenValue$Key 1052 94675151
+worked monomorphize.fact.NativeBinding$Key 628 141169132
+worked ast.fact.SourceAST$Key 91 504821233
+worked termination.fact.RecursionCheckedValue$Key 1229 283958296
+worked compiler.cache.UpToDate$Key 1 458891
+worked namedvalues.fact.NamedValuesRewrittenValue$Key 1235 149879836
+worked ability.fact.AbilityImplementationCheck$Key 59 58760398
+worked ability.fact.ModuleAbilityOverlapCheck$Key 65 11462239
+worked jvm.classgen.fact.GeneratedModule$Key 5 207993669
+worked uncurry.fact.UncurriedMonomorphicValue$Key 199 18895964
+worked module.fact.UnifiedModuleNames$Key 115 44893177
+worked matchdesugar.fact.MatchDesugaredValue$Key 1346 243463598
+worked operator.fact.OperatorResolvedValue$Key 1346 370493520
+worked monomorphize.fact.ContributedBinding$Key 2959 300278634
+flying reconcile.fact.ReconciledMonomorphicValue$Key 27987
+flying jvm.jargen.GenerateExecutableJar$Key 20777884
+flying monomorphize.channel.RefinementTable$Key 280623
+flying jvm.classgen.fact.GeneratedModule$Key 34941550
+sample 9870 Working 26613 0 cold
+phase Working 9080967896
+phase Starting 198637766
+phase LoadingCache 18439543
+worked resolve.fact.ResolvedValue$Key 1363 833208340
+worked monomorphize.fact.BodyValueReferences$Key 616 37461485
+worked token.SourceTokens$Key 91 1051809252
+worked used.UsedNames$Key 1 160638414
+worked module.fact.UnifiedModuleValue$Key 1461 202704306
+worked module.fact.ModuleNames$Key 91 39831355
+worked source.file.FileContent$Key 90 50718176
+worked monomorphize.channel.SuppliedRowArguments$Key 1132 84021357
+worked module.fact.ModuleAbilities$Key 73 8420543
+worked source.scan.PathScan$Key 117 113458803
+worked monomorphize.fact.MonomorphicValue$Key 1132 1193068607
+worked reconcile.fact.ReconciledMonomorphicValue$Key 347 30531758
+worked ability.fact.AbilityImplementation$Key 72 24607664
+worked core.fact.CoreAST$Key 91 125008871
+worked monomorphize.channel.MetaTransferAccounting$Key 1132 61472658
+worked block.fact.BlockDesugaredValue$Key 1363 140910297
+worked source.content.SourceContent$Key 91 34954714
+worked monomorphize.channel.RefinementTable$Key 345 137704263
+worked row.fact.RowElaboratedValue$Key 1249 325400838
+worked saturate.fact.SaturatedValue$Key 1249 58559445
+worked module.fact.ModuleConstructors$Key 57 23280074
+worked source.stat.FileStat$Key 495 158460958
+worked module.fact.ModuleValue$Key 157 222331285
+worked monomorphize.fact.CompilerMonomorphicValue$Key 1323 1139295596
+worked monomorphize.channel.WovenValue$Key 1132 100199837
+worked monomorphize.fact.NativeBinding$Key 636 142762133
+worked ast.fact.SourceAST$Key 91 504821233
+worked termination.fact.RecursionCheckedValue$Key 1249 285451882
+worked compiler.cache.UpToDate$Key 1 458891
+worked namedvalues.fact.NamedValuesRewrittenValue$Key 1257 151088480
+worked ability.fact.AbilityImplementationCheck$Key 60 59255294
+worked ability.fact.ModuleAbilityOverlapCheck$Key 66 11575973
+worked jvm.classgen.fact.GeneratedModule$Key 17 521026400
+worked uncurry.fact.UncurriedMonomorphicValue$Key 636 50095841
+worked module.fact.UnifiedModuleNames$Key 115 44893177
+worked matchdesugar.fact.MatchDesugaredValue$Key 1363 245515080
+worked operator.fact.OperatorResolvedValue$Key 1363 372500957
+worked monomorphize.fact.ContributedBinding$Key 2989 302544401
+flying monomorphize.channel.RefinementTable$Key 51089
+flying reconcile.fact.ReconciledMonomorphicValue$Key 44172
+flying jvm.jargen.GenerateExecutableJar$Key 21083313
+flying jvm.classgen.fact.GeneratedModule$Key 15946593
+sample 10472 Working 28139 0 cold
+phase Working 9682812831
+phase Starting 198637766
+phase LoadingCache 18439543
+worked resolve.fact.ResolvedValue$Key 1370 835985571
+worked monomorphize.fact.BodyValueReferences$Key 616 37461485
+worked token.SourceTokens$Key 91 1051809252
+worked used.UsedNames$Key 1 160638414
+worked module.fact.UnifiedModuleValue$Key 1468 203329898
+worked module.fact.ModuleNames$Key 91 39831355
+worked source.file.FileContent$Key 90 50718176
+worked monomorphize.channel.SuppliedRowArguments$Key 1208 87557716
+worked module.fact.ModuleAbilities$Key 73 8420543
+worked source.scan.PathScan$Key 117 113458803
+worked monomorphize.fact.MonomorphicValue$Key 1209 1219870303
+worked reconcile.fact.ReconciledMonomorphicValue$Key 643 49580747
+worked ability.fact.AbilityImplementation$Key 74 25186802
+worked core.fact.CoreAST$Key 91 125008871
+worked monomorphize.channel.MetaTransferAccounting$Key 1208 64827856
+worked block.fact.BlockDesugaredValue$Key 1370 141281071
+worked source.content.SourceContent$Key 91 34954714
+worked monomorphize.channel.RefinementTable$Key 628 214448772
+worked row.fact.RowElaboratedValue$Key 1260 327169796
+worked saturate.fact.SaturatedValue$Key 1260 58915911
+worked module.fact.ModuleConstructors$Key 63 23839318
+worked source.stat.FileStat$Key 495 158460958
+worked module.fact.ModuleValue$Key 157 222331285
+worked monomorphize.fact.CompilerMonomorphicValue$Key 1430 1217427283
+worked monomorphize.channel.WovenValue$Key 1208 105476988
+worked monomorphize.fact.NativeBinding$Key 638 143240191
+worked ast.fact.SourceAST$Key 91 504821233
+worked termination.fact.RecursionCheckedValue$Key 1260 286214258
+worked compiler.cache.UpToDate$Key 1 458891
+worked namedvalues.fact.NamedValuesRewrittenValue$Key 1268 151633861
+worked ability.fact.AbilityImplementationCheck$Key 60 59255294
+worked ability.fact.ModuleAbilityOverlapCheck$Key 66 11575973
+worked jvm.classgen.fact.GeneratedModule$Key 33 877167215
+worked uncurry.fact.UncurriedMonomorphicValue$Key 1047 74577674
+worked module.fact.UnifiedModuleNames$Key 116 44966836
+worked matchdesugar.fact.MatchDesugaredValue$Key 1370 246441888
+worked operator.fact.OperatorResolvedValue$Key 1370 373328933
+worked monomorphize.fact.ContributedBinding$Key 2999 303459358
+flying jvm.classgen.fact.GeneratedModule$Key 12455209
+flying jvm.jargen.GenerateExecutableJar$Key 21545968
+flying monomorphize.channel.WovenValue$Key 66011
+flying monomorphize.fact.MonomorphicValue$Key 653139
+sample 11110 SavingCache 28690 0 cold
+phase Working 10156410627
+phase SavingCache 164359631
+phase Starting 198637766
+phase LoadingCache 18439543
+worked resolve.fact.ResolvedValue$Key 1370 835985571
+worked monomorphize.fact.BodyValueReferences$Key 616 37461485
+worked used.UsedNames$Key 1 160638414
+worked module.fact.UnifiedModuleValue$Key 1468 203329898
+worked module.fact.ModuleNames$Key 91 39831355
+worked source.file.FileContent$Key 90 50718176
+worked monomorphize.channel.SuppliedRowArguments$Key 1224 88393463
+worked module.fact.ModuleAbilities$Key 73 8420543
+worked source.scan.PathScan$Key 117 113458803
+worked jvm.jargen.GenerateExecutableJar$Key 1 185142035
+worked monomorphize.fact.MonomorphicValue$Key 1224 1225742668
+worked reconcile.fact.ReconciledMonomorphicValue$Key 837 62312843
+worked ability.fact.AbilityImplementation$Key 74 25186802
+worked core.fact.CoreAST$Key 91 125008871
+worked monomorphize.channel.MetaTransferAccounting$Key 1224 65922584
+worked compiler.cache.OutputFileStat$Key 1 7028665
+worked token.SourceTokens$Key 91 1051809252
+worked block.fact.BlockDesugaredValue$Key 1370 141281071
+worked source.content.SourceContent$Key 91 34954714
+worked monomorphize.channel.RefinementTable$Key 770 243110183
+worked row.fact.RowElaboratedValue$Key 1260 327169796
+worked saturate.fact.SaturatedValue$Key 1260 58915911
+worked module.fact.ModuleConstructors$Key 70 24830391
+worked source.stat.FileStat$Key 495 158460958
+worked module.fact.ModuleValue$Key 157 222331285
+worked monomorphize.fact.CompilerMonomorphicValue$Key 1447 1227839090
+worked monomorphize.channel.WovenValue$Key 1224 107099309
+worked monomorphize.fact.NativeBinding$Key 638 143240191
+worked ast.fact.SourceAST$Key 91 504821233
+worked termination.fact.RecursionCheckedValue$Key 1260 286214258
+worked compiler.cache.UpToDate$Key 1 458891
+worked namedvalues.fact.NamedValuesRewrittenValue$Key 1268 151633861
+worked ability.fact.AbilityImplementationCheck$Key 60 59255294
+worked ability.fact.ModuleAbilityOverlapCheck$Key 66 11575973
+worked jvm.classgen.fact.GeneratedModule$Key 44 1122036927
+worked uncurry.fact.UncurriedMonomorphicValue$Key 1161 82548705
+worked module.fact.UnifiedModuleNames$Key 116 44966836
+worked matchdesugar.fact.MatchDesugaredValue$Key 1370 246441888
+worked operator.fact.OperatorResolvedValue$Key 1370 373328933
+worked monomorphize.fact.ContributedBinding$Key 2999 303459358
+sample 11713 SavingCache 28690 0 cold
+phase Working 10156410627
+phase SavingCache 767453492
+phase Starting 198637766
+phase LoadingCache 18439543
+worked resolve.fact.ResolvedValue$Key 1370 835985571
+worked monomorphize.fact.BodyValueReferences$Key 616 37461485
+worked used.UsedNames$Key 1 160638414
+worked module.fact.UnifiedModuleValue$Key 1468 203329898
+worked module.fact.ModuleNames$Key 91 39831355
+worked source.file.FileContent$Key 90 50718176
+worked monomorphize.channel.SuppliedRowArguments$Key 1224 88393463
+worked module.fact.ModuleAbilities$Key 73 8420543
+worked source.scan.PathScan$Key 117 113458803
+worked jvm.jargen.GenerateExecutableJar$Key 1 185142035
+worked monomorphize.fact.MonomorphicValue$Key 1224 1225742668
+worked reconcile.fact.ReconciledMonomorphicValue$Key 837 62312843
+worked ability.fact.AbilityImplementation$Key 74 25186802
+worked core.fact.CoreAST$Key 91 125008871
+worked monomorphize.channel.MetaTransferAccounting$Key 1224 65922584
+worked compiler.cache.OutputFileStat$Key 1 7028665
+worked token.SourceTokens$Key 91 1051809252
+worked block.fact.BlockDesugaredValue$Key 1370 141281071
+worked source.content.SourceContent$Key 91 34954714
+worked monomorphize.channel.RefinementTable$Key 770 243110183
+worked row.fact.RowElaboratedValue$Key 1260 327169796
+worked saturate.fact.SaturatedValue$Key 1260 58915911
+worked module.fact.ModuleConstructors$Key 70 24830391
+worked source.stat.FileStat$Key 495 158460958
+worked module.fact.ModuleValue$Key 157 222331285
+worked monomorphize.fact.CompilerMonomorphicValue$Key 1447 1227839090
+worked monomorphize.channel.WovenValue$Key 1224 107099309
+worked monomorphize.fact.NativeBinding$Key 638 143240191
+worked ast.fact.SourceAST$Key 91 504821233
+worked termination.fact.RecursionCheckedValue$Key 1260 286214258
+worked compiler.cache.UpToDate$Key 1 458891
+worked namedvalues.fact.NamedValuesRewrittenValue$Key 1268 151633861
+worked ability.fact.AbilityImplementationCheck$Key 60 59255294
+worked ability.fact.ModuleAbilityOverlapCheck$Key 66 11575973
+worked jvm.classgen.fact.GeneratedModule$Key 44 1122036927
+worked uncurry.fact.UncurriedMonomorphicValue$Key 1161 82548705
+worked module.fact.UnifiedModuleNames$Key 116 44966836
+worked matchdesugar.fact.MatchDesugaredValue$Key 1370 246441888
+worked operator.fact.OperatorResolvedValue$Key 1370 373328933
+worked monomorphize.fact.ContributedBinding$Key 2999 303459358
+sample 12315 SavingCache 28690 0 cold
+phase Working 10156410627
+phase SavingCache 1369757003
+phase Starting 198637766
+phase LoadingCache 18439543
+worked resolve.fact.ResolvedValue$Key 1370 835985571
+worked monomorphize.fact.BodyValueReferences$Key 616 37461485
+worked used.UsedNames$Key 1 160638414
+worked module.fact.UnifiedModuleValue$Key 1468 203329898
+worked module.fact.ModuleNames$Key 91 39831355
+worked source.file.FileContent$Key 90 50718176
+worked monomorphize.channel.SuppliedRowArguments$Key 1224 88393463
+worked module.fact.ModuleAbilities$Key 73 8420543
+worked source.scan.PathScan$Key 117 113458803
+worked jvm.jargen.GenerateExecutableJar$Key 1 185142035
+worked monomorphize.fact.MonomorphicValue$Key 1224 1225742668
+worked reconcile.fact.ReconciledMonomorphicValue$Key 837 62312843
+worked ability.fact.AbilityImplementation$Key 74 25186802
+worked core.fact.CoreAST$Key 91 125008871
+worked monomorphize.channel.MetaTransferAccounting$Key 1224 65922584
+worked compiler.cache.OutputFileStat$Key 1 7028665
+worked token.SourceTokens$Key 91 1051809252
+worked block.fact.BlockDesugaredValue$Key 1370 141281071
+worked source.content.SourceContent$Key 91 34954714
+worked monomorphize.channel.RefinementTable$Key 770 243110183
+worked row.fact.RowElaboratedValue$Key 1260 327169796
+worked saturate.fact.SaturatedValue$Key 1260 58915911
+worked module.fact.ModuleConstructors$Key 70 24830391
+worked source.stat.FileStat$Key 495 158460958
+worked module.fact.ModuleValue$Key 157 222331285
+worked monomorphize.fact.CompilerMonomorphicValue$Key 1447 1227839090
+worked monomorphize.channel.WovenValue$Key 1224 107099309
+worked monomorphize.fact.NativeBinding$Key 638 143240191
+worked ast.fact.SourceAST$Key 91 504821233
+worked termination.fact.RecursionCheckedValue$Key 1260 286214258
+worked compiler.cache.UpToDate$Key 1 458891
+worked namedvalues.fact.NamedValuesRewrittenValue$Key 1268 151633861
+worked ability.fact.AbilityImplementationCheck$Key 60 59255294
+worked ability.fact.ModuleAbilityOverlapCheck$Key 66 11575973
+worked jvm.classgen.fact.GeneratedModule$Key 44 1122036927
+worked uncurry.fact.UncurriedMonomorphicValue$Key 1161 82548705
+worked module.fact.UnifiedModuleNames$Key 116 44966836
+worked matchdesugar.fact.MatchDesugaredValue$Key 1370 246441888
+worked operator.fact.OperatorResolvedValue$Key 1370 373328933
+worked monomorphize.fact.ContributedBinding$Key 2999 303459358
+sample 12918 SavingCache 28690 0 cold
+phase Working 10156410627
+phase SavingCache 1972445074
+phase Starting 198637766
+phase LoadingCache 18439543
+worked resolve.fact.ResolvedValue$Key 1370 835985571
+worked monomorphize.fact.BodyValueReferences$Key 616 37461485
+worked used.UsedNames$Key 1 160638414
+worked module.fact.UnifiedModuleValue$Key 1468 203329898
+worked module.fact.ModuleNames$Key 91 39831355
+worked source.file.FileContent$Key 90 50718176
+worked monomorphize.channel.SuppliedRowArguments$Key 1224 88393463
+worked module.fact.ModuleAbilities$Key 73 8420543
+worked source.scan.PathScan$Key 117 113458803
+worked jvm.jargen.GenerateExecutableJar$Key 1 185142035
+worked monomorphize.fact.MonomorphicValue$Key 1224 1225742668
+worked reconcile.fact.ReconciledMonomorphicValue$Key 837 62312843
+worked ability.fact.AbilityImplementation$Key 74 25186802
+worked core.fact.CoreAST$Key 91 125008871
+worked monomorphize.channel.MetaTransferAccounting$Key 1224 65922584
+worked compiler.cache.OutputFileStat$Key 1 7028665
+worked token.SourceTokens$Key 91 1051809252
+worked block.fact.BlockDesugaredValue$Key 1370 141281071
+worked source.content.SourceContent$Key 91 34954714
+worked monomorphize.channel.RefinementTable$Key 770 243110183
+worked row.fact.RowElaboratedValue$Key 1260 327169796
+worked saturate.fact.SaturatedValue$Key 1260 58915911
+worked module.fact.ModuleConstructors$Key 70 24830391
+worked source.stat.FileStat$Key 495 158460958
+worked module.fact.ModuleValue$Key 157 222331285
+worked monomorphize.fact.CompilerMonomorphicValue$Key 1447 1227839090
+worked monomorphize.channel.WovenValue$Key 1224 107099309
+worked monomorphize.fact.NativeBinding$Key 638 143240191
+worked ast.fact.SourceAST$Key 91 504821233
+worked termination.fact.RecursionCheckedValue$Key 1260 286214258
+worked compiler.cache.UpToDate$Key 1 458891
+worked namedvalues.fact.NamedValuesRewrittenValue$Key 1268 151633861
+worked ability.fact.AbilityImplementationCheck$Key 60 59255294
+worked ability.fact.ModuleAbilityOverlapCheck$Key 66 11575973
+worked jvm.classgen.fact.GeneratedModule$Key 44 1122036927
+worked uncurry.fact.UncurriedMonomorphicValue$Key 1161 82548705
+worked module.fact.UnifiedModuleNames$Key 116 44966836
+worked matchdesugar.fact.MatchDesugaredValue$Key 1370 246441888
+worked operator.fact.OperatorResolvedValue$Key 1370 373328933
+worked monomorphize.fact.ContributedBinding$Key 2999 303459358
+sample 13521 SavingCache 28690 0 cold
+phase Working 10156410627
+phase SavingCache 2574779147
+phase Starting 198637766
+phase LoadingCache 18439543
+worked resolve.fact.ResolvedValue$Key 1370 835985571
+worked monomorphize.fact.BodyValueReferences$Key 616 37461485
+worked used.UsedNames$Key 1 160638414
+worked module.fact.UnifiedModuleValue$Key 1468 203329898
+worked module.fact.ModuleNames$Key 91 39831355
+worked source.file.FileContent$Key 90 50718176
+worked monomorphize.channel.SuppliedRowArguments$Key 1224 88393463
+worked module.fact.ModuleAbilities$Key 73 8420543
+worked source.scan.PathScan$Key 117 113458803
+worked jvm.jargen.GenerateExecutableJar$Key 1 185142035
+worked monomorphize.fact.MonomorphicValue$Key 1224 1225742668
+worked reconcile.fact.ReconciledMonomorphicValue$Key 837 62312843
+worked ability.fact.AbilityImplementation$Key 74 25186802
+worked core.fact.CoreAST$Key 91 125008871
+worked monomorphize.channel.MetaTransferAccounting$Key 1224 65922584
+worked compiler.cache.OutputFileStat$Key 1 7028665
+worked token.SourceTokens$Key 91 1051809252
+worked block.fact.BlockDesugaredValue$Key 1370 141281071
+worked source.content.SourceContent$Key 91 34954714
+worked monomorphize.channel.RefinementTable$Key 770 243110183
+worked row.fact.RowElaboratedValue$Key 1260 327169796
+worked saturate.fact.SaturatedValue$Key 1260 58915911
+worked module.fact.ModuleConstructors$Key 70 24830391
+worked source.stat.FileStat$Key 495 158460958
+worked module.fact.ModuleValue$Key 157 222331285
+worked monomorphize.fact.CompilerMonomorphicValue$Key 1447 1227839090
+worked monomorphize.channel.WovenValue$Key 1224 107099309
+worked monomorphize.fact.NativeBinding$Key 638 143240191
+worked ast.fact.SourceAST$Key 91 504821233
+worked termination.fact.RecursionCheckedValue$Key 1260 286214258
+worked compiler.cache.UpToDate$Key 1 458891
+worked namedvalues.fact.NamedValuesRewrittenValue$Key 1268 151633861
+worked ability.fact.AbilityImplementationCheck$Key 60 59255294
+worked ability.fact.ModuleAbilityOverlapCheck$Key 66 11575973
+worked jvm.classgen.fact.GeneratedModule$Key 44 1122036927
+worked uncurry.fact.UncurriedMonomorphicValue$Key 1161 82548705
+worked module.fact.UnifiedModuleNames$Key 116 44966836
+worked matchdesugar.fact.MatchDesugaredValue$Key 1370 246441888
+worked operator.fact.OperatorResolvedValue$Key 1370 373328933
+worked monomorphize.fact.ContributedBinding$Key 2999 303459358
+sample 14123 SavingCache 28690 0 cold
+phase Working 10156410627
+phase SavingCache 3177082974
+phase Starting 198637766
+phase LoadingCache 18439543
+worked resolve.fact.ResolvedValue$Key 1370 835985571
+worked monomorphize.fact.BodyValueReferences$Key 616 37461485
+worked used.UsedNames$Key 1 160638414
+worked module.fact.UnifiedModuleValue$Key 1468 203329898
+worked module.fact.ModuleNames$Key 91 39831355
+worked source.file.FileContent$Key 90 50718176
+worked monomorphize.channel.SuppliedRowArguments$Key 1224 88393463
+worked module.fact.ModuleAbilities$Key 73 8420543
+worked source.scan.PathScan$Key 117 113458803
+worked jvm.jargen.GenerateExecutableJar$Key 1 185142035
+worked monomorphize.fact.MonomorphicValue$Key 1224 1225742668
+worked reconcile.fact.ReconciledMonomorphicValue$Key 837 62312843
+worked ability.fact.AbilityImplementation$Key 74 25186802
+worked core.fact.CoreAST$Key 91 125008871
+worked monomorphize.channel.MetaTransferAccounting$Key 1224 65922584
+worked compiler.cache.OutputFileStat$Key 1 7028665
+worked token.SourceTokens$Key 91 1051809252
+worked block.fact.BlockDesugaredValue$Key 1370 141281071
+worked source.content.SourceContent$Key 91 34954714
+worked monomorphize.channel.RefinementTable$Key 770 243110183
+worked row.fact.RowElaboratedValue$Key 1260 327169796
+worked saturate.fact.SaturatedValue$Key 1260 58915911
+worked module.fact.ModuleConstructors$Key 70 24830391
+worked source.stat.FileStat$Key 495 158460958
+worked module.fact.ModuleValue$Key 157 222331285
+worked monomorphize.fact.CompilerMonomorphicValue$Key 1447 1227839090
+worked monomorphize.channel.WovenValue$Key 1224 107099309
+worked monomorphize.fact.NativeBinding$Key 638 143240191
+worked ast.fact.SourceAST$Key 91 504821233
+worked termination.fact.RecursionCheckedValue$Key 1260 286214258
+worked compiler.cache.UpToDate$Key 1 458891
+worked namedvalues.fact.NamedValuesRewrittenValue$Key 1268 151633861
+worked ability.fact.AbilityImplementationCheck$Key 60 59255294
+worked ability.fact.ModuleAbilityOverlapCheck$Key 66 11575973
+worked jvm.classgen.fact.GeneratedModule$Key 44 1122036927
+worked uncurry.fact.UncurriedMonomorphicValue$Key 1161 82548705
+worked module.fact.UnifiedModuleNames$Key 116 44966836
+worked matchdesugar.fact.MatchDesugaredValue$Key 1370 246441888
+worked operator.fact.OperatorResolvedValue$Key 1370 373328933
+worked monomorphize.fact.ContributedBinding$Key 2999 303459358
+sample 14725 SavingCache 28690 0 cold
+phase Working 10156410627
+phase SavingCache 3779651905
+phase Starting 198637766
+phase LoadingCache 18439543
+worked resolve.fact.ResolvedValue$Key 1370 835985571
+worked monomorphize.fact.BodyValueReferences$Key 616 37461485
+worked used.UsedNames$Key 1 160638414
+worked module.fact.UnifiedModuleValue$Key 1468 203329898
+worked module.fact.ModuleNames$Key 91 39831355
+worked source.file.FileContent$Key 90 50718176
+worked monomorphize.channel.SuppliedRowArguments$Key 1224 88393463
+worked module.fact.ModuleAbilities$Key 73 8420543
+worked source.scan.PathScan$Key 117 113458803
+worked jvm.jargen.GenerateExecutableJar$Key 1 185142035
+worked monomorphize.fact.MonomorphicValue$Key 1224 1225742668
+worked reconcile.fact.ReconciledMonomorphicValue$Key 837 62312843
+worked ability.fact.AbilityImplementation$Key 74 25186802
+worked core.fact.CoreAST$Key 91 125008871
+worked monomorphize.channel.MetaTransferAccounting$Key 1224 65922584
+worked compiler.cache.OutputFileStat$Key 1 7028665
+worked token.SourceTokens$Key 91 1051809252
+worked block.fact.BlockDesugaredValue$Key 1370 141281071
+worked source.content.SourceContent$Key 91 34954714
+worked monomorphize.channel.RefinementTable$Key 770 243110183
+worked row.fact.RowElaboratedValue$Key 1260 327169796
+worked saturate.fact.SaturatedValue$Key 1260 58915911
+worked module.fact.ModuleConstructors$Key 70 24830391
+worked source.stat.FileStat$Key 495 158460958
+worked module.fact.ModuleValue$Key 157 222331285
+worked monomorphize.fact.CompilerMonomorphicValue$Key 1447 1227839090
+worked monomorphize.channel.WovenValue$Key 1224 107099309
+worked monomorphize.fact.NativeBinding$Key 638 143240191
+worked ast.fact.SourceAST$Key 91 504821233
+worked termination.fact.RecursionCheckedValue$Key 1260 286214258
+worked compiler.cache.UpToDate$Key 1 458891
+worked namedvalues.fact.NamedValuesRewrittenValue$Key 1268 151633861
+worked ability.fact.AbilityImplementationCheck$Key 60 59255294
+worked ability.fact.ModuleAbilityOverlapCheck$Key 66 11575973
+worked jvm.classgen.fact.GeneratedModule$Key 44 1122036927
+worked uncurry.fact.UncurriedMonomorphicValue$Key 1161 82548705
+worked module.fact.UnifiedModuleNames$Key 116 44966836
+worked matchdesugar.fact.MatchDesugaredValue$Key 1370 246441888
+worked operator.fact.OperatorResolvedValue$Key 1370 373328933
+worked monomorphize.fact.ContributedBinding$Key 2999 303459358

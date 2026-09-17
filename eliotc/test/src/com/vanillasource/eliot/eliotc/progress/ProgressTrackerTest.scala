@@ -6,6 +6,7 @@ import com.vanillasource.eliot.eliotc.compiler.IncrementalFactGenerator
 import com.vanillasource.eliot.eliotc.compiler.cache.FactCacheData
 import com.vanillasource.eliot.eliotc.compiler.cache.IncrementalFactGeneratorTest.*
 import com.vanillasource.eliot.eliotc.processor.CompilerProcessor
+import com.vanillasource.eliot.eliotc.progress.ProgressRunClass.*
 import org.scalatest.flatspec.AsyncFlatSpec
 import org.scalatest.matchers.should.Matchers
 
@@ -79,12 +80,12 @@ class ProgressTrackerTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
   }
 
   it should "measure the run against the expected total" in {
-    ProgressTracker.create(Some(3989)).flatMap(_.snapshot).asserting(_.total shouldBe Some(3989))
+    ProgressTracker.create(ProgressProfile(Some(3989))).flatMap(_.snapshot).asserting(_.total shouldBe Some(3989))
   }
 
   it should "let the total follow a run that delivered more than expected" in {
     val test = for {
-      tracker  <- ProgressTracker.create(Some(1))
+      tracker  <- ProgressTracker.create(ProgressProfile(Some(1)))
       _        <- tracker.delivered(NumberKey("a"), fromCache = false)
       _        <- tracker.delivered(NumberKey("b"), fromCache = false)
       snapshot <- tracker.snapshot
@@ -200,6 +201,124 @@ class ProgressTrackerTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
     } yield snapshot.changed
     test.asserting(_ shouldBe Seq("mid"))
   }
+
+  it should "add a generation's own time to its key type's cost" in {
+    val test = for {
+      clock    <- IO.delay(AtomicLong())
+      tracker  <- ProgressTracker.create(describer = describeAll, clock = () => clock.get())
+      _        <- tracker.started(top, None)
+      _        <- advance(clock, 400.millis)
+      _        <- child(tracker, clock, "hidden", 700.millis)
+      _        <- tracker.ended(top)
+      snapshot <- tracker.snapshot
+    } yield snapshot.worked
+    test.asserting(_ shouldBe Map(classOf[NumberKey].getName -> ProgressCost(2, 1100.millis.toNanos.toDouble)))
+  }
+
+  it should "add a described fact's time to its verb" in {
+    val test = for {
+      clock    <- IO.delay(AtomicLong())
+      tracker  <- ProgressTracker.create(describer = describeAll, clock = () => clock.get())
+      _        <- tracker.started(top, None)
+      _        <- advance(clock, 400.millis)
+      _        <- child(tracker, clock, "hidden", 700.millis)
+      _        <- child(tracker, clock, "inner", 5.seconds)
+      _        <- tracker.ended(top)
+      snapshot <- tracker.snapshot
+    } yield snapshot.verbTimes
+    test.asserting(_ shouldBe Map("making" -> 6100.millis, "working" -> Duration.Zero))
+  }
+
+  it should "add time no described fact owns to working" in {
+    val test = for {
+      clock    <- IO.delay(AtomicLong())
+      tracker  <- ProgressTracker.create(describer = describeAll, clock = () => clock.get())
+      _        <- tracker.started(hidden, None)
+      _        <- advance(clock, 300.millis)
+      _        <- tracker.ended(hidden)
+      snapshot <- tracker.snapshot
+    } yield snapshot.verbTimes
+    test.asserting(_ shouldBe Map("working" -> 300.millis))
+  }
+
+  it should "show a fact in flight with its own time so far" in {
+    val test = for {
+      clock    <- IO.delay(AtomicLong())
+      tracker  <- ProgressTracker.create(clock = () => clock.get())
+      _        <- tracker.started(top, None)
+      _        <- advance(clock, 2.seconds)
+      _        <- tracker.started(inner, Some(top))
+      _        <- advance(clock, 1.second)
+      snapshot <- tracker.snapshot
+    } yield snapshot.inFlight.toSet
+    test.asserting(_ shouldBe Set(classOf[NumberKey].getName -> 2.seconds, classOf[NumberKey].getName -> 1.second))
+  }
+
+  it should "time each phase, the current one so far" in {
+    val test = for {
+      clock    <- IO.delay(AtomicLong())
+      tracker  <- ProgressTracker.create(clock = () => clock.get())
+      _        <- advance(clock, 1.second) >> tracker.enter(ProgressPhase.LoadingCache)
+      _        <- advance(clock, 2.seconds) >> tracker.enter(ProgressPhase.Working)
+      _        <- advance(clock, 1.second)
+      snapshot <- tracker.snapshot
+    } yield snapshot.phaseTimes
+    test.asserting(
+      _ shouldBe Map(
+        ProgressPhase.Starting     -> 1.second,
+        ProgressPhase.LoadingCache -> 2.seconds,
+        ProgressPhase.Working      -> 1.second
+      )
+    )
+  }
+
+  it should "be a cold run when the cache held nothing" in {
+    ProgressTracker.create().flatTap(_.cacheLoaded(false)).flatMap(_.snapshot).asserting(_.runClass shouldBe Some(Cold))
+  }
+
+  it should "stay an unchanged run while the drill finds nothing changed" in {
+    runClassAfter(src => IO.unit).asserting(_ shouldBe Some(Unchanged))
+  }
+
+  it should "become a changed run when the drill finds a fact changed" in {
+    runClassAfter(src => src.set(20)).asserting(_ shouldBe Some(Changed))
+  }
+
+  it should "estimate the time left from the history of its class" in {
+    val test = for {
+      tracker  <- ProgressTracker.create(savingProfile)
+      _        <- tracker.cacheLoaded(false)
+      _        <- tracker.enter(ProgressPhase.Working)
+      snapshot <- tracker.snapshot
+    } yield snapshot.remaining
+    test.asserting(_ shouldBe Some(1.second))
+  }
+
+  it should "not estimate a run whose class has no history" in {
+    ProgressTracker
+      .create(savingProfile)
+      .flatTap(_.cacheLoaded(true))
+      .flatMap(_.snapshot)
+      .asserting(_.remaining shouldBe None)
+  }
+
+  /** A profile whose cold runs spent a second saving the cache, and nothing else. */
+  private val savingProfile =
+    ProgressProfile(Some(10), Map(Cold -> ProgressHistory(10, Map(ProgressPhase.SavingCache -> 1e9), Map.empty)))
+
+  /** The class of a run over a cache of `threeLevels`, after `change` to its source. */
+  private def runClassAfter(change: Ref[IO, Int] => IO[Unit]): IO[Option[ProgressRunClass]] =
+    for {
+      src       <- Ref.of[IO, Int](10)
+      proc       = threeLevels(src)
+      cold      <- countBuild(proc, None, "top")
+      _         <- change(src)
+      tracker   <- ProgressTracker.create()
+      _         <- tracker.cacheLoaded(true)
+      generator <- IncrementalFactGenerator.create(proc, Some(cold._2), strictAccounting = true, Some(tracker))
+      _         <- generator.getFact(top)
+      snapshot  <- tracker.snapshot
+    } yield snapshot.runClass
 
   private val top    = NumberKey("top")
   private val hidden = NumberKey("hidden")

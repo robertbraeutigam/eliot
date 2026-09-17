@@ -1,6 +1,7 @@
-# Progress indication (`--progress`) — steps 1–3 of §6 BUILT
+# Progress indication (`--progress`) — steps 1–4 of §6 BUILT
 
-Status: design draft, 2026-09-17; §6 steps 1 (the count), 2 (the total) and 3 (the activity) are built, the rest is not. §2–§3 are measured constraints; §4 reconciles them with
+Status: design draft, 2026-09-17; §6 steps 1 (the count), 2 (the total), 3 (the activity) and 4 (the time) are built,
+the rest is not. §2–§3 are measured constraints; §4 reconciles them with
 the Claude Design exploration *"Compiler output design exploration"* (three directions — **1a ledger**, **1b phases**,
 **1c quiet** — sharing one premise: output is **append-only**, every line final once printed). That premise is adopted;
 what each direction assumed that this engine cannot supply is said where it matters.
@@ -139,26 +140,35 @@ most of what a progress display is for — and ends by writing the total the nex
 
 A count is not a clock: cached facts cost nothing, generated ones cost milliseconds, and the time-only phases deliver
 no facts at all (F3, F7). So the ETA column is fed by a separate, time-based estimate, added once the count is in
-place. It needs per-key-type **self time**, which a wrapper around the processor tree's root measures the way
-`TimedCompilationProcess` does (but see §3.7 on overlapping waits), and it extends the profile file with one **profile per run class** — `cold` (no prior
-cache), `changed` (a world leaf differed), `unchanged` — each an EWMA over past runs of that class: per key type
-`(generations, total self time)`, and the wall time of each time-only phase. The class is `cold` or `unchanged` at
-start and flips to `changed` at the first world leaf whose recompute differs (152 ms into the measured run).
+place. It needs per-key-type **self time**, and the tracker already has it: §3.5's events say when a generation starts,
+ends and waits, and the time it waits for nothing is its own — the union of its waits left out, never their sum (§3.7).
+When a generation ends, that time and a count of one are added to its key type. This covers what a wrapper around the
+processor tree (the first plan, `ProgressCompilerProcessor`, not built) would have missed: acceptance and validation
+never reach a processor, and on a warm run they are most of the work. The profile file gains one **history per run
+class** — `cold` (no prior cache), `changed` (a fact recomputed for validation came out different), `unchanged` — each
+an exponentially weighted average (the newest run weighing half) over the successful runs of that class: the facts
+delivered, per key type `(facts worked out, total self time)`, and the wall time of each time-only phase. The class is
+`cold` or `unchanged` once the cache is loaded, and flips to `changed` at the first recompute that differs (152 ms into
+the measured run).
 
 ```
-doneH      = Σ_type  generated[type] × avgH[type]   +  each running leaf fact's elapsed, capped at its avgH
-expectedH  = Σ_type  max(expected[type], generated[type]) × avgH[type]
-speed      = liveElapsedInWorking / doneH               -- today's machine vs. history's, smoothed
-eta        = (expectedH − doneH) × speed  +  Σ remaining time-only phases (from the profile, × speed)
+size       = total / history facts        -- once working is over: delivered / history facts
+doneH      = Σ_type  worked[type] × avgH[type]   +  each in-flight fact's own time, capped at its avgH
+expectedH  = Σ_type  max(history[type] × size, worked[type]) × avgH[type]
+speed      = (liveElapsedInWorking + prior) / (doneH + prior)      -- prior = expectedH / 10
+eta        = (expectedH − doneH) × speed  +  Σ remaining time-only phases (from the history, × speed; saving × size)
 ```
 
 A single long fact — a 200 ms class generation today, a 12 s firmware upload tomorrow — keeps the ETA falling, because
 the fact being generated is interpolated **in time** against its type's average; and a plugin nobody told the progress
-system about is estimated correctly anyway, since a key type needs no description to be weighed. Expected accuracy:
-`cold` and `unchanged` repeat closely; `changed` spans a body edit to a signature edit in a core module, which on the
-measured program is 7.8 s to ~15 s because the time-only phases dominate — within 2×, corrected as the run proceeds.
-The same self times give the closing `time` line (§4.4). Whether a percentage is printed as well, and whether it is
-the count's or time's, waits until both can be looked at side by side.
+system about is estimated correctly anyway, since a key type needs no description to be weighed (one the history does
+not know is weighed at its live time). `prior` keeps the first, noisy facts from swinging `speed`. `size` is what lets
+an averaged history follow a program that grew: the history's per-type counts lag behind the last run's total, and
+scaling them by it puts the estimate right on the very next run (§6, step 4). A run that delivers more facts than the
+total has **outgrown** its history, and what it has left is unknown (F5): it shows no ETA until `working` is over,
+rather than `finishing` for as long as it keeps growing; the cache it then saves is scaled by its size, since saving is
+proportional to the facts. The same self times give the closing `time` line (§4.4). Whether a percentage is printed as
+well, and whether it is the count's or time's, waits until both can be looked at side by side.
 
 ### 3.5 What the user is told is being done
 
@@ -222,8 +232,8 @@ concurrency (a `Deferred` per key, a fiber per generation).
 - **Activity** is sampled from the in-flight set (§3.5), which is why it is a set and not "the current key".
 - **Self time must subtract the *union* of a generation's waits, not their sum.** `TimedCompilationProcess` adds up
   every `getFact` wait, which is right only while waits cannot overlap; ten facts requested in parallel would
-  subtract ten overlapping waits and drive the self time negative. The progress wrapper counts outstanding waits and
-  accumulates the time during which the count is non-zero. (`--statistics` has the same assumption and would need the
+  subtract ten overlapping waits and drive the self time negative. The tracker counts outstanding waits and
+  accumulates a generation's time only while the count is zero. (`--statistics` has the same assumption and would need the
   same change on the day generation goes parallel.)
 - **The ETA adapts by itself.** `speed` is live wall time over historical self time, so a run going three ways
   parallel simply measures a speed of about a third; the running-fact interpolation sums over in-flight leaves. What
@@ -266,8 +276,11 @@ What cannot be taken from the mock-ups, by direction:
 
 Fixed columns, as in 1a, so the eye can run down any one of them. The counter is §3.2's; verb and subject are §3.5's
 activity, **sampled at the moment the line is written**; the right-hand columns are wall time so far and, from the
-second stage on (§3.4), the rounded ETA (1 s steps under 10 s, 5 s under a minute, 15 s above; `finishing` under one
-second; absent on a first build).
+second stage on (§3.4), the rounded ETA (the nearest second under 10 s, 5 s under a minute, 15 s above; `finishing`
+under one second; absent on a first build, for a class with no history yet, and while a run has outgrown its total).
+
+The header waits for the cache to be loaded — whether there was one decides the class, and so the estimate it states —
+but never longer than a second.
 
 A line is written when a trigger fires **and at least one second has passed since the last one** — that floor is the
 whole of "must not scroll faster than it can be read":
@@ -349,8 +362,8 @@ failed 3 errors · first at eliot/build/model/Version.els:56 · 4.1s · nothing 
 
 ### 4.4 The closing block
 
-- **`time`** — one line, self time by verb from the tracker's per-key-type totals, plus `cache` for the time-only
-  phases. It is 1b's per-phase timing and the exploration's *"what took the time"*, moved to the only place it can be
+- **`time`** — one line, self time by verb — each described fact's time as §3.5 charges it, time no described fact
+  owns as `working` — longest first, plus `cache` for loading and saving it. It is 1b's per-phase timing and the exploration's *"what took the time"*, moved to the only place it can be
   true. It is also how a user learns that half their incremental build is cache work (§2), which today nothing tells
   them. Omitted when the run printed no progress line.
 - **`ok` / `failed`** — always printed. `N facts, M from cache` is the exploration's *"caching is stated, not
@@ -396,16 +409,14 @@ looping `compileOnce` already fits); *"what did it decide about my types"* — e
 ## 5. Architecture
 
 Everything lives in a new `eliotc/…/progress/` package, created only when asked for. Processors are untouched; the
-engine gains the one optional hook of §3.2, and the time stage (§3.4) is a `--statistics`-style add-on wrapped around
-the processor tree.
+engine gains the one optional hook of §3.2, whose events the time stage (§3.4) reads as well.
 
 | piece | role |
 |---|---|
-| `ProgressTracker` | the mutable core: the set of delivered keys with its two counters (delivered, from cache), current phase, the set of generations in flight, sub-progress; from the time stage on, per-key-type `LongAdder`s (generations, self nanos). Written by the engine hook and the wrapper, read by the line writer. |
-| `ProgressCompilerProcessor` | time stage only: wraps the **tree root only** (the `wrapTree` position), so it runs once per generation, not once per (key, processor): self time by subtracting the union of the generation's fact waits (§3.7). |
-| `ProgressProfile` | reads/writes the profile file: the total, then (time stage) the per-class EWMA profiles and the last artefact measures. |
-| `ProgressEstimator` | pure: `(profile, tracker snapshot, elapsed) ⇒ ProgressSnapshot(phase, delivered, total?, eta?, activity)`. All of §3.4's arithmetic, unit-testable with no engine. |
-| `ProgressLineWriter` | the one renderer: a fiber waking a few times a second, asking the estimator for a snapshot and applying §4.2's triggers and one-second floor; prints the header and the closing block. It wakes a few times a second and reads atomics, so it costs the build nothing measurable. It owns nothing — no stream is replaced, no cursor is moved. |
+| `ProgressTracker` | the mutable core: the set of delivered keys with its two counters (delivered, from cache), the phases entered and when, the run class, the set of generations in flight, sub-progress; per-key-type `LongAdder`s (generations, self nanos) and per-verb time. Written by the engine hook and the session, read by the line writer. |
+| `ProgressProfile`, `ProgressHistory` | reads/writes the profile file: the total, the per-class histories (`ProgressRunClass`), later the last artefact measures. |
+| `ProgressEstimator` | pure: `(total, history, snapshot) ⇒ time left`. All of §3.4's arithmetic, tested against recorded runs with no engine; the tracker puts its answer in the snapshot. |
+| `ProgressLineWriter` | the one renderer: a fiber waking a few times a second, asking the tracker for a snapshot and applying §4.2's triggers and one-second floor; prints the header and the closing block. It wakes a few times a second and reads atomics, so it costs the build nothing measurable. It owns nothing — no stream is replaced, no cursor is moved. |
 | `ProgressDescriber`, `progressMeasures` | the two plugin-facing pieces: §3.5's verb/subject mapping, and §4.4's measures of the produced artefact. |
 
 Phase events come from where `PhaseTimings` already brackets the same code (`CompilationSession.create`,
@@ -414,9 +425,8 @@ already takes. `ProgressSnapshot` is writer-independent on purpose: `--log=json`
 snapshots, and the LSP can map them to `$/progress` work-done notifications, neither touching the model.
 
 **Cost gate.** `--statistics` inflates a build ~20 % because it wraps every processor. The count is one concurrent-set
-insert per fact; the time stage wraps the tree once — two clock reads and two adder updates per generation plus two
-clock reads per fact wait, ~10 ms on the 27k-generation build by arithmetic. The gate for shipping is a measured **< 2 %** on that cold build, flag on vs. off; with the flag off
-the hook is a `None` and `wrap` returns the processor unchanged.
+insert per fact; the time stage adds a map lookup and two adder updates per generation to §3.5's clock reads. The gate for shipping is a measured **< 2 %** on that cold build, flag on vs. off; with the flag off
+the hook is a `None`, and nothing is wrapped.
 
 Measured for step 1 (the count alone), `eliot.build.Launcher`, flag off vs. on, alternated: six cold builds each,
 median 14.86 s vs. 14.82 s; eight warm builds each, mean 2.820 s vs. 2.832 s (+0.4 %). Both are inside the run-to-run
@@ -455,9 +465,23 @@ Staged so that each step is something a user can already run.
    building every activity's subject up front was a third of that, so a subject is worked out when read; looking
    generations up by key *identity* instead of by (deep) key equality changed nothing measurable and was not kept; a
    repeated request for a fact already there is never recorded as a wait.
-4. **Time.** `ProgressCompilerProcessor`, the per-class profiles, `ProgressEstimator` tested as a pure function
-   against recorded traces (cold, changed, unchanged, grown project); the ETA column, the header's estimate, the
-   `time` line.
+4. **Time — BUILT.** Self time and per-verb time from the tracker's own events (§3.4; no processor wrapper), the run
+   class (`cacheLoaded`, flipped by `changed`), the per-class histories in the profile file (`cold facts …`,
+   `cold phase SavingCache …`, `cold type <key class> <count> <nanos>`, every line prefixed by its class),
+   `ProgressEstimator` tested as a pure function against five runs of `eliot.build.Launcher` recorded to
+   `eliotc/test/resources/progress/` (cold, unchanged, a one-line change, a cold build with the history of `Strings`
+   — seven times smaller — and the cold build after it); the ETA column, the header's estimate, the `time` line.
+   Measured on those runs, the estimate against the time actually left, from a fifth of the way in: cold within 12 %
+   (at 1.4 s, still in the cold JIT, 43 % over); changed within 9 % once the change is found (until then it is
+   estimated as unchanged, 1.5 s); unchanged within 0.3 s; after the seven-fold growth no estimate while working and
+   the save 37 % under; the run after it within 28 %, the header saying `about 15s` for a 15.9 s run. Headers: `full
+   build, about 15s` (15.1 s), `about 3s if nothing changed` (2.8 s). Rejected on the way: counting the history's
+   per-type facts as they are — an averaged history of a grown program undercounts, and the ETA read `finishing`
+   half-way; scaling by the last total fixed it. Cost, `eliot.build.Launcher`, eight alternated cold builds each, step 3
+   and step 4 in one session: flag off 15.13 s / 15.12 s mean (equal, as it must be); flag on 15.47 s at step 3
+   (+2.3 %, above the +1.7 % step 3 measured on its own day) and 15.59 s at step 4 (+3.1 %, median +3.5 %). Step 4's own
+   share is +0.8 %, inside one standard deviation (0.24 s), but the flag as a whole is now **over the 2 % gate** in this
+   measurement; with the flag off it costs nothing.
 5. `progressMeasures` for `jvm` (jar size), deltas from the profile; colour and the non-tty form (§4.5).
 6. Deferred: `reportProgress` (§3.6) with the first long-running processor; `--log=json`; LSP `$/progress`.
 
