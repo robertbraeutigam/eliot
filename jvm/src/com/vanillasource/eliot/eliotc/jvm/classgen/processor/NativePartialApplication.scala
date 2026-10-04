@@ -47,6 +47,9 @@ import com.vanillasource.eliot.eliotc.used.UsedNames.UsageStats
   * `java.util.function.Function`, exactly as [[LambdaGenerator]] builds an Eliot lambda, and no N-ary functional
   * interface is invented.
   *
+  * **A value constructor** is the same shape: its factory is emitted once at the full field count, so a constructor
+  * handed on as a function (`List("a").map(Box)`) needs the same closure chain over the factory.
+  *
   * **A generic native is refused, loudly.** Those are emitted once erased and called by plain name + erased signature
   * ([[NativeImplementation.genericNativeSignatures]]), and that call descriptor carries the *full* erased parameter
   * list however many arguments the site supplies — so a partial application of one is malformed before it gets here.
@@ -108,8 +111,23 @@ object NativePartialApplication {
       .map(_._1)
   }
 
+  /** The method name a call site links to: a value constructor is emitted once, unmangled, and shared by every
+    * instantiation ([[DataClassGenerator.createFactoryMethod]]); anything else carries its type arguments.
+    */
+  private def methodName(vfqn: ValueFQN, typeArgs: Seq[GroundValue]): String =
+    if (DataClassGenerator.isConstructor(vfqn)) vfqn.name.name else mangledMethodName(vfqn, typeArgs)
+
+  /** The parameters as the emitted method declares them: a constructor's bare type-parameter fields erase to `Object`. */
+  private def declaredParameters(
+      vfqn: ValueFQN,
+      parameters: Seq[MonomorphicParameterDefinition]
+  ): CompilerIO[Seq[MonomorphicParameterDefinition]] =
+    if (DataClassGenerator.isConstructor(vfqn))
+      getFactOrAbort(OperatorResolvedValue.Key(vfqn)).map(DataClassGenerator.erasePolymorphicFields(_, parameters))
+    else parameters.pure[CompilerIO]
+
   private def levelName(vfqn: ValueFQN, typeArgs: Seq[GroundValue], level: Int): String =
-    mangledMethodName(vfqn, typeArgs) + "$partial$" + level
+    methodName(vfqn, typeArgs) + "$partial$" + level
 
   /** The method + closure class for one level: `name(p1..pj)` returning a `Function` that holds `p1..pj` and, applied,
     * calls `name(p1..pj, x)` — the next level, or the native itself when `j + 1` is its full arity.
@@ -123,13 +141,14 @@ object NativePartialApplication {
     for {
       atLevel   <- getFactOrAbort(UncurriedMonomorphicValue.Key(vfqn, typeArgs, level))
       atNext    <- getFactOrAbort(UncurriedMonomorphicValue.Key(vfqn, typeArgs, level + 1))
-      captured   = atLevel.parameters
-      nextParam  = atNext.parameters.last
-      calleeFqn  = ValueFQN(vfqn.moduleName, QualifiedName(mangledMethodName(vfqn, typeArgs), Qualifier.Default))
+      captured  <- declaredParameters(vfqn, atLevel.parameters)
+      nextParams <- declaredParameters(vfqn, atNext.parameters)
+      nextParam  = nextParams.last
+      calleeFqn  = ValueFQN(vfqn.moduleName, QualifiedName(methodName(vfqn, typeArgs), Qualifier.Default))
       closureFqn = ValueFQN(vfqn.moduleName, QualifiedName(levelName(vfqn, typeArgs, level), Qualifier.Default))
       _         <- mainClassGenerator
                      .createMethod[CompilerIO](
-                       JvmIdentifier.encode(mangledMethodName(vfqn, typeArgs)),
+                       JvmIdentifier.encode(methodName(vfqn, typeArgs)),
                        captured.map(p => valueType(p.parameterType)),
                        valueType(atLevel.returnType)
                      )

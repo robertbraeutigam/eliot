@@ -23,6 +23,8 @@ effect FileSystem {
 // accessor.
 data IoError(message: String)
 
+def ioError(message: String): IoError = IoError(message)
+
 /**
  * The opaque result of a leaf file native: either an error message or a value, kept as a two-slot native holder so a
  * native never has to construct an Eliot `data` value in bytecode. Read back with `resultErrorMessage`/`resultValue`
