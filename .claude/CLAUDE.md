@@ -35,6 +35,14 @@ Descriptors name assets with a bare `asset <name>` clause; nothing marks which a
 which word a backend answers to, because the launcher puts every asset on one classpath and the
 backend registers its own word (`CompilerPlugin.backendWord`/`backendModes`).
 
+**Program arguments follow a `--`.** `run -m Main src/ -- a b` starts `Main` with `Environment.arguments` = `a b`:
+`Compiler.runCompiler` cuts the line at the first `--` *before* scopt parses it (the unbounded positional `<path>...`
+would otherwise take them), and the rest — verbatim, a second `--` and `-o`-looking words included — travels in the
+diagnostic `Compiler.programArgumentsKey`, so it never enters the cache identity. Only `run` passes them; `exe-jar`
+refuses them (`JvmPlugin`'s `checkConfig`), because arguments it dropped would look honoured. That `--` is what a
+test runner's filter rides (`eliot.test.Runner`); how a build tool or `eliotw` forwards its own trailing words to the
+compiler line is the build system's side and is not decided here.
+
 For a broad change, verify with the fast example sweep + byte-identity comparison rather than `examples.run`
 per example — recipes and their traps are in the `reference_verification_harness_recipes` memory.
 
@@ -153,7 +161,13 @@ Everything editor/IDE-related lives under **`ide/`**; put new editor integration
   - Shipped: whole-workspace diagnostics, hover/go-to-def (reverse `PositionIndex`), live-edit VFS overlay,
     completion, concrete-type hover hints (`TypeHintIndex` from `MonomorphicValue` facts), a `▶ Run main` code lens (`MainIndex`, fires the `eliot.runMain` command), and apidoc doc hover
     (`DocIndex` from `ValueDoc` facts; the LSP activates `ApiDocPlugin` as a *non-target* plugin so only its
-    processor runs, never HTML generation).
+    processor runs, never HTML generation), and a `▶ Run tests` lens (`TestIndex`, command `eliot.runTests`) above each
+    `testCases` — the name `eliot.test`'s runner gathers suites by, so "is a test" is the runner's own rule. Arguments
+    are `[buildRoot, moduleName, dependencyRoot*]`, as for `runMain`; the client starts `eliot.test.Runner` over those
+    roots with the module name after `--`, which selects exactly that suite. **The gate is the path, not a fact**: a
+    session offers the lens only when a root holds `eliot/test/Runner.els` (`WorkspacePlan.Session.providesModule`),
+    because dependency roots are never *checked* and so the runner has no `ResolvedValue` to ask; `main`'s
+    broken-but-still-offered fallback has no analogue, since a missing runner is nothing a run could report on.
   - The one remaining design item is parser/checker **error recovery** (`docs/ide-type-hints.md`, Layers A/B) —
     it is what makes hints work on in-progress code. Everything else (find-refs, rename, semantic tokens) is
     routine additive work on the existing index.
@@ -163,7 +177,17 @@ Everything editor/IDE-related lives under **`ide/`**; put new editor integration
   `prepareSandbox` shells out to `ide/lsp/package.sh`. Build with `cd ide/intellij && ./gradlew runIde|buildPlugin`.
   See `ide/intellij/README.md`. The `▶ Run main` lens dispatches client-side to an `LSPCommandAction` whose
   **IntelliJ action id must equal the command name**; its before-run task invokes the compiler CLI and gates on
-  the exit code, so a stale jar is never run.
+  the exit code, so a stale jar is never run. `▶ Run tests` (`eliot.runTests`) is the same configuration over the
+  runner: `mainModule = eliot.test.Runner`, `programArguments = --format=teamcity <suite module>`, `testRun = true`
+  (`EliotRunLauncher` holds what both actions share). A `testRun` swaps the default console for the platform's test
+  console (`EliotRunConfiguration`'s `execute` override, `EliotTestConsoleProperties`), which reads the runner's
+  TeamCity service messages (`eliot.test.Report`'s `Teamcity` style) into a results tree: module → subject → case,
+  with a diff for a failed comparison. An ordinary run keeps the default console, under `ColoredProcessHandler` so
+  ANSI renders. **None of this Kotlin could be compiled where it was written** — the sandbox's network policy blocks
+  JetBrains' hosts, so Gradle cannot resolve the IntelliJ platform — only the command lines it builds were run, and
+  the service-message stream was read directly. Build it (`./gradlew buildPlugin`) before trusting it; the least
+  certain points are that `SMTestRunnerConnectionUtil`/`SMTRunnerConsoleProperties` are visible to a plugin that
+  only `<depends>` on the platform in 252, and the `execute`/`createActions` override.
 
 ## Architecture
 

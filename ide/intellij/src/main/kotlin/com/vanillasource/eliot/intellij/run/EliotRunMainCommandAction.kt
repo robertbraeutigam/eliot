@@ -1,16 +1,9 @@
 package com.vanillasource.eliot.intellij.run
 
-import com.intellij.execution.BeforeRunTaskProvider
-import com.intellij.execution.RunManager
-import com.intellij.execution.RunManagerEx
-import com.intellij.execution.executors.DefaultRunExecutor
-import com.intellij.execution.runners.ExecutionUtil
 import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnActionEvent
-import com.intellij.openapi.project.Project
 import com.redhat.devtools.lsp4ij.commands.LSPCommand
 import com.redhat.devtools.lsp4ij.commands.LSPCommandAction
-import java.io.File
 
 /**
  * Handles the `eliot.runMain` LSP command emitted by the language server's "Run main" code lens.
@@ -19,9 +12,8 @@ import java.io.File
  * command (`ActionManager.getAction("eliot.runMain")`); this action is registered under that id in
  * plugin.xml. The command arguments are `[sourceRoot, moduleName, dependencyRoot*]` — the `<root>` and
  * `-m <module>` the JVM backend needs, then every other discovered source root (the layer/library roots to
- * put on the compiler path, since none is bundled). From them it creates (or reuses) a native
- * [EliotRunConfiguration], attaches the build-before-run step, and launches it under the Run executor, so
- * the user gets the standard run console, Stop button, and re-run.
+ * put on the compiler path, since none is bundled). From them [EliotRunLauncher] creates (or reuses) a native
+ * [EliotRunConfiguration], attaches the build-before-run step, and launches it under the Run executor.
  */
 class EliotRunMainCommandAction : LSPCommandAction() {
   // Creating/launching a run configuration must happen on the EDT; the base class defaults to a background
@@ -30,41 +22,14 @@ class EliotRunMainCommandAction : LSPCommandAction() {
 
   override fun commandPerformed(command: LSPCommand, e: AnActionEvent) {
     val project = e.project ?: return
-    val sourceRoot = command.getArgumentAt(0, String::class.java) ?: return
-    val mainModule = command.getArgumentAt(1, String::class.java) ?: return
-    // The remaining arguments are the dependency source roots (layer/library roots), variable in number.
-    // Bound the loop by the actual argument count: LSP4IJ's getArgumentAt throws (not returns null) once the
-    // index reaches the list size, so probing past the end for a null terminator would abort the command.
-    val dependencyRoots = (2 until command.arguments.size)
-      .mapNotNull { command.getArgumentAt(it, String::class.java) }
-    runMain(project, sourceRoot, mainModule, dependencyRoots)
-  }
-
-  private fun runMain(project: Project, sourceRoot: String, mainModule: String, dependencyRoots: List<String>) {
-    val runManager = RunManager.getInstance(project)
-    val type = EliotRunConfigurationType.getInstance()
-    val factory = type.configurationFactories.first()
-    val name = "Run $mainModule"
-
-    // Reuse the config for this module across re-runs instead of accumulating duplicates.
-    val settings = runManager.findConfigurationByTypeAndName(type, name)
-      ?: runManager.createConfiguration(name, factory).also { runManager.addConfiguration(it) }
-
-    val configuration = settings.configuration as EliotRunConfiguration
-    configuration.sourceRoot = sourceRoot
-    configuration.mainModule = mainModule
-    configuration.dependencyPath = dependencyRoots.joinToString(File.pathSeparator)
-
-    attachBuildTask(project, configuration)
-    runManager.selectedConfiguration = settings
-    ExecutionUtil.runConfiguration(settings, DefaultRunExecutor.getRunExecutorInstance())
-  }
-
-  /** Ensure the build-the-jar step runs before launch (idempotent: one such task on the configuration). */
-  private fun attachBuildTask(project: Project, configuration: EliotRunConfiguration) {
-    val provider = BeforeRunTaskProvider.getProvider(project, EliotBuildBeforeRunTaskProvider.ID) ?: return
-    val task = provider.createTask(configuration) ?: return
-    task.isEnabled = true
-    (RunManager.getInstance(project) as RunManagerEx).setBeforeRunTasks(configuration, listOf(task))
+    val call = EliotRunLauncher.callOf(command) ?: return
+    EliotRunLauncher.launch(
+      project,
+      name = "Run ${call.moduleName}",
+      sourceRoot = call.sourceRoot,
+      mainModule = call.moduleName,
+      programArguments = "",
+      dependencyRoots = call.dependencyRoots,
+    )
   }
 }

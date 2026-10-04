@@ -32,6 +32,26 @@ object Compiler extends Logging {
   val statisticsKey: Configuration.Key[Unit]     = diagnosticKey[Unit]("statistics")
   val progressKey: Configuration.Key[Unit]       = diagnosticKey[Unit]("progress")
 
+  /** The arguments a target hands to the program it runs: everything after the first `--` on the command line, absent
+    * when there are none. Diagnostic in the key's sense — the program's own command line changes no fact — so it
+    * never enters the cache identity, and a run with other arguments shares the jar of one without.
+    */
+  val programArgumentsKey: Configuration.Key[Seq[String]] = diagnosticKey[Seq[String]]("programArguments")
+
+  /** What separates the compiler's own command line from the program's: `run -m Main src/ -- a b` runs `Main` with the
+    * arguments `a b`. Everything after the first separator is the program's, verbatim, a second `--` included.
+    */
+  val programArgumentsSeparator: String = "--"
+
+  /** The compiler's own arguments and the program's, split at the first [[programArgumentsSeparator]]. A line without
+    * one is all the compiler's.
+    */
+  def splitProgramArguments(args: List[String]): (List[String], List[String]) =
+    args.span(_ != programArgumentsSeparator) match {
+      case (own, _ :: program) => (own, program)
+      case (own, _)            => (own, Nil)
+    }
+
   /** Run the compiler, returning the process's exit code: an error when the compilation *failed* — it produced errors,
     * or its target produced no artefact — and otherwise whatever the selected target's
     * [[com.vanillasource.eliot.eliotc.plugin.CompilerPlugin.execute]] answers, which is success for everything that only
@@ -43,8 +63,14 @@ object Compiler extends Logging {
   def runCompiler(args: List[String]): IO[ExitCode] =
     for {
       plugins   <- allLayers()
+      // The program's arguments are cut off before parsing: the parser's unbounded `<path>...` would take them.
+      (ownArgs, programArgs) = splitProgramArguments(args)
       // Run command line parsing with all options from all layers
-      parsed    <- parseCommandLine(withDefaultBackend(args, plugins), plugins.map(_.commandLineParser()))
+      parsed    <- parseCommandLine(
+                     withDefaultBackend(ownArgs, plugins),
+                     plugins.map(_.commandLineParser()),
+                     programArgs
+                   )
       exitCode  <- parsed match {
                      case Left(code)          => IO.pure(code)
                      case Right(configuration) =>
@@ -264,12 +290,15 @@ object Compiler extends Logging {
     */
   private def parseCommandLine(
       args: Seq[String],
-      options: Seq[OParser[?, Configuration]]
+      options: Seq[OParser[?, Configuration]],
+      programArgs: Seq[String] = Seq.empty
   ): IO[Either[ExitCode, Configuration]] = IO.blocking {
+    // Seeded before parsing, so a plugin's `checkConfig` can refuse a program argument its mode has nowhere to send.
+    val initial           = Configuration().set(targetPathKey, Path.of("target"))
     val (result, effects) = OParser.runParser(
       OParser.sequence(baseOptions(), options*),
       args,
-      Configuration().set(targetPathKey, Path.of("target"))
+      if (programArgs.isEmpty) initial else initial.set(programArgumentsKey, programArgs)
     )
 
     var terminated: Option[ExitCode] = None

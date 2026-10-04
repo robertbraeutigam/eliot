@@ -3,8 +3,9 @@ package com.vanillasource.eliot.eliotc.lsp.server
 import cats.effect.IO
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.lsp.buildtool.{ProjectModel, ProjectModelQuery}
+import com.vanillasource.eliot.eliotc.module.fact.ModuleName
 
-import java.nio.file.Path
+import java.nio.file.{Files, Path}
 
 /** Which compile sessions the language server runs over the editor's workspace folders, and what it has to warn the
   * user about while deciding.
@@ -66,6 +67,12 @@ object WorkspacePlan {
 
     /** Whether `file` is anywhere on this session's path. */
     def mounts(file: Path): Boolean = roots.exists(file.startsWith)
+
+    /** Whether some root of this session's path holds the source of `module` — whether a build of this package can
+      * name that module at all. Reads the filesystem, so it answers for what is on disk now.
+      */
+    def providesModule(module: ModuleName): Boolean =
+      roots.exists(root => Files.isRegularFile(root.resolve(module.toPath)))
   }
 
   /** Plan the sessions for `workspaceRoots`, asking each project folder's tool through `query`. `serverVersion` is this

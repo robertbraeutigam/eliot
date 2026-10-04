@@ -1,6 +1,8 @@
 package com.vanillasource.eliot.intellij.run
 
+import com.intellij.execution.DefaultExecutionResult
 import com.intellij.execution.ExecutionException
+import com.intellij.execution.ExecutionResult
 import com.intellij.execution.Executor
 import com.intellij.execution.configurations.CommandLineState
 import com.intellij.execution.configurations.ConfigurationFactory
@@ -9,18 +11,23 @@ import com.intellij.execution.configurations.RunConfiguration
 import com.intellij.execution.configurations.RunConfigurationBase
 import com.intellij.execution.configurations.RuntimeConfigurationError
 import com.intellij.execution.configurations.RunProfileState
-import com.intellij.execution.process.OSProcessHandler
+import com.intellij.execution.process.ColoredProcessHandler
 import com.intellij.execution.process.ProcessHandler
 import com.intellij.execution.process.ProcessTerminatedListener
 import com.intellij.execution.runners.ExecutionEnvironment
+import com.intellij.execution.runners.ProgramRunner
+import com.intellij.execution.testframework.sm.SMTestRunnerConnectionUtil
 import com.intellij.openapi.options.SettingsEditor
 import com.intellij.openapi.project.Project
+import com.intellij.util.execution.ParametersListUtil
 import com.vanillasource.eliot.intellij.EliotPlugin
 import java.io.File
 import java.nio.file.Path
 
 /**
- * A native run configuration that builds an Eliot `main` into an executable jar and runs it.
+ * A native run configuration that builds an Eliot `main` into an executable jar and runs it, with optional program
+ * arguments. A test run is this same configuration over the test runner's `main` (`eliot.test.Runner`), started with the
+ * suite's module name — see [EliotRunTestsCommandAction].
  *
  * The build is a separate [EliotBuildBeforeRunTask] (compiler CLI → `<output>/<module>.jar`); this
  * configuration's own process is the program itself (`java -jar`), so Stop kills the program and the exit
@@ -57,6 +64,18 @@ class EliotRunConfiguration(project: Project, factory: ConfigurationFactory, nam
       options.outputDir = value
     }
 
+  var programArguments: String?
+    get() = options.programArguments
+    set(value) {
+      options.programArguments = value
+    }
+
+  var testRun: Boolean
+    get() = options.testRun
+    set(value) {
+      options.testRun = value
+    }
+
   override fun getConfigurationEditor(): SettingsEditor<out RunConfiguration> = EliotRunConfigurationEditor()
 
   override fun checkConfiguration() {
@@ -67,9 +86,24 @@ class EliotRunConfiguration(project: Project, factory: ConfigurationFactory, nam
   override fun getState(executor: Executor, environment: ExecutionEnvironment): RunProfileState =
     object : CommandLineState(environment) {
       override fun startProcess(): ProcessHandler {
-        val handler = OSProcessHandler(runCommandLine())
+        // Coloured so a program's ANSI escapes render in the console instead of showing as raw text — the test runner's
+        // report is dressed that way; text without escapes passes through unchanged.
+        val handler = ColoredProcessHandler(runCommandLine())
         ProcessTerminatedListener.attach(handler)
         return handler
+      }
+
+      /**
+       * An ordinary run keeps the default console. A test run attaches the platform's test console to the process
+       * instead, which reads the runner's service messages from its output and shows the results tree; the output it
+       * does not recognise is still shown, as console text.
+       */
+      override fun execute(executor: Executor, runner: ProgramRunner<*>): ExecutionResult {
+        if (!testRun) return super.execute(executor, runner)
+        val handler = startProcess()
+        val properties = EliotTestConsoleProperties(this@EliotRunConfiguration, executor)
+        val console = SMTestRunnerConnectionUtil.createAndAttachConsole(EliotTestConsoleProperties.FRAMEWORK_NAME, handler, properties)
+        return DefaultExecutionResult(console, handler, *createActions(console, handler, executor))
       }
     }
 
@@ -106,9 +140,13 @@ class EliotRunConfiguration(project: Project, factory: ConfigurationFactory, nam
     return command
   }
 
-  /** `java -jar <output>/<module>.jar` — the actual program, streamed to the Run console. */
+  /**
+   * `java -jar <output>/<module>.jar [arguments]` — the actual program, streamed to the Run console. The
+   * [programArguments] follow the jar, which is where the JVM hands them to the program (`Environment.arguments`).
+   */
   private fun runCommandLine(): GeneralCommandLine {
     val command = GeneralCommandLine(EliotPlugin.javaExecutable(), "-jar", jarPath().toString())
+    command.addParameters(ParametersListUtil.parse(programArguments.orEmpty()))
     project.basePath?.let { command.withWorkDirectory(it) }
     return command
   }

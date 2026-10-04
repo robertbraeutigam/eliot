@@ -2,6 +2,7 @@ package com.vanillasource.eliot.eliotc.lsp.server
 
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.lsp.index.CompletionIndex
+import com.vanillasource.eliot.eliotc.module.fact.ModuleName
 import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValueRenderer
 import com.vanillasource.eliot.eliotc.pos.{Position, PositionRange}
 import com.vanillasource.eliot.eliotc.resolve.fact.ResolvedValue
@@ -138,19 +139,41 @@ final class EliotTextDocumentService(service: EliotCompilationService) extends T
     * build root, the module, then every *other* root of that package — the layer/library roots the build must put on the
     * path, since none is bundled. The client (the IntelliJ plugin) launches a native run configuration from them; the
     * command is handled client-side (no `executeCommandProvider` is advertised).
+    *
+    * A document declaring a suite (`testCases`, [[com.vanillasource.eliot.eliotc.lsp.index.TestIndex]]) gets a second
+    * "Run tests" lens, offered only where [[EliotCompilationService.testTargetFor]] finds a package whose path holds the
+    * test runner. Its arguments have the same shape — `[buildRoot, moduleName, dependencyRoot*]` — and the client starts
+    * the runner over those roots with the module name as its argument, which selects exactly this suite.
     */
   override def codeLens(params: CodeLensParams): CompletableFuture[util.List[? <: CodeLens]] = {
     val uri    = URI.create(params.getTextDocument.getUri)
-    val lenses = service.runTargetFor(uri).toList.map { target =>
-      val arguments = (List[Object](target.root.toString, target.entry.moduleName.show) ++
-        target.dependencyRoots.map(_.toString: Object)).asJava
-      new CodeLens(LspPositions.toRange(target.entry.range), new Command("▶ Run main", "eliot.runMain", arguments), null)
-    }
+    val lenses = service.runTargetFor(uri).toList.map(EliotTextDocumentService.runMainLens) ++
+      service.testTargetFor(uri).toList.map(EliotTextDocumentService.runTestsLens)
     CompletableFuture.completedFuture(lenses.asJava)
   }
 }
 
 object EliotTextDocumentService {
+
+  /** The "Run main" lens for `target`, carrying `eliot.runMain` with `[buildRoot, moduleName, dependencyRoot*]`. */
+  def runMainLens(target: EliotCompilationService.RunTarget): CodeLens =
+    lens(target.entry.range, "▶ Run main", "eliot.runMain", target.root, target.entry.moduleName, target.dependencyRoots)
+
+  /** The "Run tests" lens for `target`, carrying `eliot.runTests` with `[buildRoot, moduleName, dependencyRoot*]`. */
+  def runTestsLens(target: EliotCompilationService.TestTarget): CodeLens =
+    lens(target.entry.range, "▶ Run tests", "eliot.runTests", target.root, target.entry.moduleName, target.dependencyRoots)
+
+  private def lens(
+      range: PositionRange,
+      title: String,
+      command: String,
+      root: java.nio.file.Path,
+      moduleName: ModuleName,
+      dependencyRoots: Seq[java.nio.file.Path]
+  ): CodeLens = {
+    val arguments = (List[Object](root.toString, moduleName.show) ++ dependencyRoots.map(_.toString: Object)).asJava
+    new CodeLens(LspPositions.toRange(range), new Command(title, command, arguments), null)
+  }
 
   /** The hover `indices` give for `position` in `uri`, if any — see [[EliotTextDocumentService.hover]] for what it
     * shows.

@@ -5,7 +5,7 @@ import cats.effect.std.Semaphore
 import cats.effect.unsafe.IORuntime
 import cats.syntax.all.*
 import com.vanillasource.eliot.eliotc.feedback.Logging
-import com.vanillasource.eliot.eliotc.lsp.index.MainIndex
+import com.vanillasource.eliot.eliotc.lsp.index.{MainIndex, TestIndex}
 import com.vanillasource.eliot.eliotc.lsp.buildtool.ProjectModelQuery
 import com.vanillasource.eliot.eliotc.lsp.virtual.{VfsUris, VirtualFileSystem}
 import org.eclipse.lsp4j.jsonrpc.messages.Either as JEither
@@ -101,6 +101,23 @@ final class EliotCompilationService(runtime: IORuntime) extends Logging {
       file             <- fileOf(uri)
       root             <- session.plan.roots.filter(file.startsWith).maxByOption(_.getNameCount)
     } yield EliotCompilationService.RunTarget(root, entry, session.plan.roots.filterNot(_ == root))
+  }
+
+  /** What the "Run tests" lens of `uri` runs, if the document declares a suite (`testCases`): the first session with the
+    * file on its path whose closure holds the test runner ([[TestIndex.runnerModule]]) — the owning package first. A
+    * package without the runner on its path offers no lens, since a build of it could not run a suite; unlike `main`
+    * there is no broken-but-offered fallback, because a missing runner is not something a run could report on. Roots are
+    * as for [[runTargetFor]]: the one holding the file is the build root, the rest are the dependencies.
+    */
+  def testTargetFor(uri: URI): Option[EliotCompilationService.TestTarget] = {
+    val declaring = sessionsFor(uri)
+      .filter(_.plan.providesModule(TestIndex.runnerModule))
+      .flatMap(session => session.indices.test.testsAt(uri).map(session -> _))
+    for {
+      (session, entry) <- declaring.headOption
+      file             <- fileOf(uri)
+      root             <- session.plan.roots.filter(file.startsWith).maxByOption(_.getNameCount)
+    } yield EliotCompilationService.TestTarget(root, entry, session.plan.roots.filterNot(_ == root))
   }
 
   /** Plan the sessions over the editor's workspace folders and start them, in the background: asking a build tool for
@@ -212,6 +229,11 @@ object EliotCompilationService {
     * package's path.
     */
   final case class RunTarget(root: Path, entry: MainIndex.Entry, dependencyRoots: Seq[Path])
+
+  /** A runnable test suite and the roots to build the runner from: `root` holds the file, `dependencyRoots` are the rest
+    * of the package's path, the runner's own among them.
+    */
+  final case class TestTarget(root: Path, entry: TestIndex.Entry, dependencyRoots: Seq[Path])
 
   /** The build tool's files a workspace plan is read from; a change to one replans. */
   val planInputs: Set[String] = Set(ProjectModelQuery.descriptorName, "eliot.lock")

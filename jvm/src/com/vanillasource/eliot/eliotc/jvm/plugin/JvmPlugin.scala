@@ -60,7 +60,14 @@ class JvmPlugin extends CompilerPlugin {
           .text("generate executable jar, then run it, exiting with its exit code")
           .action((_, config) => config.set(runKey, ()))
           .children(mainOption)
-      )
+      ),
+    // Program arguments (`… -- a b`) belong to the program the `run` mode starts; `exe-jar` starts none, and arguments
+    // it silently dropped would look like they had been honoured. Guarded by `mainKey` so it speaks only for this target.
+    checkConfig(config =>
+      if (config.contains(mainKey) && config.contains(Compiler.programArgumentsKey) && !config.contains(runKey))
+        failure("program arguments (after `--`) are only passed by the `run` mode; `exe-jar` starts no program")
+      else success
+    )
   )
 
   override def backendWord: Option[String] = Some("jvm")
@@ -138,14 +145,16 @@ class JvmPlugin extends CompilerPlugin {
 
   /** The `run` mode: `java -jar` on the jar this compilation produced, with this process's streams and working
     * directory, answering the program's own exit code. The JVM is the one running the compiler, so a program is run by
-    * the same runtime its compiler was, with nothing looked up on the `PATH`.
+    * the same runtime its compiler was, with nothing looked up on the `PATH`. The program receives the command line's
+    * arguments after `--` ([[Compiler.programArgumentsKey]]), which is what `Environment.arguments` reads back.
     */
   override def execute(configuration: Configuration): IO[Int] =
     (configuration.get(runKey), configuration.get(mainKey)) match {
       case (Some(_), Some(main)) =>
         val jar     = JvmProgramGenerator.jarFilePath(configuration.get(Compiler.targetPathKey).get, main)
         val javaBin = Path.of(System.getProperty("java.home"), "bin", "java").toString
-        IO.interruptible(new ProcessBuilder(javaBin, "-jar", jar.toString).inheritIO().start().waitFor())
+        val command = Seq(javaBin, "-jar", jar.toString) ++ configuration.get(Compiler.programArgumentsKey).getOrElse(Seq.empty)
+        IO.interruptible(new ProcessBuilder(command*).inheritIO().start().waitFor())
       case _                     => IO.pure(0)
     }
 }
