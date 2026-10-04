@@ -29,6 +29,7 @@ import com.vanillasource.eliot.eliotc.module.fact.{
 }
 import com.vanillasource.eliot.eliotc.monomorphize.fact.GroundValue
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedValue
+import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.SignatureView
 import com.vanillasource.eliot.eliotc.processor.CompilerIO.*
 import com.vanillasource.eliot.eliotc.processor.common.SingleKeyTypeProcessor
 import com.vanillasource.eliot.eliotc.reconcile.fact.ReconciledMonomorphicValue
@@ -121,9 +122,11 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                                                              case Seq() => Seq(defaultTypeArgs)
                                                              case xs    => xs
                                                            }
-                                                           val arity        = stats.highestArity.getOrElse(0)
                                                            for {
                                                              resolved  <- getFactOrAbort(OperatorResolvedValue.Key(vfqn))
+                                                             // Always the full field count: a constructor used only
+                                                             // under-applied (`map(Box)`) must still be emitted whole.
+                                                             arity      = SignatureView.of(resolved.signature).parameters.length
                                                              instances <- typeArgsList.traverse(ta =>
                                                                             getFactOrAbort(UncurriedMonomorphicValue.Key(vfqn, ta, arity))
                                                                           )
@@ -164,7 +167,11 @@ class JvmClassGenerator extends SingleKeyTypeProcessor[GeneratedModule.Key] with
                                     } yield (classes ++ singletonClasses, generatedFunctions)
                                   }
                                 }
-      dataClasses             = dataResults.flatMap(_._1)
+      partialCtorClasses     <- usedValues.toSeq
+                                  .filter((vfqn, _) => usedCtorVfqns.contains(vfqn))
+                                  .sortBy(_._1.show)
+                                  .flatTraverse((vfqn, stats) => NativePartialApplication.generate(mainClassGenerator, vfqn, stats))
+      dataClasses             = dataResults.flatMap(_._1) ++ partialCtorClasses
       dataGeneratedFunctions  = dataResults.flatMap(_._2)
       // Get all type constructors at arity 0 (for identification and arity computation), from the shared index
       allTypeCtorsArityZero  <- moduleConstructors.typeConstructors.traverseFilter { vfqn =>

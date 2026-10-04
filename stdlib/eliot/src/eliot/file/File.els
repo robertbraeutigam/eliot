@@ -16,6 +16,11 @@ type IoError
 def message(e: IoError): String
 
 /**
+ * An `IoError` carrying `message` — what a test double's `FileSystem`/`Process` clause `raise`s to simulate a failure.
+ */
+def ioError(message: String): IoError
+
+/**
  * An `IoError` renders as its message.
  */
 implement Show[IoError] {
