@@ -12,17 +12,26 @@ no separate JDK. It is the one-click successor to the manual *user-defined serve
 ide/intellij/                              ← self-contained Gradle build (not part of the Mill build)
 ├── build.gradle.kts                       IntelliJ Platform Gradle Plugin 2.x
 ├── gradle.properties                      versions (platform, LSP4IJ, plugin)
-└── src/main/
-    ├── kotlin/com/vanillasource/eliot/intellij/
-    │   ├── EliotPlugin.kt                  locates bundled files via the plugin's own install path
-    │   ├── EliotLanguageServerFactory.kt   LSP4IJ entry point (server EP)
-    │   ├── EliotConnectionProvider.kt      launches the server as a child JVM
-    │   ├── EliotTextMateBundleProvider.kt  registers the TextMate grammar
-    │   └── run/                            native "Eliot Application" run configuration (see "Running a main")
-    └── resources/META-INF/
-        ├── plugin.xml                      server + *.els mapping; run config + action; depends on LSP4IJ
-        └── eliot-textmate.xml              optional: the textmate.bundleProvider EP
+├── src/main/
+│   ├── kotlin/com/vanillasource/eliot/intellij/
+│   │   ├── EliotPlugin.kt                  locates bundled files via the plugin's own install path
+│   │   ├── EliotLanguageServerFactory.kt   LSP4IJ entry point (server EP)
+│   │   ├── EliotConnectionProvider.kt      launches the server as a child JVM
+│   │   ├── EliotTextMateBundleProvider.kt  registers the TextMate grammar
+│   │   ├── language/                       the `Eliot` language + file type: a flat word-level PSI (see below)
+│   │   └── run/                            native "Eliot Application" run configuration (see "Running a main")
+│   └── resources/META-INF/
+│       ├── plugin.xml                      language, server + *.els mapping, run config, gutter; depends on LSP4IJ
+│       └── eliot-textmate.xml              optional: the TextMate grammar, and its colouring for the Eliot file type
+└── src/test/                               platform tests (`./gradlew test`)
 ```
+
+`.els` is an IntelliJ **language of its own** (`language/`), not a TextMate file. TextMate's parser builds a whole
+file as a single PSI leaf, so nothing per line — a gutter run icon — has anything to anchor to. The `Eliot` language's
+PSI is just as shallow on purpose — the file directly holding one leaf per run of non-whitespace — because it is no
+second parser of Eliot: colouring is still the TextMate grammar's (`eliot-textmate.xml` registers TextMate's
+highlighter and brace matcher for the `Eliot` file type; the highlighter finds the grammar by file name), and
+everything semantic is the language server's.
 
 At **build time**, `prepareSandbox` bundles these into the plugin distribution as loose files:
 
@@ -70,8 +79,10 @@ The pieces, under `src/main/kotlin/.../run/`:
    the gutter is empty and is redrawn when it answers) and shows them natively instead:
    `EliotRunLineMarkerContributor` draws the gutter icon, `EliotRunConfigurationProducer` turns the editor context
    into an **`EliotRunConfiguration`** named after the module. `EliotCodeLensFeature` withholds the lens text, so
-   the run is not offered twice. `.els` files have no IntelliJ language of their own (TextMate owns them), so the
-   gutter contributor is registered for the `textmate` language and answers only in `.els` files.
+   the run is not offered twice. The gutter icon sits on the word the lens starts in.
+   The producer waits (cancellably, up to 2 s) for a lens request still in flight, which is what lets the project
+   view's context menu offer a run on a file that is not open: the request connects the file to the server and only
+   starts with that question.
 3. A before-run step (`EliotBuildBeforeRunTaskProvider`) runs the **compiler CLI** as a child JVM —
    `java -cp "<plugin>/server/lib/*:<plugin>/compiler/lib/*" …compiler.Main jvm exe-jar <root> -m <module>
    -o <out>` — producing `<out>/<module>.jar` (default `<out>` is `<project>/target`). It gates on the
@@ -115,6 +126,7 @@ Prerequisites: a JDK 21 on `PATH` (for the Gradle build) and the repo's `./mill`
 # from ide/intellij/
 ./gradlew runIde        # launch a sandbox IDE with the plugin (+ LSP4IJ) installed
 ./gradlew buildPlugin   # produce build/distributions/eliot-<version>.zip
+./gradlew test          # headless platform tests: the language, the TextMate reuse, the lens reading
 ```
 
 `./gradlew runIde` is the quickest way to try it: open (or create) a project containing `.els` files,

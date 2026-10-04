@@ -177,10 +177,14 @@ Everything editor/IDE-related lives under **`ide/`**; put new editor integration
   `prepareSandbox` shells out to `ide/lsp/package.sh`. Build with `cd ide/intellij && ./gradlew runIde|buildPlugin`.
   See `ide/intellij/README.md`. **IntelliJ shows runs natively, from the server's lenses**: the server still emits
   `eliot.runMain`/`eliot.runTests` lenses (what every other editor shows), and the plugin reads the same lenses through
-  LSP4IJ (`run/EliotRunTargets`, never blocking — a pending request restarts highlighting when it answers) into a
-  gutter ▶ (`EliotRunLineMarkerContributor`, registered for the `textmate` language since `.els` has no IntelliJ
-  language) and a `LazyRunConfigurationProducer` (`EliotRunConfigurationProducer`: context menu, Ctrl+Shift+F10,
-  temporary-then-saved configs), while `EliotCodeLensFeature` withholds the lens text. So "is this runnable" stays
+  LSP4IJ (`run/EliotRunTargets`: the gutter never blocks — a pending request restarts highlighting when it answers —
+  while the producer waits up to 2 s, since a context menu asks once and an unopened file's request only starts then)
+  into a gutter ▶ (`EliotRunLineMarkerContributor`) and a `LazyRunConfigurationProducer`
+  (`EliotRunConfigurationProducer`: context menu, Ctrl+Shift+F10, temporary-then-saved configs), while
+  `EliotCodeLensFeature` withholds the lens text. **`.els` is an IntelliJ language of its own** (`language/`): TextMate's
+  parser makes a whole file ONE PSI leaf (`EmptyLexer`), so no gutter icon can anchor to a TextMate file. Its PSI is a
+  flat run of word/whitespace leaves — deliberately no second Eliot parser — and colouring stays TextMate's,
+  registered for the `Eliot` file type in `eliot-textmate.xml` (TextMate finds the grammar by file name). So "is this runnable" stays
   the server's rule; do not detect `main`/`testCases` client-side. Every configuration gets the build before-run
   task, which invokes the compiler CLI and gates on the exit code, so a stale jar is never run. A suite
   (`EliotRunTarget.Kind.TESTS`) is the same configuration over the runner: `mainModule = eliot.test.Runner`,
@@ -188,9 +192,9 @@ Everything editor/IDE-related lives under **`ide/`**; put new editor integration
   the platform's test console (`EliotRunConfiguration`'s `execute` override, `EliotTestConsoleProperties`), which
   reads the runner's TeamCity service messages (`eliot.test.Report`'s `Teamcity` style) into a results tree: module
   → subject → case, with a diff for a failed comparison. An ordinary run keeps the default console, under
-  `ColoredProcessHandler` so ANSI renders. **The Kotlin compiles offline** (`./gradlew --offline buildPlugin`) when
-  the IntelliJ platform is already in the Gradle cache — JetBrains' hosts may be unreachable from a sandbox, so the
-  first download is the blocker, not the build. Behaviour inside the IDE (`runIde`) has to be checked by hand.
+  `ColoredProcessHandler` so ANSI renders. **It builds and tests locally** (`./gradlew buildPlugin test`; headless
+  `BasePlatformTestCase`s under `src/test/`). Anything needing the live server — the gutter icon itself — has to be
+  checked by hand in `runIde`.
 
 ## Architecture
 

@@ -16,9 +16,8 @@ import com.intellij.psi.PsiFile
  * This is a purely client-side editor feature, contributed through the `com.intellij.enterHandlerDelegate`
  * extension point — the same mechanism the JVM/Scala plugins use, and intentionally NOT the language server:
  * comment continuation is a typing gesture, not a semantic query, so it must be instant and work even while
- * the server is starting or the buffer does not type-check. Because `.els` files have no registered IntelliJ
- * `Language` (they are backed by the bundled TextMate grammar), the delegate is global and self-selects by
- * file extension.
+ * the server is starting or the buffer does not type-check. The extension point has no language filter, so the
+ * delegate is global and self-selects by file extension.
  *
  * Behaviour, matching the IDE's Java doc-comment handler:
  * - After a comment-open (slash-star-star or slash-star) or a star-continuation line, the new line gets an

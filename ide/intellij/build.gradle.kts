@@ -1,3 +1,4 @@
+import org.jetbrains.intellij.platform.gradle.TestFrameworkType
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 // Eliot IntelliJ plugin: bundles the TextMate grammar (ide/textmate) for highlighting and launches the
@@ -35,7 +36,12 @@ dependencies {
 
         pluginVerifier()
         zipSigner()
+        testFramework(TestFrameworkType.Platform)
     }
+
+    // The platform's test framework is JUnit 4 based (BasePlatformTestCase); opentest4j is what it reports through.
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.opentest4j:opentest4j:1.3.0")
 }
 
 intellijPlatform {

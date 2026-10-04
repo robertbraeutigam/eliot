@@ -35,6 +35,17 @@
     </extensions>
 
     <extensions defaultExtensionNs="com.intellij">
+        <!-- `.els` is a language of its own, with a flat word-level PSI, so per-line features (the gutter run icon)
+             have something to anchor to; a TextMate file is a single leaf. Colouring is still the TextMate grammar's
+             (eliot-textmate.xml). -->
+        <fileType name="Eliot" language="Eliot" extensions="els" fieldName="INSTANCE"
+                  implementationClass="com.vanillasource.eliot.intellij.language.EliotFileType"/>
+        <lang.parserDefinition language="Eliot"
+                               implementationClass="com.vanillasource.eliot.intellij.language.EliotParserDefinition"/>
+        <lang.commenter language="Eliot" implementationClass="com.vanillasource.eliot.intellij.language.EliotCommenter"/>
+        <!-- The gutter run icon, read from the server's run lenses. -->
+        <runLineMarkerContributor language="Eliot"
+                                  implementationClass="com.vanillasource.eliot.intellij.run.EliotRunLineMarkerContributor"/>
         <!-- Native "Eliot Application" run configuration: builds a `main` into an executable jar and runs it. -->
         <configurationType implementation="com.vanillasource.eliot.intellij.run.EliotRunConfigurationType"/>
         <!-- Makes that configuration from the editor context: the gutter icon, the context menu, Ctrl+Shift+F10. -->
@@ -44,7 +55,7 @@
         <!-- Surfaces compiler errors when the before-run build fails. -->
         <notificationGroup id="Eliot" displayType="BALLOON"/>
         <!-- Continues `/** */`/`/* */` comments with an aligned ` * ` on Enter (Java/Scala-style), client-side.
-             Global EP; the handler self-selects .els files (which have no registered Language, only TextMate). -->
+             Global EP; the handler self-selects .els files. -->
         <enterHandlerDelegate implementation="com.vanillasource.eliot.intellij.EliotCommentEnterHandler"/>
     </extensions>
 
