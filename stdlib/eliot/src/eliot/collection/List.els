@@ -370,6 +370,55 @@ def put[K ~ Eq, V](key: K, value: V, entries: List[Pair[K, V]]): List[Pair[K, V]
    )
 
 /**
+ * `f` applied to every element of `list`, keeping the values it answers and dropping the absences — a `map` and a
+ * `filter` in one pass, for a projection that only some elements have.
+ *
+ * `f` runs once per element, front to back, and may perform effects. `list` is last, so this dot-chains as
+ * `list.filterMap(f)`.
+ *
+ * ```eliot
+ * def ports(settings: List[String]): List[Int] = settings.filterMap(setting -> runAbort(parseInt(setting)))
+ * ```
+ */
+def filterMap[A, B](f: A => {} Option[B], list: List[A]): List[B] =
+   list.foldLeft(empty, e -> acc -> f(e).foldOption(acc, found -> append(acc, found)))
+
+/**
+ * The first value `f` answers over `list`, or none when it answers none — `find` and a projection in one step, for a
+ * lookup whose match also carries the value wanted.
+ *
+ * `f` stops being applied once it has answered, exactly as `find`'s predicate does, so an effectful `f` performs only
+ * as far as the first answer.
+ *
+ * ```eliot
+ * def firstPort(settings: List[String]): Option[Int] = settings.findMap(setting -> runAbort(parseInt(setting)))
+ * ```
+ */
+def findMap[A, B](f: A => {} Option[B], list: List[A]): Option[B] =
+   list.foldLeft(none, e -> acc -> acc.foldOption(f(e), _ -> acc))
+
+/**
+ * `true` when `list` holds an element equal to `element` (by its `Eq` instance).
+ *
+ * Named `includes` rather than `contains` because `eliot.lang.String` has a `contains`, and a file importing this
+ * module would lose it.
+ *
+ * ```eliot
+ * def isKnown(keyword: String): Bool = keywords.includes(keyword)
+ * ```
+ */
+def includes[A ~ Eq](element: A, list: List[A]): Bool = list.any(e -> e == element)
+
+/**
+ * The value `o` holds as a one-element list, or the empty list when it holds none.
+ *
+ * ```eliot
+ * def compilerLines(line: Option[List[String]]): List[List[String]] = line.toList
+ * ```
+ */
+def toList[A](o: Option[A]): List[A] = o.foldOption(empty, singleton)
+
+/**
  * `List` is a monoid under concatenation: `combine` appends the elements of the second list after the first (a
  * platform-independent fold, identical on every target), and `empty` is the empty list. This makes `List` usable as
  * the accumulated log of a `Writer` effect, and lets `++` concatenate lists.

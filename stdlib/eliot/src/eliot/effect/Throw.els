@@ -71,6 +71,6 @@ def orRaise[E, A](e: Either[E, A]): {Throw[E]} A = foldEither(err -> raise(err),
  * Bodied here rather than per platform: everything platform-dependent is in `runThrow`, and reading its `Either`
  * is the same computation on every target.
  */
-infix left
+infix left below (++, ||)
 def catch[E, A](computation: {Throw[E]} A, onError: E => {} A): A =
    foldEither(onError, a -> a, runThrow(computation))

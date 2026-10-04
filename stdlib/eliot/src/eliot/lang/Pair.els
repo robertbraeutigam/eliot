@@ -13,6 +13,16 @@ type Pair[A, B]
 def pair[A, B](first: A, second: B): Pair[A, B]
 
 /**
+ * The first component of `p`: `labelled.first`.
+ */
+def first[A, B](p: Pair[A, B]): A
+
+/**
+ * The second component of `p`: `labelled.second`.
+ */
+def second[A, B](p: Pair[A, B]): B
+
+/**
  * Eliminate a `Pair`: apply the curried `f` to its `first` and `second` components.
  *
  * ```eliot

@@ -76,3 +76,29 @@ def fold[A](condition: Bool, whenTrue: {} A, whenFalse: {} A): A { join(whenTrue
  * ```
  */
 def if[T](condition: Bool, value: {Abort} T): {Abort} T = fold(condition, value, abort)
+
+/**
+ * Run `action` when `condition` holds, and do nothing otherwise — a one-armed `if` for a statement, with no `Abort`
+ * to discharge and no `else unit` to write.
+ *
+ * It curries like `if`, so the condition reads first: `when(missing) clone`. `action` runs only when `condition` holds,
+ * and may perform whatever the enclosing definition declares.
+ *
+ * ```eliot
+ * def refuseEmpty(lines: List[String]): {Throw[String]} Unit = when(lines.isEmpty) raise("nothing to run")
+ * ```
+ */
+def when(condition: Bool, action: {} Unit): Unit = fold(condition, action, unit)
+
+/**
+ * Run `action` unless `condition` holds — `when` with the condition negated, which is how a check reads: state what
+ * should be true, then what to do when it is not.
+ *
+ * ```eliot
+ * def checked(result: ProcessResult): {Throw[Int]} String = {
+ *    unless(result.exitCode == 0) raise(result.exitCode)
+ *    result.standardOutput
+ * }
+ * ```
+ */
+def unless(condition: Bool, action: {} Unit): Unit = fold(condition, unit, action)
