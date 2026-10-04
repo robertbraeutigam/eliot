@@ -186,7 +186,13 @@ Everything editor/IDE-related lives under **`ide/`**; put new editor integration
   flat run of word/whitespace leaves — deliberately no second Eliot parser — and colouring stays TextMate's,
   registered for the `Eliot` file type in `eliot-textmate.xml` (TextMate finds the grammar by file name). So "is this runnable" stays
   the server's rule; do not detect `main`/`testCases` client-side. Every configuration gets the build before-run
-  task, which invokes the compiler CLI and gates on the exit code, so a stale jar is never run. A suite
+  task, which invokes the compiler CLI and gates on the exit code, so a stale jar is never run; the compile shows in
+  the **Build tool window** (`build/EliotBuild` over `BuildViewManager.createBuildProgress`): console output, each
+  error a navigable entry, `--progress` as the status. The errors are parsed from the compiler's *human-readable*
+  output (`build/EliotBuildOutputParser`) — sanctioned only because the plugin runs the compiler it bundles, so a
+  change to `CompilerError.print` or the `--progress` log form must keep `EliotBuildOutputParserTest` green. Headless,
+  the platform's `BuildViewManager` is a `DummyBuildViewManager` that drops every event; `EliotBuildTest` replaces
+  the service with a recorder. A suite
   (`EliotRunTarget.Kind.TESTS`) is the same configuration over the runner: `mainModule = eliot.test.Runner`,
   `programArguments = --format=teamcity <suite module>`, `testRun = true`. A `testRun` swaps the default console for
   the platform's test console (`EliotRunConfiguration`'s `execute` override, `EliotTestConsoleProperties`), which

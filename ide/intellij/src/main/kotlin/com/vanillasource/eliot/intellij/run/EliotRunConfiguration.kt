@@ -118,7 +118,7 @@ class EliotRunConfiguration(project: Project, factory: ConfigurationFactory, nam
   fun jarPath(): Path = Path.of(resolvedOutputDir(), (mainModule ?: "").substringAfterLast('.') + ".jar")
 
   /**
-   * `eliotc jvm exe-jar <sourceRoot> -m <module> -o <output> --path <dep> …`, run as a child JVM off the bundled
+   * `eliotc jvm exe-jar <sourceRoot> -m <module> -o <output> --progress --path <dep> …`, run as a child JVM off the bundled
    * compiler jars. The abstract base, the standard library and the platform (jvm) layer are NOT bundled with the plugin:
    * like any program's dependencies they must be reachable on the path. The server discovered them alongside `main` and
    * passed them through the "Run main" command as [dependencyPath]; each becomes a trailing `--path` (the position scopt
@@ -135,6 +135,8 @@ class EliotRunConfiguration(project: Project, factory: ConfigurationFactory, nam
       sourceRoot.orEmpty(),
       "-m", mainModule.orEmpty(),
       "-o", resolvedOutputDir(),
+      // What the Build tool window shows as the running status; see EliotBuildOutputParser.
+      "--progress",
     )
     dependencyPath?.split(File.pathSeparator)?.filter { it.isNotBlank() }?.forEach { root ->
       command.addParameters("--path", root)

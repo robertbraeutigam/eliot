@@ -85,9 +85,13 @@ The pieces, under `src/main/kotlin/.../run/`:
    starts with that question.
 3. A before-run step (`EliotBuildBeforeRunTaskProvider`) runs the **compiler CLI** as a child JVM —
    `java -cp "<plugin>/server/lib/*:<plugin>/compiler/lib/*" …compiler.Main jvm exe-jar <root> -m <module>
-   -o <out>` — producing `<out>/<module>.jar` (default `<out>` is `<project>/target`). It gates on the
-   compiler's exit code; on failure the launch is aborted and the compiler's diagnostics are shown as an
-   error notification, so a stale jar is never run.
+   -o <out> --progress` — producing `<out>/<module>.jar` (default `<out>` is `<project>/target`). The compile
+   shows in the **Build tool window**, as a Java build does (`build/EliotBuild`): the compiler's output in the
+   console, each error as an entry that opens its file at the reported position, `--progress` as the running
+   status, and the window brought forward when the build fails. It gates on the compiler's exit code, so on
+   failure the launch is aborted and a stale jar is never run. The errors are read from the compiler's
+   human-readable output (`build/EliotBuildOutputParser`), which is safe only because the plugin runs the
+   compiler it bundles: the two are built from one repository.
 4. The run configuration's own process is the program: `java -jar <out>/<module>.jar`.
 
 You can also create an "Eliot Application" configuration manually (**Run → Edit Configurations… → +**) and
@@ -126,7 +130,8 @@ Prerequisites: a JDK 21 on `PATH` (for the Gradle build) and the repo's `./mill`
 # from ide/intellij/
 ./gradlew runIde        # launch a sandbox IDE with the plugin (+ LSP4IJ) installed
 ./gradlew buildPlugin   # produce build/distributions/eliot-<version>.zip
-./gradlew test          # headless platform tests: the language, the TextMate reuse, the lens reading
+./gradlew test          # headless platform tests: the language, the TextMate reuse, the lens reading, the
+                        # Build window (against the real compiler package.sh builds)
 ```
 
 `./gradlew runIde` is the quickest way to try it: open (or create) a project containing `.els` files,
@@ -189,6 +194,6 @@ Added by this plugin:
 - **No ▶ in the gutter** — the icon needs the file to declare a `def main` (or `testCases`) that the server has
   type-checked, and appears once the latest compile has finished. It is read from the server's run lens, so the
   server must be running (see above). Code vision being off does not hide it.
-- **A run aborts with "Eliot build failed"** — the program didn't compile; the notification carries
-  the compiler's diagnostics. Fix the errors (they also show inline) and re-run. Confirm
-  `<plugin>/compiler/lib/` (the `jvm` backend jar + ASM) is present in the installed plugin.
+- **A run aborts and the Build window shows a failed build** — the program didn't compile; the Build window
+  lists the errors (they also show inline). Fix them and re-run. "Cannot start the Eliot compiler" there means
+  `<plugin>/compiler/lib/` (the `jvm` backend jar + ASM) is missing from the installed plugin.
