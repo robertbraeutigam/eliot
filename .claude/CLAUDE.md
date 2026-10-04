@@ -175,19 +175,22 @@ Everything editor/IDE-related lives under **`ide/`**; put new editor integration
 - **`ide/intellij/`** — the shipped IntelliJ plugin: highlighting + diagnostics (LSP4IJ) + a native "Eliot
   Application" run configuration. A **self-contained Gradle build**, not part of the Mill build; its
   `prepareSandbox` shells out to `ide/lsp/package.sh`. Build with `cd ide/intellij && ./gradlew runIde|buildPlugin`.
-  See `ide/intellij/README.md`. The `▶ Run main` lens dispatches client-side to an `LSPCommandAction` whose
-  **IntelliJ action id must equal the command name**; its before-run task invokes the compiler CLI and gates on
-  the exit code, so a stale jar is never run. `▶ Run tests` (`eliot.runTests`) is the same configuration over the
-  runner: `mainModule = eliot.test.Runner`, `programArguments = --format=teamcity <suite module>`, `testRun = true`
-  (`EliotRunLauncher` holds what both actions share). A `testRun` swaps the default console for the platform's test
-  console (`EliotRunConfiguration`'s `execute` override, `EliotTestConsoleProperties`), which reads the runner's
-  TeamCity service messages (`eliot.test.Report`'s `Teamcity` style) into a results tree: module → subject → case,
-  with a diff for a failed comparison. An ordinary run keeps the default console, under `ColoredProcessHandler` so
-  ANSI renders. **None of this Kotlin could be compiled where it was written** — the sandbox's network policy blocks
-  JetBrains' hosts, so Gradle cannot resolve the IntelliJ platform — only the command lines it builds were run, and
-  the service-message stream was read directly. Build it (`./gradlew buildPlugin`) before trusting it; the least
-  certain points are that `SMTestRunnerConnectionUtil`/`SMTRunnerConsoleProperties` are visible to a plugin that
-  only `<depends>` on the platform in 252, and the `execute`/`createActions` override.
+  See `ide/intellij/README.md`. **IntelliJ shows runs natively, from the server's lenses**: the server still emits
+  `eliot.runMain`/`eliot.runTests` lenses (what every other editor shows), and the plugin reads the same lenses through
+  LSP4IJ (`run/EliotRunTargets`, never blocking — a pending request restarts highlighting when it answers) into a
+  gutter ▶ (`EliotRunLineMarkerContributor`, registered for the `textmate` language since `.els` has no IntelliJ
+  language) and a `LazyRunConfigurationProducer` (`EliotRunConfigurationProducer`: context menu, Ctrl+Shift+F10,
+  temporary-then-saved configs), while `EliotCodeLensFeature` withholds the lens text. So "is this runnable" stays
+  the server's rule; do not detect `main`/`testCases` client-side. Every configuration gets the build before-run
+  task, which invokes the compiler CLI and gates on the exit code, so a stale jar is never run. A suite
+  (`EliotRunTarget.Kind.TESTS`) is the same configuration over the runner: `mainModule = eliot.test.Runner`,
+  `programArguments = --format=teamcity <suite module>`, `testRun = true`. A `testRun` swaps the default console for
+  the platform's test console (`EliotRunConfiguration`'s `execute` override, `EliotTestConsoleProperties`), which
+  reads the runner's TeamCity service messages (`eliot.test.Report`'s `Teamcity` style) into a results tree: module
+  → subject → case, with a diff for a failed comparison. An ordinary run keeps the default console, under
+  `ColoredProcessHandler` so ANSI renders. **The Kotlin compiles offline** (`./gradlew --offline buildPlugin`) when
+  the IntelliJ platform is already in the Gradle cache — JetBrains' hosts may be unreachable from a sandbox, so the
+  first download is the blocker, not the build. Behaviour inside the IDE (`runIde`) has to be checked by hand.
 
 ## Architecture
 

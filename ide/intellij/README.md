@@ -57,16 +57,21 @@ source roots guessed. The layers are **not** bundled with the plugin.
 
 ## Running a `main`
 
-Any module that declares a `def main` gets a **`▶ Run main`** code lens above it. Clicking it builds an
-executable jar and runs it, using a real IntelliJ run configuration (Run console, Stop, re-run — all
-native). The pieces, under `src/main/kotlin/.../run/`:
+Any module that declares a `def main` gets a green **▶ in the gutter** next to it, as a Java `main` does. Its menu is
+the platform's own (Run, Debug, Modify Run Configuration…), and the same run is offered from the editor's context menu
+and by **Ctrl+Shift+F10** anywhere in the file. It builds an executable jar and runs it, using a real IntelliJ run
+configuration (Run console, Stop, re-run — all native): temporary the first time, reused afterwards, kept once saved.
+The pieces, under `src/main/kotlin/.../run/`:
 
-1. The **server** reports the lens (LSP `textDocument/codeLens`) with the command `eliot.runMain` and
-   arguments `[sourceRoot, moduleName]` — exactly the `<root>` and `-m <module>` the backend needs.
-2. LSP4IJ dispatches a code-lens command **client-side** by looking up an IntelliJ action whose id equals
-   the command (`ActionManager.getAction("eliot.runMain")`). `EliotRunMainCommandAction` (an
-   `LSPCommandAction`, registered under that exact id in `plugin.xml`) reads the arguments and
-   creates/reuses an **`EliotRunConfiguration`** named `Run <module>`.
+1. The **server** decides what is runnable and reports it as a code lens (LSP `textDocument/codeLens`) with the
+   command `eliot.runMain` and arguments `[sourceRoot, moduleName, dependencyRoot*]` — the `<root>`, the
+   `-m <module>` and the `--path` roots the backend needs. Other editors show that lens as text.
+2. IntelliJ reads the same lenses through LSP4IJ (`EliotRunTargets`, never blocking: while the request is in flight
+   the gutter is empty and is redrawn when it answers) and shows them natively instead:
+   `EliotRunLineMarkerContributor` draws the gutter icon, `EliotRunConfigurationProducer` turns the editor context
+   into an **`EliotRunConfiguration`** named after the module. `EliotCodeLensFeature` withholds the lens text, so
+   the run is not offered twice. `.els` files have no IntelliJ language of their own (TextMate owns them), so the
+   gutter contributor is registered for the `textmate` language and answers only in `.els` files.
 3. A before-run step (`EliotBuildBeforeRunTaskProvider`) runs the **compiler CLI** as a child JVM —
    `java -cp "<plugin>/server/lib/*:<plugin>/compiler/lib/*" …compiler.Main jvm exe-jar <root> -m <module>
    -o <out>` — producing `<out>/<module>.jar` (default `<out>` is `<project>/target`). It gates on the
@@ -79,13 +84,13 @@ set the source root, main module, program arguments, and (optionally) output dir
 
 ## Running a test suite
 
-A module that declares `testCases` gets a **`▶ Run tests`** lens above it — but only in a package whose path holds
+A module that declares `testCases` gets the test gutter icon (▶▶) next to it — but only in a package whose path holds
 the test runner (`eliot/test/Runner.els`, i.e. one that depends on `eliot-test`'s `suite` package). It is the same
 pipeline as above with two differences:
 
-1. The command is `eliot.runTests`, handled by `EliotRunTestsCommandAction` (registered under that exact id), with
-   the same arguments `[sourceRoot, moduleName, dependencyRoot*]`, where the module is the one holding the suite.
-2. The program that runs is not that module but the **runner**: the configuration, named `Test <module>`, builds
+1. The server's lens command is `eliot.runTests`, with the same arguments `[sourceRoot, moduleName, dependencyRoot*]`,
+   where the module is the one holding the suite.
+2. The program that runs is not that module but the **runner**: the configuration, named `Tests in <module>`, builds
    `eliot.test.Runner` over the same roots and starts it as
    `java -jar <out>/Runner.jar --format=teamcity <module>`. The module name selects exactly that suite (a package
    name would select every suite below it). The runner exits non-zero when a case fails.
@@ -97,9 +102,9 @@ subject and per `should` phrase, pass/fail counts, and a diff for a failed compa
 and `actual`). What a case prints itself shows in the console but not under its test — the runner prints a suite's
 report only after the suite has run.
 
-An ordinary **Run main** configuration is untouched and keeps the default console, which renders ANSI colour. The
+An ordinary **main** configuration is untouched and keeps the default console, which renders ANSI colour. The
 configuration form has a **Program arguments** field, so a run can be narrowed or widened by hand
-(`eliot.test.example`, or two names). The test-run flag itself has no field in the form: only the lens sets it.
+(`eliot.test.example`, or two names). The test-run flag itself has no field in the form: only the gutter sets it.
 
 ## Build & run
 
@@ -143,10 +148,10 @@ Inherited from the server (the `ide/lsp` module):
 
 Added by this plugin:
 
-- ✅ **Run main** — a `▶ Run main` code lens on every `def main` builds and runs it through a native run
-  configuration (see "Running a `main`").
-- ✅ **Run tests** — a `▶ Run tests` code lens on every `testCases` runs that suite through the same configuration
-  (see "Running a test suite") and shows the platform's native test-results tree.
+- ✅ **Run main** — a gutter ▶ on every `def main` builds and runs it through a native run configuration, also
+  from the editor's context menu and Ctrl+Shift+F10 (see "Running a `main`").
+- ✅ **Run tests** — a gutter ▶▶ on every `testCases` runs that suite through the same configuration (see "Running a
+  test suite") and shows the platform's native test-results tree.
 - ✅ **Comment continuation** — pressing Enter inside a `/** … */` (or `/* … */`) comment keeps the aligned
   `*` prefix on the new line, as in Java/Scala. A client-side `EnterHandlerDelegate`
   (`EliotCommentEnterHandler`), not a server feature — it is instant and works even while the buffer does not
@@ -169,9 +174,9 @@ Added by this plugin:
   installed plugin directory.
 - **No highlighting** — ensure the bundled TextMate plugin is enabled (it is by default); the grammar is
   registered through it.
-- **No `▶ Run main` lens** — the lens needs (a) the file to declare a `def main` that the server has
-  type-checked, and (b) IntelliJ code-vision/lenses enabled (Settings → Editor → Inlay Hints → Code
-  vision). The lens only appears once the latest compile has finished.
-- **`Run main` aborts with "Eliot build failed"** — the program didn't compile; the notification carries
+- **No ▶ in the gutter** — the icon needs the file to declare a `def main` (or `testCases`) that the server has
+  type-checked, and appears once the latest compile has finished. It is read from the server's run lens, so the
+  server must be running (see above). Code vision being off does not hide it.
+- **A run aborts with "Eliot build failed"** — the program didn't compile; the notification carries
   the compiler's diagnostics. Fix the errors (they also show inline) and re-run. Confirm
   `<plugin>/compiler/lib/` (the `jvm` backend jar + ASM) is present in the installed plugin.

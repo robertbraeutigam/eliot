@@ -3,5 +3,9 @@
          Registers the Eliot TextMate grammar so .els files are highlighted with no manual setup. -->
     <extensions defaultExtensionNs="com.intellij">
         <textmate.bundleProvider implementation="com.vanillasource.eliot.intellij.EliotTextMateBundleProvider"/>
+        <!-- The gutter run icon. .els files are TextMate files (no Eliot Language is registered), so the contributor
+             is registered for the textmate language and answers only in .els files. -->
+        <runLineMarkerContributor language="textmate"
+                                  implementationClass="com.vanillasource.eliot.intellij.run.EliotRunLineMarkerContributor"/>
     </extensions>
 </idea-plugin>

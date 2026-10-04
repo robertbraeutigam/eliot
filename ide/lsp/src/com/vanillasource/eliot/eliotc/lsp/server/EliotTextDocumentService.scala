@@ -137,8 +137,8 @@ final class EliotTextDocumentService(service: EliotCompilationService) extends T
     * (`exe-jar <root> -m <module>`). Which package's path is used is [[EliotCompilationService.runTargetFor]]'s choice:
     * the one whose closure can run the `main`. The command arguments are `[buildRoot, moduleName, dependencyRoot*]`: the
     * build root, the module, then every *other* root of that package — the layer/library roots the build must put on the
-    * path, since none is bundled. The client (the IntelliJ plugin) launches a native run configuration from them; the
-    * command is handled client-side (no `executeCommandProvider` is advertised).
+    * path, since none is bundled. A client launches a run from them (the IntelliJ plugin shows the lens as a gutter
+    * icon); the command is handled client-side (no `executeCommandProvider` is advertised).
     *
     * A document declaring a suite (`testCases`, [[com.vanillasource.eliot.eliotc.lsp.index.TestIndex]]) gets a second
     * "Run tests" lens, offered only where [[EliotCompilationService.testTargetFor]] finds a package whose path holds the

@@ -28,7 +28,7 @@ import java.nio.file.Path
 /**
  * A native run configuration that builds an Eliot `main` into an executable jar and runs it, with optional program
  * arguments. A test run is this same configuration over the test runner's `main` (`eliot.test.Runner`), started with the
- * suite's module name — see [EliotRunTestsCommandAction].
+ * suite's module name — see [EliotRunTarget].
  *
  * The build is a separate [EliotBuildBeforeRunTask] (compiler CLI → `<output>/<module>.jar`); this
  * configuration's own process is the program itself (`java -jar`), so Stop kills the program and the exit
