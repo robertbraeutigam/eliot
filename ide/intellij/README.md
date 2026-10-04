@@ -75,7 +75,24 @@ native). The pieces, under `src/main/kotlin/.../run/`:
 4. The run configuration's own process is the program: `java -jar <out>/<module>.jar`.
 
 You can also create an "Eliot Application" configuration manually (**Run → Edit Configurations… → +**) and
-set the source root, main module, and (optionally) output directory.
+set the source root, main module, program arguments, and (optionally) output directory.
+
+## Running a test suite
+
+A module that declares `testCases` gets a **`▶ Run tests`** lens above it — but only in a package whose path holds
+the test runner (`eliot/test/Runner.els`, i.e. one that depends on `eliot-test`'s `suite` package). It is the same
+pipeline as above with two differences:
+
+1. The command is `eliot.runTests`, handled by `EliotRunTestsCommandAction` (registered under that exact id), with
+   the same arguments `[sourceRoot, moduleName, dependencyRoot*]`, where the module is the one holding the suite.
+2. The program that runs is not that module but the **runner**: the configuration, named `Test <module>`, builds
+   `eliot.test.Runner` over the same roots and starts it as `java -jar <out>/Runner.jar <module>`. The module name
+   is the runner's one argument, which selects exactly that suite (a package name would select every suite below
+   it). The runner exits non-zero when a case fails, so the console shows a failed run as one.
+
+The run console renders the runner's coloured report (the process handler interprets ANSI escapes). The same
+configuration form has a **Program arguments** field, so a test run can be narrowed or widened by hand
+(`eliot.test.example`, or two names).
 
 ## Build & run
 
@@ -121,6 +138,8 @@ Added by this plugin:
 
 - ✅ **Run main** — a `▶ Run main` code lens on every `def main` builds and runs it through a native run
   configuration (see "Running a `main`").
+- ✅ **Run tests** — a `▶ Run tests` code lens on every `testCases` runs that suite through the same configuration
+  (see "Running a test suite"). Plain console output for now; a native test-results tree is not built.
 - ✅ **Comment continuation** — pressing Enter inside a `/** … */` (or `/* … */`) comment keeps the aligned
   `*` prefix on the new line, as in Java/Scala. A client-side `EnterHandlerDelegate`
   (`EliotCommentEnterHandler`), not a server feature — it is instant and works even while the buffer does not

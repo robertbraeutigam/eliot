@@ -167,8 +167,7 @@ Everything editor/IDE-related lives under **`ide/`**; put new editor integration
     roots with the module name after `--`, which selects exactly that suite. **The gate is the path, not a fact**: a
     session offers the lens only when a root holds `eliot/test/Runner.els` (`WorkspacePlan.Session.providesModule`),
     because dependency roots are never *checked* and so the runner has no `ResolvedValue` to ask; `main`'s
-    broken-but-still-offered fallback has no analogue, since a missing runner is nothing a run could report on. The
-    IntelliJ plugin registers no action for `eliot.runTests` yet, so the lens is not usable there until it does.
+    broken-but-still-offered fallback has no analogue, since a missing runner is nothing a run could report on.
   - The one remaining design item is parser/checker **error recovery** (`docs/ide-type-hints.md`, Layers A/B) —
     it is what makes hints work on in-progress code. Everything else (find-refs, rename, semantic tokens) is
     routine additive work on the existing index.
@@ -178,7 +177,12 @@ Everything editor/IDE-related lives under **`ide/`**; put new editor integration
   `prepareSandbox` shells out to `ide/lsp/package.sh`. Build with `cd ide/intellij && ./gradlew runIde|buildPlugin`.
   See `ide/intellij/README.md`. The `▶ Run main` lens dispatches client-side to an `LSPCommandAction` whose
   **IntelliJ action id must equal the command name**; its before-run task invokes the compiler CLI and gates on
-  the exit code, so a stale jar is never run.
+  the exit code, so a stale jar is never run. `▶ Run tests` (`eliot.runTests`) is the same configuration over the
+  runner: `mainModule = eliot.test.Runner`, `programArguments = <suite module>` (`EliotRunLauncher` holds what both
+  actions share). The run console uses `ColoredProcessHandler`, so the runner's ANSI report renders. **The plugin's
+  Kotlin could not be compiled where this was written** — the sandbox's network policy blocks JetBrains' hosts, so
+  Gradle cannot resolve the IntelliJ platform — only the command lines it builds were run. Build it
+  (`./gradlew buildPlugin`) before trusting it.
 
 ## Architecture
 

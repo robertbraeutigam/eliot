@@ -53,5 +53,10 @@
                 class="com.vanillasource.eliot.intellij.run.EliotRunMainCommandAction"
                 text="Run Eliot Main"
                 description="Build and run the Eliot main reported by the language server."/>
+        <!-- Same rule for the "Run tests" lens: the id MUST equal its command ("eliot.runTests"). -->
+        <action id="eliot.runTests"
+                class="com.vanillasource.eliot.intellij.run.EliotRunTestsCommandAction"
+                text="Run Eliot Tests"
+                description="Build the Eliot test runner and run the test suite reported by the language server."/>
     </actions>
 </idea-plugin>
