@@ -53,12 +53,23 @@ object CodegenProjection {
       }
 
   /** A dedup-key element keyed on the nominal head ([[GroundValue.carrierFQN]] — what the backend mangles the method
-    * name with), erased of type arguments. A representation-determining binder no longer carries its machine width in
-    * the type argument (post-flag-day an `Int` is nullary and its width is refinement-channel meta, decoded by the
-    * backend, not a type parameter), so two instances that differ only in that erased detail generate identical code
-    * and merge; two distinct heads sharing a representation stay distinct (they mangle to different method names). Used
-    * only as a `visited`-set identity, never to fetch a fact.
+    * name with), keeping every *structural* type argument, itself erased the same way, and dropping only value-level
+    * (`Direct`) arguments. That is exactly the backend's mangling (`CommonPatterns.mangleTypeArgument` recurses through
+    * structural arguments and drops `Direct` ones), and it has to be: a generic value's body names its callees by
+    * mangling its own type arguments, so `else[Option[Name]]` calls `runAbort$Option$Name` and `else[Option[String]]`
+    * calls `runAbort$Option$String`. Keyed on the head alone the two merged, only one was walked, and the other's callee
+    * was never emitted — a `NoSuchMethodError` at run time. Two distinct heads sharing a representation stay distinct
+    * (they mangle to different method names). Used only as a `visited`-set identity, never to fetch a fact.
     */
   private def erasedCarrier(arg: GroundValue): GroundValue =
-    GroundValue.Structure(arg.carrierFQN, Seq.empty, GroundValue.Type)
+    arg match {
+      case GroundValue.Structure(_, args, _) =>
+        GroundValue.Structure(
+          arg.carrierFQN,
+          args.filterNot(_.isInstanceOf[GroundValue.Direct]).map(erasedCarrier),
+          GroundValue.Type
+        )
+      case _                                 =>
+        GroundValue.Structure(arg.carrierFQN, Seq.empty, GroundValue.Type)
+    }
 }
