@@ -361,6 +361,28 @@ final class IncrementalFactGenerator(
       resolved   <- currentMap.values.toSeq.traverse(_.tryGet.map(_.flatten)).map(_.flatten)
     } yield resolved.map(fact => fact.key() -> fact).toMap
 
+  /** The facts this run built *or proved still current*, among the keys `wanted` accepts.
+    *
+    * [[currentFacts]] holds only what the run materialised, and an incremental run materialises little: a derived fact
+    * whose dependencies all hold is unchanged *by construction* and is neither recomputed nor read, so it is in no map
+    * of this run although it is exactly as current as one that is. A host that wants *every* fact of some kind — an
+    * editor rebuilding its indices after each edit — would see only the few the edit touched. Those facts are here too:
+    * each key this run's validation proved unchanged, with the value the prior cache holds for it.
+    *
+    * `wanted` selects by key, before any value is read, because reading a stored value is the cost the incremental run
+    * avoided; a caller names the kinds it needs rather than paying for every fact.
+    */
+  def currentFactsIncludingUnchanged(
+      wanted: CompilerFactKey[?] => Boolean
+  ): IO[Map[CompilerFactKey[?], CompilerFact]] =
+    for {
+      materialised <- currentFacts()
+      unchanged    <- provenUnchanged
+    } yield unchanged
+      .filter(key => wanted(key) && !materialised.contains(key))
+      .flatMap(key => prior.get(key).flatMap(_.value).map(key -> _))
+      .toMap ++ materialised
+
   /** The diagnostics of the graph this run actually built.
     *
     * A run reaches a fact two ways, and only one of them is compilation. Beyond the facts demanded from the roots, the

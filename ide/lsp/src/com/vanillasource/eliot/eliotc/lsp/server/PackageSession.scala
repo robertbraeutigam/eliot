@@ -12,6 +12,7 @@ import com.vanillasource.eliot.eliotc.module.fact.ModuleValue
 import com.vanillasource.eliot.eliotc.monomorphize.channel.RefinementTable
 import com.vanillasource.eliot.eliotc.monomorphize.fact.MonomorphicValue
 import com.vanillasource.eliot.eliotc.plugin.{Configuration, LangPlugin}
+import com.vanillasource.eliot.eliotc.processor.CompilerFactKey
 import com.vanillasource.eliot.eliotc.resolve.fact.ResolvedValue
 import com.vanillasource.eliot.eliotc.stdlib.plugin.StdlibPlugin
 import com.vanillasource.eliot.eliotc.used.UsedNames
@@ -66,7 +67,7 @@ final class PackageSession private (val plan: WorkspacePlan.Session) {
     * package's closure has a platform to run it on.
     */
   private def absorb(result: CompilationResult): IO[Unit] =
-    result.generator.currentFacts().flatMap { facts =>
+    result.generator.currentFactsIncludingUnchanged(PackageSession.isIndexed).flatMap { facts =>
       val resolved     = facts.values.collect { case value: ResolvedValue => value }.toSeq
       val moduleValues = facts.values.collect { case value: ModuleValue => value }.toSeq
       val monomorphic  = facts.values.collect { case value: MonomorphicValue => value }.toSeq
@@ -115,6 +116,18 @@ object PackageSession {
         TestIndex.empty,
         DocIndex.empty
       )
+  }
+
+  /** The kinds of fact the indices are built from. An incremental compile materialises only what an edit changed, so the
+    * indices are rebuilt from these *and* the ones the compile proved unchanged
+    * ([[com.vanillasource.eliot.eliotc.compiler.IncrementalFactGenerator.currentFactsIncludingUnchanged]]); anything
+    * else is never read.
+    */
+  private def isIndexed(key: CompilerFactKey[?]): Boolean = key match {
+    case _: ResolvedValue.Key | _: ModuleValue.Key | _: MonomorphicValue.Key | _: RefinementTable.Key | _: ValueDoc.Key |
+        _: UsedNames.Key =>
+      true
+    case _                                                                                                    => false
   }
 
   /** Start a session for `plan`, reading unsaved buffers from `vfs`; `onFinished` runs after each compile is absorbed.

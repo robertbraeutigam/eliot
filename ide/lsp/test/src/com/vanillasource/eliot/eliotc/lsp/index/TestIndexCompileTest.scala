@@ -40,10 +40,16 @@ class TestIndexCompileTest extends AsyncFlatSpec with AsyncIOSpec with Matchers 
     withCompiledWorkspace(withoutSuite)((uri, index) => index.testsAt(uri)).asserting(_ shouldBe None)
   }
 
-  /** Compile a one-file workspace, build the test index from the materialised facts, and hand the test the file's URI
-    * alongside the index.
+  it should "still recognise the suite after an incremental recompile that changed nothing" in {
+    withCompiledWorkspace(withSuite, compiles = 2)((uri, index) => index.testsAt(uri).map(_.moduleName.show))
+      .asserting(_ shouldBe Some("Test"))
+  }
+
+  /** Compile a one-file workspace `compiles` times in one session (every run after the first is incremental), build the
+    * test index from the facts the last run built or proved unchanged, and hand the test the file's URI alongside the
+    * index.
     */
-  private def withCompiledWorkspace[A](source: String)(body: (URI, TestIndex) => A): IO[A] =
+  private def withCompiledWorkspace[A](source: String, compiles: Int = 1)(body: (URI, TestIndex) => A): IO[A] =
     tempDirectory.use { sourceDir =>
       val file          = sourceDir.resolve("Test.els")
       val lspPlugin     = LspPlugin(new VirtualFileSystem)
@@ -59,8 +65,8 @@ class TestIndexCompileTest extends AsyncFlatSpec with AsyncIOSpec with Matchers 
                      Seq(lspPlugin, LangPlugin(), StdlibPlugin()),
                      configuration
                    )
-        result  <- session.compileOnce()
-        facts   <- result.generator.currentFacts()
+        result  <- session.compileOnce().replicateA(compiles).map(_.last)
+        facts   <- result.generator.currentFactsIncludingUnchanged(_.isInstanceOf[ResolvedValue.Key])
       } yield {
         val resolved = facts.values.collect { case value: ResolvedValue => value }.toSeq
         body(file.toUri, TestIndex.build(resolved))
