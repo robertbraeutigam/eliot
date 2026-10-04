@@ -50,8 +50,9 @@ object MainIndex {
 
   /** Normalise a URI to a stable key so the editor's `file:///…` URIs match the compiler's `file:/…` URIs, mirroring
     * [[PositionIndex]]. Non-file URIs fall back to their string form and simply never match a workspace document.
+    * Shared with [[TestIndex]], which keys its documents the same way.
     */
-  private def uriKey(uri: URI): String =
+  private[index] def uriKey(uri: URI): String =
     try Paths.get(VfsUris.toFileUri(uri)).toString
     catch { case _: IllegalArgumentException | _: java.nio.file.FileSystemNotFoundException => uri.toString }
 }

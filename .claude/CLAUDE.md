@@ -161,7 +161,14 @@ Everything editor/IDE-related lives under **`ide/`**; put new editor integration
   - Shipped: whole-workspace diagnostics, hover/go-to-def (reverse `PositionIndex`), live-edit VFS overlay,
     completion, concrete-type hover hints (`TypeHintIndex` from `MonomorphicValue` facts), a `▶ Run main` code lens (`MainIndex`, fires the `eliot.runMain` command), and apidoc doc hover
     (`DocIndex` from `ValueDoc` facts; the LSP activates `ApiDocPlugin` as a *non-target* plugin so only its
-    processor runs, never HTML generation).
+    processor runs, never HTML generation), and a `▶ Run tests` lens (`TestIndex`, command `eliot.runTests`) above each
+    `testCases` — the name `eliot.test`'s runner gathers suites by, so "is a test" is the runner's own rule. Arguments
+    are `[buildRoot, moduleName, dependencyRoot*]`, as for `runMain`; the client starts `eliot.test.Runner` over those
+    roots with the module name after `--`, which selects exactly that suite. **The gate is the path, not a fact**: a
+    session offers the lens only when a root holds `eliot/test/Runner.els` (`WorkspacePlan.Session.providesModule`),
+    because dependency roots are never *checked* and so the runner has no `ResolvedValue` to ask; `main`'s
+    broken-but-still-offered fallback has no analogue, since a missing runner is nothing a run could report on. The
+    IntelliJ plugin registers no action for `eliot.runTests` yet, so the lens is not usable there until it does.
   - The one remaining design item is parser/checker **error recovery** (`docs/ide-type-hints.md`, Layers A/B) —
     it is what makes hints work on in-progress code. Everything else (find-refs, rename, semantic tokens) is
     routine additive work on the existing index.

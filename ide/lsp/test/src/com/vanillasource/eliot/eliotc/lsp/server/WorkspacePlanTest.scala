@@ -5,6 +5,7 @@ import cats.effect.testing.scalatest.AsyncIOSpec
 import com.vanillasource.eliot.eliotc.lsp.buildtool.ProjectModel
 import com.vanillasource.eliot.eliotc.lsp.buildtool.ProjectModel.{Resolved, Selection, Unresolved}
 import com.vanillasource.eliot.eliotc.lsp.server.WorkspacePlan.Session
+import com.vanillasource.eliot.eliotc.module.fact.ModuleName
 import org.scalatest.flatspec.AsyncFlatSpec
 import org.scalatest.matchers.should.Matchers
 
@@ -64,6 +65,20 @@ class WorkspacePlanTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
       .map(Path.of(_))
       .map(file => (session.owns(file), session.checks(file), session.mounts(file))) shouldBe
       Seq((true, true, true), (false, true, true), (false, false, true), (false, false, false))
+  }
+
+  it should "say a session provides a module when one of its roots holds the module's source" in {
+    projectFolder.use { folder =>
+      val roots = Seq(Path.of("/nowhere"), folder.resolve("src"))
+      IO.pure(Session("x", roots, roots, roots, folder, None).providesModule(ModuleName(Seq.empty, "A")))
+    }.asserting(_ shouldBe true)
+  }
+
+  it should "say a session does not provide a module no root holds" in {
+    projectFolder.use { folder =>
+      val roots = Seq(folder.resolve("src"))
+      IO.pure(Session("x", roots, roots, roots, folder, None).providesModule(ModuleName(Seq("eliot", "test"), "Runner")))
+    }.asserting(_ shouldBe false)
   }
 
   it should "ask a project folder's tool, and plan from its answer" in {

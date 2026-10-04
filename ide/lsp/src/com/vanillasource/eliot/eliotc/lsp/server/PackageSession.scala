@@ -4,7 +4,7 @@ import cats.effect.IO
 import com.vanillasource.eliot.eliotc.apidoc.fact.ValueDoc
 import com.vanillasource.eliot.eliotc.apidoc.plugin.ApiDocPlugin
 import com.vanillasource.eliot.eliotc.compiler.{CompilationResult, CompilationServer, CompilationSession, Compiler}
-import com.vanillasource.eliot.eliotc.lsp.index.{CompletionIndex, DocIndex, MainIndex, PositionIndex, TypeHintIndex}
+import com.vanillasource.eliot.eliotc.lsp.index.{CompletionIndex, DocIndex, MainIndex, PositionIndex, TestIndex, TypeHintIndex}
 import com.vanillasource.eliot.eliotc.lsp.mainroot.LspMainRootSourceProcessor
 import com.vanillasource.eliot.eliotc.lsp.plugin.LspPlugin
 import com.vanillasource.eliot.eliotc.lsp.virtual.VirtualFileSystem
@@ -82,6 +82,7 @@ final class PackageSession private (val plan: WorkspacePlan.Session) {
             CompletionIndex.build(moduleValues, resolved),
             TypeHintIndex.build(monomorphic, refinements),
             MainIndex.build(resolved, runnable),
+            TestIndex.build(resolved),
             DocIndex.build(valueDocs)
           )
         )
@@ -100,12 +101,20 @@ object PackageSession {
       completion: CompletionIndex,
       typeHint: TypeHintIndex,
       main: MainIndex,
+      test: TestIndex,
       doc: DocIndex
   )
 
   object Indices {
     val empty: Indices =
-      Indices(PositionIndex.empty, CompletionIndex.empty, TypeHintIndex.empty, MainIndex.empty, DocIndex.empty)
+      Indices(
+        PositionIndex.empty,
+        CompletionIndex.empty,
+        TypeHintIndex.empty,
+        MainIndex.empty,
+        TestIndex.empty,
+        DocIndex.empty
+      )
   }
 
   /** Start a session for `plan`, reading unsaved buffers from `vfs`; `onFinished` runs after each compile is absorbed.
