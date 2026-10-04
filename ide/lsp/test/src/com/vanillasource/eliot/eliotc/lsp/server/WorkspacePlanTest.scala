@@ -51,6 +51,18 @@ class WorkspacePlanTest extends AsyncFlatSpec with AsyncIOSpec with Matchers {
     )
   }
 
+  it should "recognise the compiler under the repository's former name" in {
+    WorkspacePlan
+      .fromModel(
+        project,
+        ProjectModel(Seq(resolved("a", "v0.5").copy(selections = Seq(Selection("github.com/robertbraeutigam/eliot", "v0.5"))))),
+        Some("v0.6")
+      )
+      .warnings shouldBe Seq(
+      "'a' builds with eliot v0.5, but this language server's compiler is v0.6: what it reports may differ from the build."
+    )
+  }
+
   it should "not warn about a package that builds with the server's own compiler version" in {
     WorkspacePlan.fromModel(project, ProjectModel(Seq(resolved("a", "v0.6"))), Some("v0.6")).warnings shouldBe empty
   }

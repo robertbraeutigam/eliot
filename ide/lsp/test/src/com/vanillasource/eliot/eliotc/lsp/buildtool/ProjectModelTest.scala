@@ -11,7 +11,7 @@ class ProjectModelTest extends AnyFlatSpec with Matchers with EitherValues {
   private val resolvedJson =
     """{"packages": [
       |  {"name": "root", "ownRoot": "/p/src", "roots": ["/p/src"], "dependencyRoots": ["/c/lang/src", "/c/stdlib/src"],
-      |   "selections": [{"repository": "github.com/robertbraeutigam/eliot", "version": "v0.6", "packages": ["stdlib", "lang"]}]}
+      |   "selections": [{"repository": "github.com/eliotlang/eliot", "version": "v0.6", "packages": ["stdlib", "lang"]}]}
       |]}""".stripMargin
 
   "a project model" should "read a resolved package with its roots and selections" in {
@@ -22,7 +22,7 @@ class ProjectModelTest extends AnyFlatSpec with Matchers with EitherValues {
           Path.of("/p/src"),
           Seq(Path.of("/p/src")),
           Seq(Path.of("/c/lang/src"), Path.of("/c/stdlib/src")),
-          Seq(Selection("github.com/robertbraeutigam/eliot", "v0.6"))
+          Seq(Selection("github.com/eliotlang/eliot", "v0.6"))
         )
       )
     )

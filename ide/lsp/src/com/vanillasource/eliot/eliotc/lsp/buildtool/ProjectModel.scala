@@ -16,7 +16,7 @@ import scala.util.Try
   * {{{
   *   {"packages": [
   *     {"name": "root", "ownRoot": "/p/src", "roots": ["/p/src"], "dependencyRoots": ["/p/target/cache/…/stdlib/eliot/src"],
-  *      "selections": [{"repository": "github.com/robertbraeutigam/eliot", "version": "v0.6", "packages": ["stdlib"]}]},
+  *      "selections": [{"repository": "github.com/eliotlang/eliot", "version": "v0.6", "packages": ["stdlib"]}]},
   *     {"name": "test", "problem": "github.com/eliotlang/eliot-test is not fetched …"}
   *   ]}
   * }}}
@@ -56,7 +56,7 @@ object ProjectModel {
   /** A package the tool could not resolve from what is on this machine, and why. */
   final case class Unresolved(name: String, problem: String) extends Package
 
-  /** The version a closure selected for one repository, e.g. `github.com/robertbraeutigam/eliot` at `v0.6`. */
+  /** The version a closure selected for one repository, e.g. `github.com/eliotlang/eliot` at `v0.6`. */
   final case class Selection(repository: String, version: String)
 
   /** Read the tool's JSON output, or say why it is not a project model. */

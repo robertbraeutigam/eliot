@@ -29,7 +29,13 @@ final case class WorkspacePlan(sessions: Seq[WorkspacePlan.Session], warnings: S
 object WorkspacePlan {
 
   /** The repository this server's compiler is released from — how a selection naming the compiler is recognised. */
-  val compilerRepository: String = "github.com/robertbraeutigam/eliot"
+  val compilerRepository: String = "github.com/eliotlang/eliot"
+
+  /** Every spelling of [[compilerRepository]] a package may select it by: the repository moved from
+    * `github.com/robertbraeutigam/eliot`, and a package written before the move still names it there. The build tool
+    * unifies the two by the repository's lineage anchor, so both select the same compiler.
+    */
+  val compilerRepositories: Set[String] = Set(compilerRepository, "github.com/robertbraeutigam/eliot")
 
   /** The name of the one guessed session covering every folder the build tool does not describe. */
   val guessedSessionName: String = "workspace"
@@ -142,7 +148,7 @@ object WorkspacePlan {
   private def versionWarnings(packages: Seq[ProjectModel.Resolved], serverVersion: Option[String]): Seq[String] =
     serverVersion.toSeq.flatMap { own =>
       packages
-        .flatMap(pkg => pkg.selections.filter(_.repository == compilerRepository).map(_.version -> pkg.name))
+        .flatMap(pkg => pkg.selections.filter(selection => compilerRepositories(selection.repository)).map(_.version -> pkg.name))
         .filterNot(_._1 == own)
         .groupMap(_._1)(_._2)
         .toSeq
