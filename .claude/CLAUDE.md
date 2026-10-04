@@ -35,6 +35,14 @@ Descriptors name assets with a bare `asset <name>` clause; nothing marks which a
 which word a backend answers to, because the launcher puts every asset on one classpath and the
 backend registers its own word (`CompilerPlugin.backendWord`/`backendModes`).
 
+**Program arguments follow a `--`.** `run -m Main src/ -- a b` starts `Main` with `Environment.arguments` = `a b`:
+`Compiler.runCompiler` cuts the line at the first `--` *before* scopt parses it (the unbounded positional `<path>...`
+would otherwise take them), and the rest — verbatim, a second `--` and `-o`-looking words included — travels in the
+diagnostic `Compiler.programArgumentsKey`, so it never enters the cache identity. Only `run` passes them; `exe-jar`
+refuses them (`JvmPlugin`'s `checkConfig`), because arguments it dropped would look honoured. That `--` is what a
+test runner's filter rides (`eliot.test.Runner`); how a build tool or `eliotw` forwards its own trailing words to the
+compiler line is the build system's side and is not decided here.
+
 For a broad change, verify with the fast example sweep + byte-identity comparison rather than `examples.run`
 per example — recipes and their traps are in the `reference_verification_harness_recipes` memory.
 

@@ -30,19 +30,46 @@ class RunModeIntegrationTest extends AsyncFlatSpec with AsyncIOSpec with Matcher
     runCompiled(List("run"), "def main: Unit = noSuchThing").asserting(_ shouldBe ExitCode.Error)
   }
 
+  it should "start the program with the arguments after `--`" in {
+    runCompiled(List("run"), exitingWithArgumentCount, List("a", "b", "c")).asserting(_ shouldBe ExitCode(3))
+  }
+
+  it should "start the program with no arguments when none follow" in {
+    runCompiled(List("run"), exitingWithArgumentCount).asserting(_ shouldBe ExitCode.Success)
+  }
+
+  it should "pass the program's options and a second `--` through untouched" in {
+    runCompiled(List("run"), exitingWithArgumentCount, List("--format=plain", "--", "-o")).asserting(_ shouldBe ExitCode(3))
+  }
+
   "the exe-jar mode" should "only produce the jar, whatever the program would exit with" in {
     runCompiled(List("exe-jar"), exitingWith(3)).asserting(_ shouldBe ExitCode.Success)
   }
 
-  private def runCompiled(mode: List[String], source: String): IO[ExitCode] =
+  it should "refuse program arguments, which it has nowhere to send" in {
+    runCompiled(List("exe-jar"), exitingWith(0), List("a")).asserting(_ shouldBe ExitCode.Error)
+  }
+
+  private def runCompiled(mode: List[String], source: String, programArgs: List[String] = Nil): IO[ExitCode] =
     for {
       sourceDir <- IO.blocking(Files.createTempDirectory("eliot-run-src"))
       targetDir <- IO.blocking(Files.createTempDirectory("eliot-run-target"))
       _         <- IO.blocking(Files.writeString(sourceDir.resolve("Test.els"), source))
       exitCode  <- Compiler.runCompiler(
-                     mode ++ List("-m", "Test", sourceDir.toString, "-o", targetDir.toString) ++ layerPathArgs
+                     mode ++ List("-m", "Test", sourceDir.toString, "-o", targetDir.toString) ++ layerPathArgs ++
+                       (if (programArgs.isEmpty) Nil else "--" :: programArgs)
                    )
     } yield exitCode
+
+  /** Exits with the number of arguments the program was started with. */
+  private val exitingWithArgumentCount: String =
+    """
+      |import eliot.system.Process
+      |import eliot.system.Environment
+      |import eliot.collection.List
+      |
+      |def main: {Process, Environment} Unit = registerExitCode(arguments.size)
+      |""".stripMargin
 
   private def exitingWith(code: Int): String =
     s"""
