@@ -12,6 +12,7 @@ import com.intellij.execution.configurations.RunConfigurationBase
 import com.intellij.execution.configurations.RuntimeConfigurationError
 import com.intellij.execution.configurations.RunProfileState
 import com.intellij.execution.process.ColoredProcessHandler
+import com.intellij.execution.process.OSProcessHandler
 import com.intellij.execution.process.ProcessHandler
 import com.intellij.execution.process.ProcessTerminatedListener
 import com.intellij.execution.runners.ExecutionEnvironment
@@ -88,7 +89,9 @@ class EliotRunConfiguration(project: Project, factory: ConfigurationFactory, nam
       override fun startProcess(): ProcessHandler {
         // Coloured so a program's ANSI escapes render in the console instead of showing as raw text — the test runner's
         // report is dressed that way; text without escapes passes through unchanged.
-        val handler = ColoredProcessHandler(runCommandLine())
+        // A test run's output is for the platform's service-message parser, which reads the raw stream: the report has no
+        // colour in that format, so nothing is gained by the ANSI decoder rewriting the text in between.
+        val handler = if (testRun) OSProcessHandler(runCommandLine()) else ColoredProcessHandler(runCommandLine())
         ProcessTerminatedListener.attach(handler)
         return handler
       }
