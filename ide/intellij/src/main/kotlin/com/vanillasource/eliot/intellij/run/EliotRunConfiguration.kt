@@ -1,6 +1,8 @@
 package com.vanillasource.eliot.intellij.run
 
+import com.intellij.execution.DefaultExecutionResult
 import com.intellij.execution.ExecutionException
+import com.intellij.execution.ExecutionResult
 import com.intellij.execution.Executor
 import com.intellij.execution.configurations.CommandLineState
 import com.intellij.execution.configurations.ConfigurationFactory
@@ -13,6 +15,8 @@ import com.intellij.execution.process.ColoredProcessHandler
 import com.intellij.execution.process.ProcessHandler
 import com.intellij.execution.process.ProcessTerminatedListener
 import com.intellij.execution.runners.ExecutionEnvironment
+import com.intellij.execution.runners.ProgramRunner
+import com.intellij.execution.testframework.sm.SMTestRunnerConnectionUtil
 import com.intellij.openapi.options.SettingsEditor
 import com.intellij.openapi.project.Project
 import com.intellij.util.execution.ParametersListUtil
@@ -66,6 +70,12 @@ class EliotRunConfiguration(project: Project, factory: ConfigurationFactory, nam
       options.programArguments = value
     }
 
+  var testRun: Boolean
+    get() = options.testRun
+    set(value) {
+      options.testRun = value
+    }
+
   override fun getConfigurationEditor(): SettingsEditor<out RunConfiguration> = EliotRunConfigurationEditor()
 
   override fun checkConfiguration() {
@@ -81,6 +91,19 @@ class EliotRunConfiguration(project: Project, factory: ConfigurationFactory, nam
         val handler = ColoredProcessHandler(runCommandLine())
         ProcessTerminatedListener.attach(handler)
         return handler
+      }
+
+      /**
+       * An ordinary run keeps the default console. A test run attaches the platform's test console to the process
+       * instead, which reads the runner's service messages from its output and shows the results tree; the output it
+       * does not recognise is still shown, as console text.
+       */
+      override fun execute(executor: Executor, runner: ProgramRunner<*>): ExecutionResult {
+        if (!testRun) return super.execute(executor, runner)
+        val handler = startProcess()
+        val properties = EliotTestConsoleProperties(this@EliotRunConfiguration, executor)
+        val console = SMTestRunnerConnectionUtil.createAndAttachConsole(EliotTestConsoleProperties.FRAMEWORK_NAME, handler, properties)
+        return DefaultExecutionResult(console, handler, *createActions(console, handler, executor))
       }
     }
 

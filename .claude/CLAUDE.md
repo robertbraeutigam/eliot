@@ -178,11 +178,16 @@ Everything editor/IDE-related lives under **`ide/`**; put new editor integration
   See `ide/intellij/README.md`. The `▶ Run main` lens dispatches client-side to an `LSPCommandAction` whose
   **IntelliJ action id must equal the command name**; its before-run task invokes the compiler CLI and gates on
   the exit code, so a stale jar is never run. `▶ Run tests` (`eliot.runTests`) is the same configuration over the
-  runner: `mainModule = eliot.test.Runner`, `programArguments = <suite module>` (`EliotRunLauncher` holds what both
-  actions share). The run console uses `ColoredProcessHandler`, so the runner's ANSI report renders. **The plugin's
-  Kotlin could not be compiled where this was written** — the sandbox's network policy blocks JetBrains' hosts, so
-  Gradle cannot resolve the IntelliJ platform — only the command lines it builds were run. Build it
-  (`./gradlew buildPlugin`) before trusting it.
+  runner: `mainModule = eliot.test.Runner`, `programArguments = --format=teamcity <suite module>`, `testRun = true`
+  (`EliotRunLauncher` holds what both actions share). A `testRun` swaps the default console for the platform's test
+  console (`EliotRunConfiguration`'s `execute` override, `EliotTestConsoleProperties`), which reads the runner's
+  TeamCity service messages (`eliot.test.Report`'s `Teamcity` style) into a results tree: module → subject → case,
+  with a diff for a failed comparison. An ordinary run keeps the default console, under `ColoredProcessHandler` so
+  ANSI renders. **None of this Kotlin could be compiled where it was written** — the sandbox's network policy blocks
+  JetBrains' hosts, so Gradle cannot resolve the IntelliJ platform — only the command lines it builds were run, and
+  the service-message stream was read directly. Build it (`./gradlew buildPlugin`) before trusting it; the least
+  certain points are that `SMTestRunnerConnectionUtil`/`SMTRunnerConsoleProperties` are visible to a plugin that
+  only `<depends>` on the platform in 252, and the `execute`/`createActions` override.
 
 ## Architecture
 

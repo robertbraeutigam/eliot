@@ -13,8 +13,10 @@ import com.redhat.devtools.lsp4ij.commands.LSPCommandAction
  * module is the one holding the suite. The program that runs is not that module but the test runner
  * ([EliotRunLauncher.TEST_RUNNER_MODULE]), built over the same roots; the suite's module name is its one program
  * argument, which makes the runner run that suite alone (`eliot.test.Arguments`: a name selects the suites whose module
- * is that name or lies below it). The runner exits non-zero when a case fails, so the run console shows a failed run
- * as one.
+ * is that name or lies below it). `--format=teamcity` makes it print TeamCity service messages, which the platform's
+ * test runner shows as a results tree (module → subject → case, with a diff for a failed comparison); see
+ * [EliotRunConfiguration] and [EliotTestConsoleProperties]. The runner exits non-zero when a case fails, so the run
+ * ends as a failed one.
  *
  * Registered in plugin.xml under the id `eliot.runTests`, which must equal the command: LSP4IJ dispatches a code-lens
  * command client-side via `ActionManager.getAction(commandId)`.
@@ -31,8 +33,9 @@ class EliotRunTestsCommandAction : LSPCommandAction() {
       name = "Test ${call.moduleName}",
       sourceRoot = call.sourceRoot,
       mainModule = EliotRunLauncher.TEST_RUNNER_MODULE,
-      programArguments = call.moduleName,
+      programArguments = "--format=teamcity ${call.moduleName}",
       dependencyRoots = call.dependencyRoots,
+      testRun = true,
     )
   }
 }

@@ -16,6 +16,7 @@ class EliotRunConfigurationOptions : RunConfigurationOptions() {
   private val dependencyPathOption = string("").provideDelegate(this, "dependencyPath")
   private val outputDirOption = string("").provideDelegate(this, "outputDir")
   private val programArgumentsOption = string("").provideDelegate(this, "programArguments")
+  private val testRunOption = property(false).provideDelegate(this, "testRun")
 
   var sourceRoot: String?
     get() = sourceRootOption.getValue(this)
@@ -33,6 +34,14 @@ class EliotRunConfigurationOptions : RunConfigurationOptions() {
   var outputDir: String?
     get() = outputDirOption.getValue(this)
     set(value) = outputDirOption.setValue(this, value)
+
+  /**
+   * Whether the program is the test runner, whose TeamCity service messages the platform's test runner turns into a
+   * results tree instead of leaving the output as plain console text.
+   */
+  var testRun: Boolean
+    get() = testRunOption.getValue(this)
+    set(value) = testRunOption.setValue(this, value)
 
   /** The command line the program is started with after `java -jar <jar>`, parsed with the platform's shell-like quoting. */
   var programArguments: String?

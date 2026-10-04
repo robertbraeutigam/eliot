@@ -43,7 +43,9 @@ object EliotRunLauncher {
    * Create (or reuse) the configuration called [name], point it at the given build, attach the build-before-run step and
    * launch it under the Run executor, so the user gets the standard run console, Stop button, and re-run. A
    * configuration is reused across re-runs instead of accumulating duplicates, so everything that distinguishes one run
-   * from the last is set here, [programArguments] included.
+   * from the last is set here, [programArguments] and [testRun] included. A [testRun] shows the runner's output as a results
+   * tree instead of console text, so [programArguments] must make the program print what that tree reads
+   * (`--format=teamcity`).
    */
   fun launch(
     project: Project,
@@ -52,6 +54,7 @@ object EliotRunLauncher {
     mainModule: String,
     programArguments: String,
     dependencyRoots: List<String>,
+    testRun: Boolean = false,
   ) {
     val runManager = RunManager.getInstance(project)
     val type = EliotRunConfigurationType.getInstance()
@@ -64,6 +67,7 @@ object EliotRunLauncher {
     configuration.sourceRoot = sourceRoot
     configuration.mainModule = mainModule
     configuration.programArguments = programArguments
+    configuration.testRun = testRun
     configuration.dependencyPath = dependencyRoots.joinToString(File.pathSeparator)
 
     attachBuildTask(project, configuration)
