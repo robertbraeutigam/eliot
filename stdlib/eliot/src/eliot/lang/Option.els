@@ -5,6 +5,10 @@ type Option[A]
  */
 def none[A]: Option[A]
 
+// Merge copy of the lang layer's `some` (name resolution is per-file): `mapOption` and `someIf` below build with it,
+// and without it neither compiled once reached.
+def some[A](value: A): Option[A]
+
 /**
  * Eliminate an `Option`: return `ifNone` when `o` is `None`, or `ifSome(value)` when it is `Some(value)`.
  *
@@ -27,7 +31,7 @@ def foldOption[A, B](ifNone: {} B, ifSome: A => {} B, o: Option[A]): B
  * Reach for `orAbort` instead when the absence should travel on as an effect rather than be answered here, and
  * for `foldOption` when the two cases deserve different treatment.
  */
-infix right
+infix right below (++, ||)
 def orElse[A](o: Option[A], fallback: {} A): A = foldOption(fallback, a -> a, o)
 
 /**
@@ -44,3 +48,52 @@ def orElse[A](o: Option[A], fallback: {} A): A = foldOption(fallback, a -> a, o)
  */
 def mapOption[A, B](f: A => {} B, o: Option[A]): Option[B] =
    o.foldOption(none, a -> some(f(a)))
+
+/**
+ * `value` when `condition` holds and absence otherwise — what an `if` with no `else` describes, as a value rather than
+ * as an `Abort`.
+ *
+ * `value` is only run when `condition` holds. It curries like `if`, so the condition reads first and the value after it.
+ *
+ * ```eliot
+ * def output(result: ProcessResult): Option[String] = someIf(result.exitCode == 0) result.standardOutput
+ * ```
+ */
+def someIf[A](condition: Bool, value: {} A): Option[A] = fold(condition, some(value), none)
+
+/**
+ * Run `action` on the value `o` holds, and do nothing when it holds none — the `Option` twin of a list's `foreach`.
+ *
+ * ```eliot
+ * def refuseSecond(words: List[String]): {Throw[String]} Unit = words.at(1).foreachOption(word -> raise("unexpected " ++ word))
+ * ```
+ */
+def foreachOption[A](action: A => {} Unit, o: Option[A]): Unit = o.foldOption(unit, action)
+
+/**
+ * `true` when `o` holds a value.
+ */
+def isSome[A](o: Option[A]): Bool = o.foldOption(false, _ -> true)
+
+/**
+ * `true` when `o` holds no value.
+ */
+def isNone[A](o: Option[A]): Bool = o.foldOption(true, _ -> false)
+
+/**
+ * `true` when `o` holds a value satisfying `predicate`, and `false` when it holds none — the `Option` twin of a list's
+ * `any`.
+ *
+ * ```eliot
+ * def startsWithComment(lines: List[String]): Bool = lines.head.anyOption(line -> line.startsWith("--"))
+ * ```
+ */
+def anyOption[A](predicate: A => {} Bool, o: Option[A]): Bool = o.foldOption(false, predicate)
+
+/**
+ * Two options are equal when both are absent, or both hold equal values — so `found == some(expected)` asks for a
+ * particular value without taking the option apart first.
+ */
+implement[A ~ Eq] Eq[Option[A]] {
+   def equals(a: Option[A], b: Option[A]): Bool = a.foldOption(b.isNone, value -> b.anyOption(other -> value == other))
+}

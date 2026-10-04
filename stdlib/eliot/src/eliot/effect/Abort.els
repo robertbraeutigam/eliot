@@ -59,7 +59,10 @@ def orAbort[A](o: Option[A]): {Abort} A = foldOption(abort, a -> a, o)
  * the `else` of the `if..else` sugar. On completion it yields the computed value; on `abort` it runs `fallback`
  * instead, never exposing `Option`. The fallback is a suspended slot (`{} A`), so only the taken side ever runs and it
  * may itself perform whatever the enclosing definition declares. `else` discharges the `Abort` layer and touches
- * nothing else. Binds right-associatively, so `if(..) else if(..) else default` nests as expected.
+ * nothing else. Binds right-associatively, so `if(..) else if(..) else default` nests as expected, and looser than
+ * every ordinary operator, so a fallback may be an operator expression as it stands:
+ * `if(failed == 0) "ok" else "failed " ++ show(failed)`. (The *first* arm of an `if` is a juxtaposed argument, which
+ * binds tighter than any operator, so an operator expression there wants parentheses or a block.)
  *
  * ```eliot
  * // Get a setting for a key; aborts if the setting does not exist.
@@ -72,5 +75,5 @@ def orAbort[A](o: Option[A]): {Abort} A = foldOption(abort, a -> a, o)
  * def port: String = setting("port") else "8080"
  * ```
  */
-infix right
+infix right below (++, ||)
 def else[A](computation: {Abort} A, fallback: {} A): A = foldOption(fallback, a -> a, runAbort(computation))

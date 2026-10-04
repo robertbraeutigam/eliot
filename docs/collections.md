@@ -167,3 +167,30 @@ so a file importing both resolved a bare `flatMap` to the list one. **Effects v6
 `eliot.carrier` package**, so there is nothing left to collide with. Kept as the record of a shape that
 will recur for any two imported modules exporting the same name: it is a compile error at the use site,
 never a silent miscompile.
+
+## Round three — the eliminators `eliot.build` and `eliot.test` spelled by hand
+
+Status: IMPLEMENTED (2026-10-04). Both projects were written mostly in `fold`, `foldOption` and
+`foldEither`, and a sweep of them showed the same ten shapes over and over — an `Option` of an error
+built only to be raised, `foldOption(raise(e), x -> x, o)`, `foldOption(None, x -> Some(f(x)), o)`, a
+`find` paired with a projection whose fallback arm was invented, and a `Bool` `fold` where an
+`if..else` was meant. Most of those were not style: they were workarounds, and three of the four
+reasons are gone.
+
+- **Two `if..else`s over two kinds of `Option` crashed** (`NoSuchMethodError` on a `runAbort`), because
+  `used` deduped its walk on a codegen projection that kept a type argument's head and dropped what
+  was inside it. Fixed in `used/CodegenProjection`; `NestedInstantiationIntegrationTest`.
+- **`mapOption` never compiled once reached**: `stdlib`'s `Option.els` called `some`, which only the
+  `lang` copy declared. The stdlib file now carries the merge copy.
+- **`else` had no precedence against `++`, `||` or a comparison**, so an `if..else` whose fallback
+  concatenates did not parse. `else`, `orElse` and `catch` are declared `below (++, ||)` now — the
+  loosest binding in the base, which is what a fallback wants.
+- **The base `Pair` had no projections** — only the platform's `data Pair` did — so platform-independent
+  code took a pair apart with `foldPair`. `first`/`second` are declared abstractly in the base.
+
+**Added to `eliot.lang.Bool`**: `when`, `unless` — a one-armed statement with no `Abort` to discharge.
+**Added to `eliot.lang.Option`**: `someIf`, `foreachOption`, `isSome`, `isNone`, `anyOption`, and
+`Eq[Option[A]]`. **Added to `eliot.collection.List`**: `filterMap`, `findMap` (which stops applying its
+function at the first answer, as `find` does), `includes` (not `contains`, which would shadow
+`eliot.lang.String`'s in every file importing this module) and `toList`. All are platform-independent
+bodies; `StdlibConveniencesIntegrationTest` runs every one.
