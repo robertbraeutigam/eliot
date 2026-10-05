@@ -21,6 +21,14 @@ emits no `dependency$lambda$N` class that would collide with the cross-lift's �
 > optimization it names (a dependency provided once is a constant at every read) is untouched and, with the
 > plumbing already gone, is now a smaller job than this document assumes.
 
+> **Update (2026-10-05): the soundness gate is the compiler track, not the effect row.** §4.5 used to say "safe to
+> evaluate at compile time = empty effect row". That has been false since v6 and is plainly false under effects
+> D20 (`docs/effects.md` §11): a block parameter borrows its caller's effects (`pick(left: => A, …)`, `map(f: A =>
+> B, …)`), so a signature says what a definition *introduces*, never what a *call* performs. The gate is now
+> **"the term reduces to a value on the compiler track"** — the same online rule §2 already states, applied as
+> the safety rule — with the conditions §4.5 lists. Partial residuals gained a hazard the first version missed:
+> a stuck term may never be **dropped**, duplicated or reordered (§3.3, §6).
+
 ## 0. Thesis
 
 Three seemingly separate ideas came up:
@@ -231,6 +239,13 @@ Programs with Block Structure"*). A Reader monad *is* manual lambda-lifting of t
   `openDb(cfg).flatMap(db -> provide(app, db))`, so the thing reaching `provide` is `db` the **λ-bound
   parameter** — an atomic `NeutralHead.Param`, free to duplicate; the `flatMap` already sequenced acquisition
   exactly once. Real let-insertion in readback is only needed if a compound neutral is duplicated (see §6).
+- **Dropping and reordering (added 2026-10-05).** Duplication is the visible half; the dangerous half is the
+  opposite. Eliot is strict, so a stuck term may be an *effect that has not happened yet*, and beta does not know
+  that. In `{ printLine("a"); 1 + 1 }` the statement's result is unused, so substituting it into a body that never
+  mentions it **drops the print** — and a reduction that floats a stuck term past another reorders two effects.
+  Neither is a sharing problem. A partial residual must keep every stuck term, once, in evaluation order: that is
+  let-insertion for *every* compound neutral, not only a duplicated one (§6). Static inlining (§4) is unaffected —
+  it replaces a term only when nothing in it is stuck.
 
 ### 3.4 Generalizes to the whole effect family
 
@@ -241,8 +256,9 @@ read-only state), `Throw`, etc. Teach the readback to share neutrals once and ev
 
 ## 4. Optimization B — static inlining (total residual, a.k.a. CTFE)
 
-**Goal.** Replace a pure, compile-time-known computation with its result: `1+1 → 2`; projecting a field from a
-known config record; `[1,2,3].map(f)` where the list and `f` are known.
+**Goal.** Replace a compile-time-known computation with its result: `1+1 → 2`; projecting a field from a
+known config record; `[1,2,3].map(f)` where the list and `f` are known. "May this be replaced?" is decided by
+evaluation, not by a purity reading of signatures — §4.5.
 
 ### 4.1 It is the same pass, run to completion
 
@@ -323,18 +339,78 @@ always terminates (§4.5), but you do not always *want* it to. Recommended stanc
   structural win. On microcontrollers the default should skew toward "fold scalars, fuse collections,
   materialize little."
 
-### 4.5 Why this is *safer* in Eliot than in C++/Zig
+### 4.5 Why this is *safer* in Eliot than in C++/Zig — and what the soundness gate is
 
-Two cornerstones hand over, for free, the guards CTFE needs elsewhere:
+Two properties hand over, for free, the guards CTFE needs elsewhere:
 
 1. **Totality / no recursion ⇒ unbounded compile-time evaluation cannot hang the compiler.** C++ `constexpr`
-   and Zig `comptime` cap iterations precisely because CTFE can diverge. A pure non-`Inf` Eliot term *provably
+   and Zig `comptime` cap iterations precisely because CTFE can diverge. A non-`Inf` Eliot term *provably
    terminates*, so evaluating to normal form is safe by construction. See the "Total by Default" cornerstone.
-2. **The effect row is a free soundness gate.** "Safe to evaluate at compile time?" = "pure (empty effect row,
-   no `Inf`)?" — already computed. Effectful ⇒ must not force (would execute the effect during compilation).
-   Pure ⇒ safe to force. Partial-evaluation theory usually needs a separate binding-time analysis for the
-   safety split; Eliot reads it off the effect annotation, and reads the known/unknown split off the
-   value/neutral distinction *online* (§2).
+   (`Inf` cannot fold at all: its loop primitive has no compile-time leaf, so it is stuck — rule 2.)
+2. **The compiler track is the soundness gate.** *Rewritten 2026-10-05.* The rule:
+
+   > **A term may be replaced by its value iff it reduces to a value on the compiler track.**
+
+   The compiler track has no world. Every way out to it — a console, a file, a process, the clock — is a platform
+   native, and a platform native has no compile-time leaf, so an evaluation that reaches one is **stuck**
+   (`VStuckNative`). A term that reduces *completely* therefore touched nothing outside the program, and its value
+   is what running it would produce. This is §2's online rule — *whatever gets stuck is the dynamic residual* —
+   used as the safety rule as well: the stuck part is both what cannot be known yet and what might touch the
+   world. No binding-time analysis, no purity analysis, no annotation.
+
+   **Why not the effect row** — the first version of this section. "Pure (empty row) ⇒ safe to force" assumed a
+   signature says what a call performs. Since effects v6 it says what a definition *introduces*: a block parameter
+   borrows its caller's effects, resolved where the argument is written (`docs/effects.md` D20 — `pick(left: => A,
+   …)` declares nothing and runs `printLine`). A row-keyed gate would therefore have to inspect every argument
+   anyway, and it would still refuse what this rule folds.
+
+   **What it folds that a purity gate would refuse**, correctly — as far as the compile track implements the
+   effect involved:
+   - A discharged `Abort` reduces today — `if (c) a else b` over a known `c` is the case — because the compile
+     track's `Abort` (`stdlib/eliot/compiler/eliot/effect/Abort.els`) is written over the escape intrinsic
+     (`monomorphize/processor/EffectIntrinsics`). That is the same reduction that already makes an `if..else`
+     guarded return type reduce during checking.
+   - **`Throw`, `State` and `Writer` do not reduce today.** The compile track has `Abort` and no `Throw`
+     (CLAUDE.md's compiler-as-platform section), and nothing implements `State` or `Writer` over the cell
+     intrinsic that `eliot/compiler/Cell.els` already declares. So `runThrow(…)`, `runStateToPair(…)` and
+     `runWriterToLog(greeting("Bob") with recordingConsole)` are stuck and stay in the code — safe, merely
+     unoptimized. Each starts folding once its effect gets a compile-track implementation over the intrinsics,
+     the same overlay work `Abort` got; the mocked `greeting` would then fold to `"Hello, Bob!;"`, since a named
+     double is pure Eliot. The gate needs no change for that — only the compile track's coverage grows.
+   - An undischarged `raise` or `abort` has no frame and is stuck; `printLine` under `main`'s binding reaches the
+     platform's native and is stuck. Both stay in the code.
+
+   **Precedent.** This is the established design, not the novel one. D's compile-time function evaluation and Zig's
+   `comptime` run ordinary functions at compile time and decide "can it?" by whether the interpreter gets through
+   without reaching something it cannot do — there is no purity annotation. C++ defines a *constant expression* by
+   its evaluation not reaching a forbidden operation; `constexpr` grants permission, it does not certify purity.
+   Online partial evaluation and supercompilation residualize what does not reduce, with effectful primitives
+   simply never static. Lean's kernel reduces a pure reference definition and treats `extern`/`IO` primitives as
+   opaque constants — the native-leaf boundary under another name. Keying on declared purity (Haskell's types,
+   Rust's `const fn`) is the narrower approach.
+
+   **Conditions — invariants to keep, not analyses to run:**
+
+   a. **No compiler-track leaf touches the world.** The compile-time leaves are Scala
+      (`SystemNativesProcessor`, `StdlibNativesProcessor`), written by the compiler's authors; a leaf reading a
+      clock, a file or an environment would make this rule unsound everywhere at once.
+   b. **A name realised on both tracks computes the same value on both.** `String` operations, `Int` arithmetic,
+      `Bool`'s `fold` and every compile-time twin. Today a disagreement is a type-checking oddity; with folding it
+      is a **miscompile**, silently. This needs differential tests — the same inputs evaluated on both tracks.
+   c. **An effect's default does not resolve to a different implementation on the compiler track.** Were a
+      `compiler/` overlay to ship a pure anonymous `implement Console` (for checking, say), `printLine` under
+      `main` would reduce there and the print would vanish from the binary. Today only `Abort` has an overlay
+      implementation, and it is the same control effect over an intrinsic frame. A *named* implementation is the
+      same name on both tracks, so a mocked computation folding (once its effects reduce) is correct. Giving
+      `Throw`/`State`/`Writer` compile-track implementations is exactly this condition's case: each must be the
+      control effect's one semantics over an intrinsic frame, never an interpretation effect's default.
+   d. **Stuck means "residualize", quietly.** The checker's stuck term is a loud error ("Cannot resolve type"),
+      correctly. The optimizer needs its own entry where stuck is an outcome, not a failure — the "quiet-stall
+      evaluator entry with fuel" `docs/effects.md` §12 already lists under "not now".
+   e. **A budget.** Totality says it ends, not that it ends soon (§4.4, §6).
+   f. **A partial result keeps every stuck term, once, in order** (§3.3). Total folding — the case this section
+      is about — replaces a term only when nothing in it is stuck, so it never meets this condition; the peel
+      always does.
 
 ---
 
@@ -378,19 +454,39 @@ monomorphization already has the bodies; this is an unfolding *policy*, not new 
 is a policy, not a correctness question, so it can start dumb-conservative (fold only bounded/small results)
 and grow.
 
+**Missing piece #5 — the gate's entry and its guards (§4.5, added 2026-10-05):** a **quiet-stall** evaluator
+entry for the optimizer, where stuck means "residualize" rather than the checker's error (with fuel, for
+§4.4's budget); and **differential twin tests** that evaluate every name realised on both tracks over the same
+inputs. The second guards a soundness condition and should land first.
+
+**Missing piece #6 — compile-track control effects (optional, coverage only):** `Throw`, `State` and `Writer`
+implemented over the compile track's escape and cell intrinsics, as `Abort` already is. Without them a discharged
+`Throw`/`State`/`Writer` is stuck and simply not folded; with them it folds, mocked computations included.
+
 ---
 
 ## 6. Open questions / risks
 
-- **Let-insertion for compound neutrals.** Idiomatic monadic bind makes the shared value atomic (§3.3), but a
-  general value-path readback should still be able to introduce a shared `let` rather than duplicate a costly
-  neutral, so the optimization is not defeated by non-idiomatic code.
+- **Let-insertion for compound neutrals — required for soundness, not only for sharing.** Idiomatic monadic bind
+  makes the shared value atomic (§3.3), but a general value-path readback should still be able to introduce a
+  shared `let` rather than duplicate a costly neutral, so the optimization is not defeated by non-idiomatic code.
+  *Added 2026-10-05:* duplication is the mild half. In a strict language a compound neutral may be an effect not
+  yet performed, so beta substituting it into a body that ignores it **drops** the effect, and floating it past
+  another neutral **reorders** two effects (§3.3's `{ printLine("a"); 1 + 1 }`). The partial-residual readback
+  must let-bind every compound neutral at the point it is evaluated, in evaluation order — the standard remedy
+  for partial evaluation of a strict language with effects (Bondorf & Danvy's let-insertion; Lawall & Thiemann,
+  *Sound Specialization in the Presence of Computational Effects*). Total folding is untouched: it never
+  residualizes anything.
 - **Codegen expectations.** Do `used`/`uncurry`/the jvm backend accept a *normalized* (carrier-collapsed) term
   shape, or do they rely on seeing the un-reduced calls? The value-path readback must emit a term the back half
   already understands. Cross-check against [architecture-review.md](./architecture-review.md) (the back-half
   seam) and [monomorphize-review.md](./monomorphize-review.md).
-- **Effectful terms must be excluded from forcing.** The effect row is the gate (§4.5); verify a term with a
-  non-empty row (or `{Inf}`) is never forced to a value at compile time.
+- **The gate's invariants must be kept, and tested.** A term is replaced only when it reduces completely on the
+  compiler track (§4.5; *rewritten 2026-10-05*, it used to read "the effect row is the gate"). That rule is only
+  as sound as §4.5's conditions (a)–(c): no compile-time leaf touches the world, twins agree, and no effect's
+  default resolves differently on the compiler track. Of these, (b) is the one that can rot unnoticed — a
+  `String` twin drifting from its jvm leaf is today a checking oddity and becomes a silent miscompile the day
+  folding lands — so differential tests over both tracks should land *before* the optimization does.
 - **Compile-time blowup.** Totality bounds evaluation (it will not hang) but does not make it *fast*. Heavy
   compile-time data slows the compiler; the §4.4 budget must weigh compile-time, not only binary size.
 - **Multiple-site specialization vs. size** (§3.3) — where to draw the peel-vs-thread line when a value is
@@ -412,7 +508,15 @@ and grow.
 - **Deforestation / fusion** — Wadler; `foldr/build` short-cut fusion (Gill/Launchbury/Peyton Jones); stream
   fusion. The "don't materialize the intermediate" answer to §4.
 - **CTFE / comptime** — C++ `constexpr`/`consteval`, Zig `comptime`, D CTFE, Rust const-eval, Nim `static`,
-  Jai `#run`. All restricted, iteration-capped; Eliot's version is unrestricted-but-safe (§4.5).
+  Jai `#run`. All restricted, iteration-capped; Eliot's version is unrestricted-but-safe (§4.5). D, Zig and C++
+  decide *whether* something can be evaluated by evaluating it — the interpreter refuses I/O and globals — which
+  is the gate §4.5 adopts; Rust's `const fn` is the annotation-keyed alternative.
+- **Opaque primitives in a reducing checker** — Lean's kernel reduces a pure reference definition and treats
+  `extern`/`implemented_by`/`IO` primitives as opaque, so kernel reduction can never perform I/O: Eliot's
+  native-leaf boundary, and the reason §4.5's gate is sound.
+- **Effects in partial evaluation** — let-insertion (Bondorf & Danvy) and Lawall & Thiemann, *Sound
+  Specialization in the Presence of Computational Effects*: a residualized effectful term is let-bound in
+  evaluation order, never dropped, duplicated or moved (§3.3, §6).
 - **Normalization in dependently-typed languages** — Agda/Idris/Lean/Coq normalize closed terms to canonical
   constructor form and lean on it (`decide`, reflection, `#eval`). **Eliot is in this family**, which is why
   the engine already exists.
@@ -443,8 +547,12 @@ and grow.
   by `provide` and both the asymmetry and the weakness vanish.
 - **Peel:** not an optimization to add — it is the NbE evaluator you already have, provided the runtime
   readback tolerates and let-shares a neutral environment the way the type-level quoter refuses to.
-- **Static inlining:** the *same* pass run to completion (total residual); totality makes unbounded CTFE safe,
-  the effect row is a free soundness gate; two hard parts — the materialization budget, and reification.
+- **Static inlining:** the *same* pass run to completion (total residual); totality makes unbounded CTFE safe;
+  the soundness gate is **"reduces to a value on the compiler track"**, never the effect row (a block borrows its
+  caller's effects, so a signature cannot say what a call performs); two hard parts — the materialization budget,
+  and reification.
+- **The gate's price:** three invariants (no world-touching compile-time leaf, twins agree, no effect default
+  differing by track) and, for partial residuals only, let-insertion of every stuck term so none is dropped.
 - **Reification is not "just Cons":** the value is computed in the `compiler` platform but must be emitted as
   `runtime`-platform code. Reify to **portable surface syntax** ("what the user could have typed"): Tier-1
   shared-name `data` quotes structurally (merge's `signatureEquality` licenses it; codegen re-lowers per
