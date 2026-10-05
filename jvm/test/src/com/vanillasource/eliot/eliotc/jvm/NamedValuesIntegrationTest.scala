@@ -124,7 +124,7 @@ class NamedValuesIntegrationTest extends AsyncFlatSpec with AsyncIOSpec with Mat
         runningStep,
         Map(
           "AlphaTest" -> """def test: {Console} Unit = printLine("alpha ok")""",
-          "BetaTest"  -> """def test: {Console, Throw[String]} Unit = raise("beta broke")"""
+          "BetaTest"  -> """def test: {Throw[String]} Unit = raise("beta broke")"""
         )
       )
     ).asserting(

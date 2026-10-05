@@ -39,7 +39,7 @@ object EffectCorpus {
       |
       |def caught: {Console} Unit = failUnit catch (err -> printLine(err))
       |
-      |def allowed: {Abort} String = "granted"
+      |def allowed: {Abort} String = if(true, "granted")
       |def denied: {Abort} String = abort
       |
       |def testAllowed: Option[String] = runAbort(allowed)

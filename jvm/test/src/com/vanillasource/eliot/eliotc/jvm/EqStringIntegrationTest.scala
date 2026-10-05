@@ -42,7 +42,7 @@ class EqStringIntegrationTest extends FullIntegrationTest {
         |import eliot.effect.Console
         |import eliot.effect.Abort
         |
-        |def label(s: String): {Abort} String = if(s == "A", "first") else if(s == "B", "second") else "none"
+        |def label(s: String): {Abort} String = if(s == "A", "first") else if(s == "B", "second")
         |
         |def main: {Console} Unit = printLine(label("B") else "?")""".stripMargin
     ).asserting(_ shouldBe "second")

@@ -41,7 +41,7 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
       """import eliot.effect.Console
         |import eliot.effect.Abort
         |
-        |def safe: {Abort} String = "config-value"
+        |def safe: {Abort} String = if(true, "config-value")
         |
         |def main: {Console} Unit = printLine(foldOption("<absent>", s -> s, runAbort(safe)))""".stripMargin
     ).asserting(_ shouldBe "config-value")
@@ -82,7 +82,7 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
       """import eliot.effect.Console
         |import eliot.effect.Throw
         |
-        |def parseOk: {Throw[String]} String = "parsed-value"
+        |def parseOk: {Throw[String]} String = fold(true, "parsed-value", raise("unparseable"))
         |
         |def main: {Console} Unit = printLine(foldEither(err -> err, v -> v, runThrow(parseOk)))""".stripMargin
     ).asserting(_ shouldBe "parsed-value")
@@ -108,7 +108,7 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
       """import eliot.effect.Console
         |import eliot.effect.Throw
         |
-        |def parseOk: {Throw[String]} String = "parsed-value"
+        |def parseOk: {Throw[String]} String = fold(true, "parsed-value", raise("unparseable"))
         |def parseBad: {Throw[String]} String = raise("malformed input")
         |
         |def main: {Console} Unit = {
@@ -131,7 +131,7 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
       """import eliot.effect.Console
         |import eliot.effect.Throw
         |
-        |def parseOk: {Throw[String]} String = "ok-value"
+        |def parseOk: {Throw[String]} String = fold(true, "ok-value", raise("unparseable"))
         |def parseBad: {Throw[String]} String = raise("boom")
         |
         |def recovered: String = parseBad catch (err -> "recovered-default")
@@ -157,7 +157,7 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
       """import eliot.effect.Console
         |import eliot.effect.Throw
         |
-        |def parseOk: {Throw[String]} String = "parsed-value"
+        |def parseOk: {Throw[String]} String = fold(true, "parsed-value", raise("unparseable"))
         |def failUnit: {Throw[String]} Unit = raise("boom")
         |
         |def main: {Console} Unit = {
@@ -202,7 +202,7 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
         |data NetError(netReason: String)
         |data ParseError(parseReason: String)
         |
-        |def fetch(url: String): {Throw[NetError]} String = url
+        |def fetch(url: String): {Throw[NetError]} String = fold(true, url, raise(NetError("unreachable")))
         |def parse(raw: String): {Throw[ParseError]} String = raise(ParseError("unexpected token"))
         |
         |def loadConfig(url: String): {Throw[NetError], Throw[ParseError]} String = parse(fetch(url))
@@ -222,7 +222,7 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
         |import eliot.effect.Throw
         |
         |def raiseFirst: {Throw[String]} String = raise("first failed")
-        |def keepSecond(prev: String): {Throw[String]} String = prev
+        |def keepSecond(prev: String): {Throw[String]} String = fold(true, prev, raise("second failed"))
         |
         |def combined: {Throw[String]} String = keepSecond(raiseFirst)
         |
@@ -237,7 +237,7 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
       """import eliot.effect.Console
         |import eliot.effect.Abort
         |
-        |def safe: {Abort} String = "config-value"
+        |def safe: {Abort} String = if(true, "config-value")
         |def giveUp: {Abort} String = abort
         |
         |def main: {Console} Unit = {
@@ -260,7 +260,7 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
         |import eliot.effect.Abort
         |
         |def grade(s: String): {Abort} String =
-        |   if(s == "A", "excellent") else if(s == "B", "good") else "fail"
+        |   if(s == "A", "excellent") else if(s == "B", "good")
         |
         |def main: {Console} Unit = {
         |   printLine(grade("A") else "?")
@@ -364,7 +364,7 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
       """import eliot.effect.Console
         |import eliot.effect.Abort
         |
-        |def allowed: {Abort} String = "granted"
+        |def allowed: {Abort} String = if(true, "granted")
         |def denied: {Abort} String = abort
         |
         |def testAllowed: Option[String] = runAbort(allowed)
@@ -693,7 +693,7 @@ class ExamplesIntegrationTest2 extends FullIntegrationTest {
         |import eliot.effect.Throw
         |
         |def bad: {Throw[String]} String = raise("boom")
-        |def outcome: {Console} Either[String, String] = runThrow(bad)
+        |def outcome: Either[String, String] = runThrow(bad)
         |
         |def main: {Console} Unit = {
         |   printLine(outcome.foldEither(e -> e, s -> s))

@@ -564,6 +564,18 @@ write's own walk (§3.1), so this is a spec of `row/BindingWriter` rather than o
 - **two exemptions, both because something else answers**: a **signature**, whose `raise`/`abort` is the guard
   channel's vocabulary and is discharged by the guarded-return read; and a platform **run boundary**, where
   every effect's chain ends and each of `main`'s entries is bound to the two-site `Default`.
+- **a declared entry must be consumed** (decided 2026-10-05): an entry of a definition's own row that no reference
+  in its **body** is written from is the error "This value declares the effect 'X' but does not perform it", at the
+  entry. A row says *my caller hands me an implementation of these*; one nothing here uses asks every caller to
+  declare an effect on no evidence, all the way to `main`. Consumed means written from at least once — by an
+  operation, a declaring callee, a `with`'s clause-row bindings, or a stored read — on any path, so `if(ok, v)`
+  consumes `Abort` whatever `ok` is. An actual at a slot that does not supply the entry is bound in the *caller's*
+  scope (§2.1), so running it consumes nothing: `def run[A](v: {Console} A): {Console} A = v` is rejected, being its
+  `{}`-slot twin with a declaration nobody needs. Exempt: a body-less value (its row is a contract a later layer
+  bodies), a run boundary, and a signature's own references. An `implement` clause declares the union of its block's
+  clause rows (`ImplementationRows`), so it is held only to the entries it wrote. The error waits for the
+  definition's callees: a callee performing the effect *undeclared* is its usual cause, and that callee's error is
+  reported instead (`RowElaborationProcessor.calleesWritten`).
 
 **Suspension is row-neutral.** Whether a slot is strict or declared-suspended changes only *when* the effect
 runs and *whose* declarations bind it — never whether the caller must declare what it performs.

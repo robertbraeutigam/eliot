@@ -34,12 +34,24 @@ object ImplementationRows {
   def union(clauses: Seq[FunctionDefinition]): Seq[UnresolvedAbilityConstraint[Sourced[Expression]]] =
     clauses.flatMap(clause => entriesOf(clause.typeDefinition)).distinctBy(UnresolvedAbilityConstraint.key)
 
-  /** The definition with `row` as its declared return row, in place of whatever it declared. */
+  /** The definition with `row` as its declared return row, in place of whatever it declared.
+    *
+    * An entry the clause wrote itself keeps the clause's own copy, and with it the clause's own source position, so the
+    * union is the same list in every clause while each entry still points at the clause that declared it. That is what
+    * lets [[com.vanillasource.eliot.eliotc.row.BindingWriter]] hold a clause to the entries it wrote and not to the
+    * ones it only carries for its siblings.
+    */
   def carrying(
       row: Seq[UnresolvedAbilityConstraint[Sourced[Expression]]],
       definition: FunctionDefinition
   ): FunctionDefinition =
-    if (row.isEmpty) definition else definition.copy(typeDefinition = rowed(row, definition.typeDefinition))
+    if (row.isEmpty) definition
+    else {
+      val own = entriesOf(definition.typeDefinition).map(entry => UnresolvedAbilityConstraint.key(entry) -> entry).toMap
+      definition.copy(typeDefinition =
+        rowed(row.map(entry => own.getOrElse(UnresolvedAbilityConstraint.key(entry), entry)), definition.typeDefinition)
+      )
+    }
 
   /** The expression with `row` as its top-level row, in place of whatever it had. */
   def rowed(

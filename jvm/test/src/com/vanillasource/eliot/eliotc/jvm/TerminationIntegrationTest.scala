@@ -239,15 +239,15 @@ class TerminationIntegrationTest extends FullIntegrationTest {
     ).asserting(_ shouldBe "before\nstored")
   }
 
-  // The step's own capability effect rides the same carrier as the driver's `Inf`: a `{Console}` step run by an
-  // `{Inf, Console}` driver unions both effects (the `{e}`-on-the-step polymorphism the M1 deviation deferred to M2)
-  // and runs end-to-end.
-  "an {Inf, Console} driver over a {Console} step" should "union both effects and loop endlessly" in {
+  // The step's own effect is bound where the step is written: a `{Console}` step handed to an `{Inf}` driver through a
+  // `{}` slot is charged to `main`, which writes it, and the driver declares only the `Inf` it performs itself — a
+  // driver declaring the step's `Console` too would declare an effect it does not perform, which is rejected.
+  "an {Inf} driver over a {Console} step" should "charge the step's effect where it is written and loop endlessly" in {
     compileAndRunBounded(
       """import eliot.effect.Console
         |import eliot.effect.Inf
         |
-        |def driver(step: {} Unit): {Inf, Console} Unit = forever(step)
+        |def driver(step: {} Unit): {Inf} Unit = forever(step)
         |
         |def main: {Inf, Console} Unit = driver(printLine("tick"))""".stripMargin,
       timeoutMillis = 400

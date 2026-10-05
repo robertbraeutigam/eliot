@@ -104,7 +104,7 @@ class SystemIoIntegrationTest extends FullIntegrationTest {
 
   it should "report zero for a program that registers nothing" in {
     compileAndRunToCompletion(exitCodeProgram("""
-        |   printLine("nothing registered")""".stripMargin))
+        |   printLine("nothing registered")""".stripMargin, row = "Console"))
       .asserting(_ shouldBe ("nothing registered", 0))
   }
 
@@ -127,12 +127,12 @@ class SystemIoIntegrationTest extends FullIntegrationTest {
   /** A `{Console, Process} Unit` program: `registerExitCode` performs no I/O that can fail, so unlike the spawning
     * operations it needs no `Throw[IoError]` discharge.
     */
-  private def exitCodeProgram(body: String): String =
+  private def exitCodeProgram(body: String, row: String = "Console, Process"): String =
     s"""
        |import eliot.effect.Console
        |import eliot.system.Process
        |
-       |def main: {Console, Process} Unit = {$body
+       |def main: {$row} Unit = {$body
        |}""".stripMargin
 
   /** A `{Console, Environment} Unit` program — no failure channel, so it needs no discharge at all. */

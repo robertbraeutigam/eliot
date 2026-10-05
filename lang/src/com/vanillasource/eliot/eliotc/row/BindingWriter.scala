@@ -56,8 +56,12 @@ object BindingWriter {
     * @param violations
     *   What the walk could not answer, each at its own position. A violation aborts the definition: an unwritten
     *   binding would silently run on the platform's default.
+    * @param overDeclarations
+    *   The declared effects the body never performs ([[overDeclared]]). Kept apart from [[violations]] because their
+    *   usual cause is somewhere else — a callee performing an effect it does not declare leaves its caller's
+    *   declaration unconsumed — so the processor reports them only once the callees are known to be sound.
     */
-  case class Written(value: OperatorResolvedValue, violations: Seq[Violation])
+  case class Written(value: OperatorResolvedValue, violations: Seq[Violation], overDeclarations: Seq[Violation])
 
   case class Violation(message: Sourced[String], help: Seq[String] = Seq.empty)
 
@@ -69,8 +73,17 @@ object BindingWriter {
     *   slot supplies. The difference matters in exactly one place, [[Writer.chargeStored]]: a stored computation's
     *   calls were bound where it was constructed, so a `with` over a *read* of one has nothing left to bind (rule 3),
     *   while forwarding a declaration over it is an honest description of what running it performs.
+    * @param received
+    *   Whether this is the definition's own **received** binding — resolution-order step 2, a row entry its caller
+    *   fills. Only these are tracked as consumed ([[Writer.consumed]]), because only a declared entry can be declared
+    *   for nothing.
     */
-  private case class Binding(ability: AbilityFQN, term: OperatorResolvedExpression, byWith: Boolean = false)
+  private case class Binding(
+      ability: AbilityFQN,
+      term: OperatorResolvedExpression,
+      byWith: Boolean = false,
+      received: Boolean = false
+  )
 
   /** The lexical environment at one point. `bindings` is innermost-first, so a nearer `with` shadows an outer one for
     * the same ability; `thunks` are the row-typed parameters in scope, whose references apply.
@@ -92,8 +105,6 @@ object BindingWriter {
       abilities.foldLeft(this)((acc, ability) => acc.bind(Binding(ability, defaultBinding(at))))
 
     def binding(ability: AbilityFQN): Option[Binding] = bindings.find(_.ability == ability)
-
-    def lookup(ability: AbilityFQN): Option[OperatorResolvedExpression] = binding(ability).map(_.term)
   }
 
   /** Writes both halves of a definition, because both hold references: the **body**, and the **signature**.
@@ -112,21 +123,77 @@ object BindingWriter {
     *   scope check.
     */
   def write(orv: OperatorResolvedValue, universe: RowChecker.Universe, atBoundary: Boolean = false): Written = {
-    val writer    = new Writer(universe)
-    val received  = receivedBindings(orv, universe)
-    val scope     = Scope(received, thunkParameters(orv), uncoveredDefaults = atBoundary)
-    val view      = SignatureView.of(orv.signature)
-    val body      = Option
+    val writer     = new Writer(universe)
+    val received   = receivedBindings(orv, universe)
+    val scope      = Scope(received, thunkParameters(orv), uncoveredDefaults = atBoundary)
+    val view       = SignatureView.of(orv.signature)
+    val body       = Option
       .when(writableBody(orv))(orv.runtime)
       .flatten
       .map(writer.walkDefinition(_, scope, view.binders.size + view.parameters.size))
-    val signature =
+    val overstated = body.filterNot(_ => atBoundary).toSeq.flatMap(_ => overDeclared(orv, writer.consumed.toSet))
+    val signature  =
       writer.walkDefinition(orv.signature, Scope(received, Set.empty, uncoveredDefaults = true), view.binders.size)
     Written(
       orv.copy(runtime = body.orElse(orv.runtime), signature = signature),
-      writer.violations.toSeq
+      writer.violations.toSeq,
+      overstated
     )
   }
+
+  /** The entries of this definition's declared row that its body never consumes — the scope check's other direction.
+    * A row says "my caller hands me an implementation of these"; an entry no reference in the body is ever written
+    * from asks every caller to declare an effect that nothing here performs, and an effect declared for nothing
+    * propagates all the way to `main` on no evidence.
+    *
+    * Consumption is read off the body walk alone, which runs first: a signature's effects are the guard channel's,
+    * discharged by the guarded-return read and never performed. A received binding is consumed wherever the write
+    * hands it on — to an operation, to a declaring callee, to a named implementation whose clauses perform it, or to
+    * the read of a stored computation. An actual at a slot that does not supply the entry runs in the *caller's*
+    * scope, so running it consumes nothing here: `def run[A](v: {Console} A): {Console} A = v` declares `Console` for
+    * nothing, exactly as its `{}`-slot twin would.
+    *
+    * Only the declared row is checked, never a `~` constraint's binder, which binds an ability the body may well reach
+    * only through a callee's own constraint. A body-less value has nothing to check — its row is a contract, stated where a later layer supplies the body — and
+    * a run boundary performs `main`'s whole row by definition. An `implement` clause is held only to the entries it
+    * [[wrote]]: it declares the union of its block's clause rows, and an entry a sibling wrote is the sibling's to
+    * perform.
+    */
+  private def overDeclared(orv: OperatorResolvedValue, consumed: Set[AbilityFQN]): Seq[Violation] = {
+    val binders = SignatureView.of(orv.signature).binders
+    val effects = orv.effectRow.returnEffects.map(_.abilityFQN).toSet
+    phantoms(orv)
+      .filter { case (_, ability) => effects.contains(ability) && !consumed.contains(ability) }
+      .distinctBy(_._2)
+      .map { case (index, ability) => ability -> markPosition(binders(index).parameterType, orv) }
+      .filter { case (_, entry) => wrote(orv, entry) }
+      .map { case (ability, entry) =>
+        Violation(
+          entry.as(s"This value declares the effect '${ability.abilityName}' but does not perform it."),
+          Seq(s"Remove '${ability.abilityName}' from its { ... } effect set.")
+        )
+      }
+  }
+
+  /** Where a binding binder's row entry was written: the desugar sources the mark's ability argument at the entry. */
+  private def markPosition(
+      mark: Option[Sourced[OperatorResolvedExpression]],
+      orv: OperatorResolvedValue
+  ): Sourced[?] =
+    mark.flatMap(declared => spine(declared.value)._2.headOption).getOrElse(orv.signature)
+
+  /** Whether this value's own declaration wrote the row entry at `entry`. Always, except for an `implement` clause,
+    * whose row is its block's union ([[com.vanillasource.eliot.eliotc.ast.fact.ImplementationRows]]): there an entry
+    * keeps the source of the clause that wrote it, and a clause's signature runs from its name to its return type, so
+    * an entry inside that stretch is its own and one outside it is a sibling's.
+    */
+  private def wrote(orv: OperatorResolvedValue, entry: Sourced[?]): Boolean =
+    orv.vfqn.name.qualifier match {
+      case _: Qualifier.AbilityImplementation =>
+        val end = SignatureView.of(orv.signature).returnType.range.to
+        entry.uri == orv.name.uri && orv.name.range.from <= entry.range.from && entry.range.to <= end
+      case _                                  => true
+    }
 
   /** Whether this value's **body** is written: everything with a runtime body except a type constructor, and only on
     * the runtime role — a `@Signature` twin's "body" is its own arrow chain, which the signature write covers.
@@ -148,7 +215,7 @@ object BindingWriter {
   private def receivedBindings(orv: OperatorResolvedValue, universe: RowChecker.Universe): Seq[Binding] = {
     val binders = SignatureView.of(orv.signature).binders
     phantoms(orv).map { case (index, ability) =>
-      Binding(ability, ParameterReference(binders(index).name))
+      Binding(ability, ParameterReference(binders(index).name), received = true)
     }
   }
 
@@ -234,6 +301,12 @@ object BindingWriter {
 
   private class Writer(universe: RowChecker.Universe) {
     val violations: mutable.Buffer[Violation] = mutable.Buffer.empty
+
+    /** The abilities whose **received** binding some reference was written from ([[overDeclared]]). */
+    val consumed: mutable.Set[AbilityFQN] = mutable.Set.empty
+
+    private def consume(binding: Binding): Unit =
+      if (binding.received) consumed += binding.ability
 
     /** The definition's own leading binders — its generic binders and then its value parameters — are peeled without
       * shadowing, because they are what *put* the row-typed parameters in scope. Only a lambda inside the body proper
@@ -361,8 +434,8 @@ object BindingWriter {
       */
     private def chargeStored(ability: AbilityFQN, at: Sourced[?], scope: Scope): Unit =
       scope.binding(ability) match {
-        case None                            => reportUncovered(ability, at, scope)
-        case Some(binding) if binding.byWith =>
+        case None                             => reportUncovered(ability, at, scope)
+        case Some(binding) if binding.byWith  =>
           violations += Violation(
             at.as(
               s"This reads a stored computation, whose effect '${ability.abilityName}' was bound where the value " +
@@ -373,7 +446,7 @@ object BindingWriter {
                 "and let it propagate."
             )
           )
-        case Some(_)                         => ()
+        case Some(binding)                    => consume(binding)
       }
 
     /** One actual, at the callee's parameter `index`. A row-typed slot is a thunk, so the actual is wrapped — and the
@@ -653,9 +726,11 @@ object BindingWriter {
         at: Sourced[?],
         scope: Scope
     ): OperatorResolvedExpression =
-      scope.lookup(ability) match {
-        case Some(term) => term
-        case None       =>
+      scope.binding(ability) match {
+        case Some(binding) =>
+          consume(binding)
+          binding.term
+        case None          =>
           if (isEffect) reportUncovered(ability, at, scope)
           defaultBinding(at)
       }

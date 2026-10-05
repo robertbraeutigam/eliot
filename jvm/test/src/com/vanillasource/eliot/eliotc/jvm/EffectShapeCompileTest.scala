@@ -74,7 +74,7 @@ class EffectShapeCompileTest extends AsyncFlatSpec with AsyncIOSpec with Matcher
   // domain, but the whole `?F[String]` pass-through-unifies (`?F := ThrowCarrier[E, G]`, `A := String`), storing the
   // computation — the uniform ladder's arm-1 whole-type pass-through.
   private val captureSource =
-    """def parseOk: {Throw[String]} String = "parsed-value"
+    """def parseOk: {Throw[String]} String = fold(true, "parsed-value", raise("unparseable"))
       |
       |def main: {Console} Unit = printLine(parseOk catch (err -> err))
       |""".stripMargin
@@ -123,7 +123,7 @@ class EffectShapeCompileTest extends AsyncFlatSpec with AsyncIOSpec with Matcher
     """import eliot.effect.Console
       |import eliot.effect.Abort
       |
-      |def grade(s: String): {Abort} String = if(s == "A", "excellent") else if(s == "B", "good") else "fail"
+      |def grade(s: String): {Abort} String = if(s == "A", "excellent") else if(s == "B", "good")
       |
       |def main: {Console} Unit = {
       |   printLine(grade("A") else "?")

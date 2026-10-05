@@ -626,7 +626,10 @@ of two shapes, which also separates the frames for free.
 **Rows are the user surface and the verifier's vocabulary — they never flow back into types.** `EffectRow` is
 declaration metadata (like `paramConstraints`), consumed by the desugar; verification is a separate **channel**
 with **one verifier**: the pre-mono **scope check**, which is the write's own walk, is complete before
-monomorphization and emits "This value performs the effect 'X' but does not declare it…" at the reference.
+monomorphization and emits "This value performs the effect 'X' but does not declare it…" at the reference. It
+checks the other direction too: a declared entry no reference in the body is written from is "This value declares
+the effect 'X' but does not perform it" (§4) — running a suspended argument consumes nothing, since its effects were
+bound where it was written.
 *Forward what is declared, derive what is done* — a forwarded per-operation verdict would be a checker self-report
 and is rejected, as is any negative-effect surface. There was a post-mono second verifier until **D7 retired it
 (2026-09-10)** on the measurement that its "performs X" could only see propagation through a declaring callee, never

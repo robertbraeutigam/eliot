@@ -117,7 +117,7 @@ class FakeImplementationIntegrationTest extends FullIntegrationTest {
         |
         |def greet: {Terminal} Unit = write("hi")
         |
-        |def main: {Terminal, Console} Unit = greet
+        |def main: {Terminal} Unit = greet
         |""".stripMargin
     ).asserting(_ should include("No ability implementation found for ability 'Terminal'"))
   }
@@ -162,7 +162,7 @@ class FakeImplementationIntegrationTest extends FullIntegrationTest {
     compileForErrors(
       s"""import eliot.effect.Console
          |$colocatedDouble
-         |def main: {Terminal, Console} Unit = greet
+         |def main: {Terminal} Unit = greet
          |""".stripMargin
     ).asserting(_ should include("No ability implementation found for ability 'Terminal'"))
   }

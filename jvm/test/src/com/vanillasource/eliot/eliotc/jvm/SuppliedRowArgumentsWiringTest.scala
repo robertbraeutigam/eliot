@@ -23,7 +23,7 @@ class SuppliedRowArgumentsWiringTest extends AsyncFlatSpec with AsyncIOSpec with
   // A valid effectful program: `catch` discharges `{Throw[String]}` at its own slot, and the write takes `E := String`
   // from `parseOk`/`parseBad`'s own declared row, so every supplied entry is determined. The check must accept it.
   private val validSource =
-    """def parseOk: {Throw[String]} String = "ok"
+    """def parseOk: {Throw[String]} String = fold(true, "ok", raise("bad"))
       |def parseBad: {Throw[String]} String = raise("bad")
       |def main: {Console} Unit = {
       |   printLine(parseOk catch (err -> err))

@@ -259,7 +259,7 @@ class CatchShapeMatrixTest extends FullIntegrationTest {
       |import eliot.effect.Throw
       |
       |def raiseFirst: {Throw[String]} String = raise("first")
-      |def keepSecond(prev: String): {Throw[String]} String = prev
+      |def keepSecond(prev: String): {Throw[String]} String = fold(true, prev, raise("second"))
       |def combined: {Throw[String]} String = keepSecond(raiseFirst)
       |
       |""".stripMargin
