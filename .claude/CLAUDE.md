@@ -43,6 +43,14 @@ refuses them (`JvmPlugin`'s `checkConfig`), because arguments it dropped would l
 test runner's filter rides (`eliot.test.Runner`); how a build tool or `eliotw` forwards its own trailing words to the
 compiler line is the build system's side and is not decided here.
 
+**Dependency roots follow `--dependency`.** `run -m Main p/src --dependency cache/x/src` compiles both roots alike —
+each lands in `LangPlugin.pathKey`, so resolution, both pools and the merge never ask — and records the second in
+`LangPlugin.dependencyPathKey` too. That is the build system's two root lists (eliot.build's `docs/build-system.md`,
+"Current sources against dependency sources"): the roots being built against the roots they are built against. A
+target that acts on "the code being built" asks `LangPlugin.currentRoots`; `apidoc` is the one that does, making pages
+for the current roots only while still reading doc comments under every root. The key is a named one, so it enters the
+cache identity. It is a flag rather than a separator because `--` already belongs to the program's arguments.
+
 For a broad change, verify with the fast example sweep + byte-identity comparison rather than `examples.run`
 per example — recipes and their traps are in the `reference_verification_harness_recipes` memory.
 

@@ -64,7 +64,7 @@ class ApiDocPlugin extends CompilerPlugin with Logging {
     */
   override def initialize(configuration: Configuration): StateT[IO, CompilerProcessor, Unit] =
     StateT.modify(superProcessor =>
-      SequentialCompilerProcessors(Seq(superProcessor, ValueDocProcessor(rootsWithLayer(configuration))))
+      SequentialCompilerProcessors(Seq(superProcessor, ValueDocProcessor(rootsWithLayer(LangPlugin.allRoots(configuration)))))
     )
 
   override def run(configuration: Configuration, compilation: CompilationProcess): IO[Boolean] =
@@ -109,7 +109,7 @@ class ApiDocPlugin extends CompilerPlugin with Logging {
       configuration: Configuration,
       compilation: CompilationProcess
   ): IO[Seq[(ModuleName, String, AST)]] =
-    rootsWithLayer(configuration).flatTraverse { case (root, layer) =>
+    rootsWithLayer(LangPlugin.currentRoots(configuration)).flatTraverse { case (root, layer) =>
       eliotFilesUnder(root).flatMap(_.flatTraverse { file =>
         compilation.getFact(SourceAST.Key(file.toFile.toURI)).map {
           case Some(sourceAst) => Seq((moduleNameOf(root, file), layer, sourceAst.ast.value))
@@ -118,12 +118,15 @@ class ApiDocPlugin extends CompilerPlugin with Logging {
       })
     }
 
-  /** The distinct source roots to document, each paired with a human-readable layer label. Every configured root plus
-    * its compile-time `compiler/` overlay is documented; deduplicating by absolute path keeps the base as one
-    * root. The user's program paths fold in as additional roots.
+  /** The distinct roots under `configured`, each paired with a human-readable layer label: every root plus its
+    * compile-time `compiler/` overlay, deduplicated by absolute path so the base is one root.
+    *
+    * Pages are made for the current roots only — a root given with `--dependency` is compiled but not documented, since
+    * a package of docs documents its project and not what the project is built against — while a doc comment is looked
+    * up under every root, so a value the project redeclares still merges the comment of the layer it came from.
     */
-  private def rootsWithLayer(configuration: Configuration): Seq[(Path, String)] = {
-    val runtimeRoots = LangPlugin.allRoots(configuration).map(_.toAbsolutePath.normalize).distinct
+  private def rootsWithLayer(configured: Seq[Path]): Seq[(Path, String)] = {
+    val runtimeRoots = configured.map(_.toAbsolutePath.normalize).distinct
     val roots        = (runtimeRoots ++ runtimeRoots.map(LangPlugin.eliotCompilerOverlay)).distinct
     roots.map(root => root -> layerLabel(root))
   }

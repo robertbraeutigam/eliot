@@ -11,6 +11,7 @@ import com.vanillasource.eliot.eliotc.row.RunBoundaryFunctions
 import com.vanillasource.eliot.eliotc.plugin.LangPlugin.{
   allRoots,
   compilerRoots,
+  dependencyPathKey,
   eliotCompilerOverlay,
   mountFactory,
   pathKey
@@ -60,6 +61,18 @@ class LangPlugin extends CompilerPlugin {
         "an additional source root (a package's `src` dir). Each root is scanned for the runtime pool; for the " +
           "compile-time pool its sibling `compiler/` overlay is added on top (override-preferred). Repeatable; " +
           "this is the option form of the positional `<path>`, usable after a subcommand."
+      ),
+    opt[Path]("dependency")
+      .unbounded()
+      .action((path, config) =>
+        config
+          .updatedWith(pathKey, _.getOrElse(Seq.empty).appended(path).some)
+          .updatedWith(dependencyPathKey, _.getOrElse(Seq.empty).appended(path).some)
+      )
+      .text(
+        "a source root that belongs to a dependency rather than to the code being built. It is compiled exactly " +
+          "like a `--path` root; what differs is what a target does with it: `apidoc` documents only the current " +
+          "roots. Repeatable."
       )
   )
 
@@ -120,6 +133,27 @@ object LangPlugin {
 
   /** All configured source roots, in order. */
   def allRoots(configuration: Configuration): Seq[Path] = configuration.getOrElse(pathKey, Seq.empty)
+
+  /** The roots given with `--dependency`: the sources a build is compiled *against* rather than the sources it builds —
+    * what a build tool mounts from its cache, as against the project's own roots. Each is in [[pathKey]] as well, so
+    * compilation treats every root alike, and only a target that acts on "the code being built" asks which is which:
+    *
+    * {{{
+    * eliotc apidoc /p/src --dependency /cache/eliot@v0.8/stdlib/eliot/src -o target   # documents /p/src only
+    * }}}
+    *
+    * It enters the cache identity: the same roots split differently can produce a different artefact.
+    */
+  val dependencyPathKey: Configuration.Key[Seq[Path]] = namedKey[Seq[Path]]("dependencyPaths")
+
+  /** The dependency roots, in order (see [[dependencyPathKey]]). */
+  def dependencyRoots(configuration: Configuration): Seq[Path] = configuration.getOrElse(dependencyPathKey, Seq.empty)
+
+  /** The current roots: every root that was not given as a dependency, in order. A root given both ways is current. */
+  def currentRoots(configuration: Configuration): Seq[Path] = {
+    val current = (allRoots(configuration) diff dependencyRoots(configuration)).toSet
+    allRoots(configuration).filter(current.contains)
+  }
 
   /** **Explicit** compile-time overlay roots, set programmatically by a driver (the LSP) — *not* a CLI option. Each is
     * scanned for the compiler pool only, override-superseding the borrowed runtime definition of the same name, exactly
