@@ -529,10 +529,19 @@ syntax-directed pass. Rows and implementations are two different things on purpo
 what makes effects free of special cases. Authoritative design: `docs/effects.md` — Part I states the shipped
 design (§1 the four user rules, §2 the surface, §3 the mechanism, §4 the scope check, §5 the standing rules,
 §6 testing, §7 the live limitations); Part II is what is left (§8 where the tree diverges from Part I, §9 the
-next change — a binding binder marked by its declared type `Implementation[A]`, decided 2026-09-11 and not yet
-built, §10 the gate and method, §11 the open decisions); Part III holds §12's **do-not-re-propose** list and the
+binding binder marked by its declared type `Implementation[A]`, built, §10 the gate and method, §11 the open
+decisions); Part III holds §12's **do-not-re-propose** list and the
 provenance for a comment citing a retired document or the retired v6 plan record (§13). **There is no carrier, no monad, no `Id`, and nothing to infer** — if you are
 reading code or a comment that mentions one, it is history.
+
+**Decided 2026-10-05, not yet built: D20 (`docs/effects.md` §11) replaces the surface below.** An effect is a
+parameter you don't spell, resolved where it is written: `def greet(name: String) uses Console: Unit`. A parameter
+is a value or a **block** — a function type, or `=> A` for a lazy argument (today's `{} A`); a block may be called
+or passed on, **never kept**; a handler's slot is `body uses Throw[E]: => A`; a definition with a body gives its
+block only what it has (an effect's default is handed out at `main` and by platform primitives only); a `data`
+field holds a value, so stored computations go. It closes `docs/effects.md` §8 items 9–13 — five programs that
+compile today and misbehave — and reverses rule 3 and rule 4's predicate below. Until it lands, what follows is
+the tree.
 
 **Four user rules, and the fourth outranks the other three** (§1):
 
