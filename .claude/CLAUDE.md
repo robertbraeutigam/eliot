@@ -94,17 +94,21 @@ selects however the tree is rearranged.
 ### Releases: the `v0` line
 
 This repository is an Eliot package (root `eliot.pkg`), so it is versioned the way the build system
-versions every package: **a major version is a branch, a release is an annotated tag on it.** Development
-happens on `master`; releases are cut onto the line branch. The line is **`v0`** and its first release is
-**`v0.0`** (2026-09-13, the commit where the layers moved into the standard layout) — v0 rather than v1
-because a line is an append-only promise about exported signatures, `eliot compat-check` does not exist
-yet, and the base still changes shape wholesale. `v0.0`'s commit is also the line's *lineage anchor*, the
-identity two spellings of this repository's URL are unified by, so it never moves.
+versions every package: **a release is an annotated tag, and a major version is the number its tags start
+with.** No branch is involved — the launcher reads tags and never branches (eliot-build's
+`docs/build-system.md`, "Versions") — so releases are tagged on `master`, where development happens. The
+line is **`v0`** and its first release is **`v0.0`** (2026-09-13, the commit where the layers moved into
+the standard layout) — v0 rather than v1 because a line is an append-only promise about exported
+signatures, `eliot compat-check` does not exist yet, and the base still changes shape wholesale. `v0.0`'s
+commit is also the line's *lineage anchor*, the identity two spellings of this repository's URL are
+unified by, so it never moves. (The `v0` branch is what releases used to be cut onto; nothing reads it.)
 
-To publish a release: fast-forward `v0` to the commit, `git tag -a v0.<n>` on it, push both. Tags must be
-**annotated** — the resolver reads the peeled ref and a lightweight tag has none, and
-`.github/workflows/release.yml` refuses a lightweight tag rather than letting it fail at whoever depends
-on it.
+To publish a release: push the commit to `master`, then `./eliotw --release` — it tags the commit checked
+out as the next `v0.<n>` and pushes that one tag, refusing a dirty tree, an unpushed commit, a commit that
+does not follow the last release and one that release already names. `./eliotw --release v1.0` starts a
+new line, which is never chosen for you. Tags must be **annotated**, which `--release` always makes — the
+resolver reads the peeled ref and a lightweight tag has none, and `.github/workflows/release.yml` refuses a
+lightweight tag rather than letting it fail at whoever depends on it.
 
 Pushing the tag is the whole of publishing. That workflow runs `./mill __.test`, builds the three plugin
 assets `eliot.pkg` declares (`scripts/package-assets.sh`) and creates the GitHub release with their
@@ -125,15 +129,16 @@ wrapper is for here is reading the descriptor the way a consumer does, which is 
 this repository can do:
 
 ```bash
-./eliotw resolve examples  # what a package's foreign dependencies close over (nothing, today)
-./eliotw roots examples    # the source roots the layers' `at` clauses resolve to
+./eliotw --project-model   # every package's source roots, as the layers' `at` clauses resolve them
+./eliotw --release         # tag the pushed commit as the next release, and push the tag
 ```
 
-That second command is worth running before cutting a release. Every consumer's build mounts exactly
-those directories, derived from `eliot.pkg`'s `package`/`at` clauses — so a typo in one is invisible here,
+The first is worth running before cutting a release. Every consumer's build mounts exactly those
+directories, derived from `eliot.pkg`'s `package`/`at` clauses — so a typo in one is invisible here,
 compiles fine, passes `./mill __.test`, and then silently mounts nothing at whoever depends on the tag.
 
-It fetches the launcher release the `launcher` line pins (`v0.6`, the first with `--project-model`, which the LSP reads), which needs no compiler checkout and no mill.
+It fetches the launcher release the `launcher` line pins (`v0.7`, the first with `--release`; `v0.6` was the
+first with `--project-model`, which the LSP reads), which needs no compiler checkout and no mill.
 
 ### IDE Tooling (`ide/`)
 

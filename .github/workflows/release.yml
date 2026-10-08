@@ -38,7 +38,7 @@ jobs:
           # The whole history, so the tag object itself is here to be inspected below.
           fetch-depth: 0
 
-      # A release is an annotated tag on a line branch. The resolver reads the peeled ref, which a
+      # A release is an annotated tag. The resolver reads the peeled ref, which a
       # lightweight tag does not have, so a lightweight tag is a release no package can ever select —
       # and it fails at whoever depends on it rather than here. Refuse it here instead.
       - name: The tag is annotated
