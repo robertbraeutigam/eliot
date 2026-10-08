@@ -491,6 +491,51 @@ class IncrementalFactGeneratorTest extends AsyncFlatSpec with AsyncIOSpec with M
     test.asserting(_ shouldBe (Some(NumberFact("sibling", 20)), 0))
   }
 
+  it should "not accept a fact against a dependency that was dropped and then recreated without it" in {
+    // Run 2 moves 'a', which drops its direct dependent 'm' — but not 'w', which was recorded against 'm' and is only
+    // safe while 'm' has no entry. Run 3 recreates 'm' from nothing and never reaches 'w'. Run 4 then finds 'm''s new
+    // entry intact and must not serve run 1's 'w' for an 'm' it never consumed.
+    val test = for {
+      src    <- Ref.of[IO, Int](10)
+      counts <- counters("leaf", "a", "m", "w")
+      proc    = graph(
+                  Map("leaf" -> Leaf(src), "a" -> Derived("leaf", _ + 1), "m" -> Derived("a", _ * 2), "w" -> Derived("m", _ * 10)),
+                  counts
+                )
+      run1   <- runBuild(proc, None)(_.getFact(NumberKey("w")))
+      _      <- src.set(20)
+      run2   <- runBuild(proc, Some(run1._2))(_.getFact(NumberKey("a"))) // 'a' moves; 'm' is dropped, 'w' is kept
+      run3   <- runBuild(proc, Some(run2._2))(_.getFact(NumberKey("m"))) // 'm' is recreated; 'w' is never demanded
+      run4   <- runBuild(proc, Some(run3._2))(_.getFact(NumberKey("w")))
+    } yield (run1._1, run4._1)
+    test.asserting(_ shouldBe (Some(NumberFact("w", 220)), Some(NumberFact("w", 420))))
+  }
+
+  it should "not accept a fact against a pushed dependency that moved while it was not looking" in {
+    // The pushed twin of the three-run trap above. Run 2 changes the leaf and demands only 'pusher', which *pushes*
+    // 'sibling' — so 'sibling' advances without ever being resolved, and 'w', recorded against it in run 1, is never
+    // reached. Run 3 validates 'w' through 'sibling''s new entry, whose inherited dependencies hold, and must not serve
+    // run 1's 'w' for a 'sibling' it never consumed.
+    val test = for {
+      src    <- Ref.of[IO, Int](10)
+      counts <- counters("leaf", "pusher", "sibling", "w")
+      proc    = graph(
+                  Map(
+                    "leaf"    -> Leaf(src),
+                    "pusher"  -> Pushing("leaf", "sibling", _ * 2),
+                    "sibling" -> Derived("leaf", _ * 2),
+                    "w"       -> Derived("sibling", _ * 10)
+                  ),
+                  counts
+                )
+      run1   <- runBuild(proc, None)(g => g.getFact(NumberKey("pusher")) >> g.getFact(NumberKey("w")))
+      _      <- src.set(15)
+      run2   <- runBuild(proc, Some(run1._2))(_.getFact(NumberKey("pusher"))) // pushes 'sibling'; 'w' never demanded
+      run3   <- runBuild(proc, Some(run2._2))(_.getFact(NumberKey("w")))
+    } yield (run1._1, run3._1)
+    test.asserting(_ shouldBe (Some(NumberFact("w", 200)), Some(NumberFact("w", 300))))
+  }
+
   it should "persist a directly registered out-of-generation fact as a leaf entry" in {
     // No dependency record exists for it, so it gets leaf semantics: always regenerated next run, never accepted
     // blindly (covered by "always regenerate a fact whose cached entry has no recorded dependencies").
