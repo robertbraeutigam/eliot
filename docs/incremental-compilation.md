@@ -1622,3 +1622,47 @@ because the run that moved it was, by this rule, unable to prove it unchanged an
   regenerations every run. From an empty cache, edit → revert → broken edit → fix returns to 1,232 on the run after
   each step; before the fix every one of them started the alternation.
 - `./mill __.test` green.
+
+## 28. A key the run created, or pushed, can move too (2026-10-08)
+
+The `v0.8` release workflow failed its suite on three `StoredComputationIntegrationTest` cases, each a correct
+program reported as `Test.els:1: Could not find 'url'.` with no jar — a name the program does not contain. It was
+§26's failure shape again, once in roughly three full `jvm.test` runs, and only when the suites in one worker happened
+to run in a particular order.
+
+### The mechanism
+
+Recording every program one worker's shared session compiled (212 of them) and replaying them into one fresh session
+reproduced it at program 139 about half the time. Three runs carry it, far apart:
+
+- **Program 69** defines `def run … = … dependency.url …`. Its `SaturatedValue(Test::run)` and
+  `BodyValueReferences(Test::run)` — the references its body names, `Test::url` among them — enter the cache.
+- **Program 70** moves `OperatorResolvedValue(Test::run)`, so §26 drops its direct dependent
+  `RowElaboratedValue(Test::run)`. `SaturatedValue(Test::run)`, recorded against that one, is retained: an input with
+  no entry reads as changed, so §26 rightly needs only direct dependents.
+- **Program 137** declares `data Job(run: …)`, and a failing compile creates `RowElaboratedValue(Test::run)` afresh
+  for the accessor without ever reaching `SaturatedValue`. A key with no prior entry was never counted as moved, so the
+  old `SaturatedValue` stayed — now pointing at an input that has an entry again, one generation newer than what it
+  consumed.
+
+Program 139 validates `BodyValueReferences(Test::run)` through that intact-looking chain, accepts program 69's
+references, and monomorphizing `main` demands `Test::url`. Whether it gets there depends on which of the drill's
+paths is taken first (the `forallM` over a `Set` of §25), which is why the replay was itself only half reproducible.
+
+The same review found a sibling hole: `movedKeys` only looked at keys this run *resolved*. A key a generation
+**pushed** (one file parse registering a `ModuleValue` for every name it declares) advances its entry without ever
+being resolved, so a failing compile that re-pushed a name with a new definition left that name's dependents retained
+against an entry they never consumed.
+
+### The fix
+
+`movedKeys` considers every key the run materialised, pushed ones included, and counts a key with **no prior entry**
+as moved: whatever is still recorded against it was recorded against an older generation. Both are §26's rule
+applied where it had not reached, and both are fail-safe in the same way — the only effect is a recomputation.
+
+### Verification
+
+- `IncrementalFactGeneratorTest` — a dependency dropped and then recreated without its dependent (four runs), and a
+  pushed dependency that moved without its dependent (three runs). Both served the stale value before the fix.
+- The recorded 142-program replay: about one run in two failed before, six of six passed after.
+- `./mill __.test` green across repeated runs, `WarmBuildLeafOnlyTest` included.
