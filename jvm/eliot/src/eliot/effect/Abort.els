@@ -25,7 +25,7 @@ def runAbort[A](obj: {Abort} A): Option[A] = escapeInternal(obj, (nothing: Unit)
  * it left. `eliot.effect.Throw`'s leaf of the same shape and purpose; per-module `private` means each module declares
  * its own, which is also what keeps the two frames apart. Implemented by the backend.
  */
-private def escapeInternal[K, A, R](body: {} A, onExit: K => {} R, onValue: A => {} R): R
+private def escapeInternal[K, A, R](body: {Abort} A, onExit: K => {} R, onValue: A => {} R): R
 
 /**
  * Leave through the nearest enclosing `escapeInternal` frame of this module. Implemented by the backend.

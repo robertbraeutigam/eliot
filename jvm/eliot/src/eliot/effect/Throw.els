@@ -34,7 +34,7 @@ def runThrow[E, A](obj: {Throw[E]} A): Either[E, A] =
  * one half of Landin's knot, and the recursion gate (`termination/PurityGuardTest`) exists to keep the other half out.
  * Implemented by the backend.
  */
-private def escapeInternal[K, A, R](body: {} A, onExit: K => {} R, onValue: A => {} R): R
+private def escapeInternal[K, A, R](body: {Throw[K]} A, onExit: K => {} R, onValue: A => {} R): R
 
 /**
  * Leave through the nearest enclosing `escapeInternal` frame of this instantiation, carrying `err`. Control does not
