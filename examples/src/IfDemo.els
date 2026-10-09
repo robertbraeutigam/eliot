@@ -5,7 +5,7 @@
 
 // Every form of if..else, all driven by the single `flag` parameter. `demo` declares only `{Console}`: every `if`'s
 // `{Abort}` is fully discharged by its matching `else`, so a discharged effect never joins the declared row.
-def demo(flag: Bool): {Console} Unit = {
+def demo(flag: Bool) uses Console: Unit = {
    // 1. A pure value chosen by an if..else, then printed.
    printLine(if(flag, "1. pure value: ON") else "1. pure value: OFF")
 
@@ -43,7 +43,7 @@ def describe(a: Bool, b: Bool): String = {
 // `else` discharges that abort. The difference is that `fold` takes BOTH arms explicitly and adds no `{Abort}` to the
 // effect row. Both arms are suspended (`{} A`), so only the selected one ever runs and a pure arm sits happily beside
 // an effectful one — they need only agree on the value type they yield.
-def foldForms(flag: Bool): {Console} Unit = {
+def foldForms(flag: Bool) uses Console: Unit = {
    // 1. Two pure arms of one type: `fold` selects a value and adds nothing to the effect row (result is `String`).
    printLine(fold(flag, "1. fold pure: then", "1. fold pure: else"))
 
@@ -54,7 +54,7 @@ def foldForms(flag: Bool): {Console} Unit = {
    printLine(fold(flag, "3. fold same-type arms: A", "3. fold same-type arms: B"))
 }
 
-def main: {Console} Unit = {
+def main uses Console: Unit = {
    // With a compile-time constant: `demo(true)` / `foldForms(true)` may be reduced by the compiler. No `else` is
    // needed — both perform only `{Console}`, so they drop straight into the `IO` of `main`.
    printLine("========== constant: true ==========")

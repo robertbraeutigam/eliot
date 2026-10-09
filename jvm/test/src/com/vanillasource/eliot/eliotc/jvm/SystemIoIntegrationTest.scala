@@ -143,7 +143,7 @@ class SystemIoIntegrationTest extends FullIntegrationTest {
        |import eliot.file.Path
        |import eliot.system.Environment
        |
-       |def main: {Console, Environment} Unit = {$body
+       |def main uses Console, Environment: Unit = {$body
        |}""".stripMargin
 
   /** A `{Console, Environment, Process, Throw[IoError]} Unit` report body wrapped in a `main` that discharges the
@@ -159,8 +159,8 @@ class SystemIoIntegrationTest extends FullIntegrationTest {
        |import eliot.system.Environment
        |import eliot.system.Process
        |
-       |def report: {Console, Environment, Process, Throw[IoError]} Unit = {$body
+       |def report uses Console, Environment, Process, Throw[IoError]: Unit = {$body
        |}
        |
-       |def main: {Console, Environment, Process} Unit = report catch ((err: IoError) -> printLine("failed"))""".stripMargin
+       |def main uses Console, Environment, Process: Unit = report catch ((err: IoError) -> printLine("failed"))""".stripMargin
 }

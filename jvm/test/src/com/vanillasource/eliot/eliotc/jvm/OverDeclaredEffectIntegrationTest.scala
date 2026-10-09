@@ -11,9 +11,9 @@ class OverDeclaredEffectIntegrationTest extends FullIntegrationTest {
       """import eliot.effect.Console
         |import eliot.effect.Abort
         |
-        |def greet: {Console, Abort} Unit = printLine("hi")
+        |def greet uses Console, Abort: Unit = printLine("hi")
         |
-        |def main: {Console} Unit = greet else unit
+        |def main uses Console: Unit = greet else unit
         |""".stripMargin
     ).asserting(_ should include("declares the effect 'Abort' but does not perform it"))
   }
@@ -24,9 +24,9 @@ class OverDeclaredEffectIntegrationTest extends FullIntegrationTest {
     compileForErrors(
       """import eliot.effect.Console
         |
-        |def passThrough[A](v: {Console} A): {Console} A = v
+        |def passThrough[A](v uses *, Console: A) uses Console: A = v
         |
-        |def main: {Console} Unit = passThrough(printLine("hi"))
+        |def main uses Console: Unit = passThrough(printLine("hi"))
         |""".stripMargin
     ).asserting(_ should include("declares the effect 'Console' but does not perform it"))
   }
@@ -35,10 +35,10 @@ class OverDeclaredEffectIntegrationTest extends FullIntegrationTest {
     compileAndRun(
       """import eliot.effect.Console
         |
-        |def shout(s: String): {Console} Unit = printLine(s)
-        |def greet: {Console} Unit = shout("hi")
+        |def shout(s: String) uses Console: Unit = printLine(s)
+        |def greet uses Console: Unit = shout("hi")
         |
-        |def main: {Console} Unit = greet
+        |def main uses Console: Unit = greet
         |""".stripMargin
     ).asserting(_ shouldBe "hi")
   }
@@ -48,9 +48,9 @@ class OverDeclaredEffectIntegrationTest extends FullIntegrationTest {
       """import eliot.effect.Console
         |import eliot.effect.Abort
         |
-        |def safe: {Abort} String = if(true, "granted")
+        |def safe uses Abort: String = if(true, "granted")
         |
-        |def main: {Console} Unit = printLine(safe else "denied")
+        |def main uses Console: Unit = printLine(safe else "denied")
         |""".stripMargin
     ).asserting(_ shouldBe "granted")
   }
@@ -66,11 +66,11 @@ class OverDeclaredEffectIntegrationTest extends FullIntegrationTest {
       |}
       |
       |implement fake: Terminal {
-      |   def say(s: String): {Writer[String]} Unit = tell(s)
+      |   def say(s: String) uses Writer[String]: Unit = tell(s)
       |   def ask: %s String = "nothing"
       |}
       |
-      |def main: {Console} Unit = printLine(runWriterToLog({ say(ask) } with fake))
+      |def main uses Console: Unit = printLine(runWriterToLog({ say(ask) } with fake))
       |""".stripMargin
 
   "an implement clause declaring an effect it never performs" should "be rejected at that clause" in {
@@ -90,7 +90,7 @@ class OverDeclaredEffectIntegrationTest extends FullIntegrationTest {
         |
         |def leak: Unit = printLine("hi")
         |
-        |def main: {Console} Unit = leak
+        |def main uses Console: Unit = leak
         |""".stripMargin
     ).asserting(_ should (include("performs the effect 'Console' but does not declare it") and not include "declares the effect 'Console' but does not perform it"))
   }

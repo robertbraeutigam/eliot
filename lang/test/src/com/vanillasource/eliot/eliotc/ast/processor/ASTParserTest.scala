@@ -728,13 +728,13 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
   // --- effect-set sugar as a type-run atom: head and nested occurrences, and the non-row `{` backtrack ---
 
   "the effect-set sugar" should "parse at the head of a return type" in {
-    runEngineForFunctionReturnTypes("def f: {Console} Unit = a").asserting(
+    runEngineForFunctionReturnTypes("def f uses Console: Unit = a").asserting(
       _.collect { case ("f", Expression.EffectfulType(effects, _, _)) => effects.size } shouldBe Seq(1)
     )
   }
 
   it should "parse nested in an arrow codomain as the run's last atom" in {
-    runEngineForFunctionArgTypes("def f(action: A => {Console} Unit): Unit = a").asserting(
+    runEngineForFunctionArgTypes("def f(action uses *, Console: A => Unit): Unit = a").asserting(
       _.collect { case ("f", Expression.FlatExpression(parts)) => parts.last.value.getClass.getSimpleName } shouldBe Seq("EffectfulType")
     )
   }
@@ -748,7 +748,7 @@ class ASTParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
   }
 
   it should "parse an open row with no pipe as tail-less" in {
-    runEngineForFunctionReturnTypes("def f: {Console} Unit = a").asserting(
+    runEngineForFunctionReturnTypes("def f uses Console: Unit = a").asserting(
       _.collect { case ("f", Expression.EffectfulType(_, _, tail)) => tail } shouldBe Seq(None)
     )
   }

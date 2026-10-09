@@ -6,7 +6,7 @@
  * named implementation with `with`, without the code under test knowing.
  *
  * ```eliot
- * def greet: {Console} Unit = printLine("hello")
+ * def greet uses Console: Unit = printLine("hello")
  * ```
  *
  * Running out of input is an ordinary outcome, not a failure: `readLine` yields an `Option[String]` that is
@@ -14,7 +14,7 @@
  * it directly with `foldOption`:
  *
  * ```eliot
- * def name: {Console} String = orAbort(readLine) else "anonymous"
+ * def name uses Console: String = orAbort(readLine) else "anonymous"
  * ```
  *
  * The effect carries no failure channel of its own. A console that breaks underneath a running program (a

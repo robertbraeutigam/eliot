@@ -18,11 +18,11 @@ data Database(url: String)
  * `printLine` (Console), performed left to right. Direct style: a block is strict evaluation order, and each operation
  * is a direct call to the implementation the declaration bound.
  */
-def run: {Dep[Database], Log, Console} Unit = {
+def run uses Dep[Database], Log, Console: Unit = {
    log(dependency.url)
    printLine(readLine orElse "(no input)")
 }
 
 // The database dependency is injected at the discharge site with `provide`, which hands the value to every
 // `dependency` read of that type. `run` itself never names a concrete Database.
-def main: {Console, Log} Unit = provide(Database("jdbc://app-db"), run)
+def main uses Console, Log: Unit = provide(Database("jdbc://app-db"), run)

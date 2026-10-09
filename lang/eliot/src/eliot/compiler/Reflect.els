@@ -23,17 +23,17 @@ import eliot.collection.List
  *
  * ```eliot
  * // Every test module declares one of these, and imports nothing from the framework.
- * def test: {Console, Throw[String]} Unit
+ * def test uses Console, Throw[String]: Unit
  *
  * // One test, then the rest of the suite. The failure is discharged here, so a failing test
  * // does not fail the run, and `rest` — every test to the right — is still unrun at this point.
- * def runTest(name: String, test: {Throw[String]} Unit, rest: {} Unit): {Console} Unit = {
+ * def runTest(name: String, test uses *, Throw[String]: Unit, rest uses *: Unit) uses Console: Unit = {
  *    printLine("- " ++ name)
  *    test catch (e -> printLine("  FAILED: " ++ e))
  *    rest
  * }
  *
- * def main: {Console} Unit = foldNamedValues("test", printLine("done"), runTest)
+ * def main uses Console: Unit = foldNamedValues("test", printLine("done"), runTest)
  * ```
  */
 def foldNamedValues[B, C](name: String, initial: B, combine: C): B

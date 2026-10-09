@@ -19,7 +19,7 @@ class FieldValueIntegrationTest extends FullIntegrationTest {
         |
         |def makeJob: Job = Job(printLine("job"))
         |
-        |def main: {Console} Unit = unit
+        |def main uses Console: Unit = unit
         |""".stripMargin
     ).asserting(_ should include(s":3:15:$fieldRow"))
   }
@@ -30,7 +30,7 @@ class FieldValueIntegrationTest extends FullIntegrationTest {
         |
         |data Lazy(value: {} String)
         |
-        |def main: {Console} Unit = unit
+        |def main uses Console: Unit = unit
         |""".stripMargin
     ).asserting(_ should include(s":3:18:$fieldRow"))
   }
@@ -41,7 +41,7 @@ class FieldValueIntegrationTest extends FullIntegrationTest {
         |
         |data Handler(handle: String => {Console} Unit)
         |
-        |def main: {Console} Unit = unit
+        |def main uses Console: Unit = unit
         |""".stripMargin
     ).asserting(_ should include(s":3:32:$fieldRow"))
   }
@@ -53,7 +53,7 @@ class FieldValueIntegrationTest extends FullIntegrationTest {
         |
         |data Box(action: {Inf, Console} Unit)
         |
-        |def main: {Inf, Console} Unit = action(Box(forever(printLine("boxed"))))
+        |def main uses Inf, Console: Unit = action(Box(forever(printLine("boxed"))))
         |""".stripMargin
     ).asserting(_ should include(s":4:18:$fieldRow"))
   }
@@ -65,12 +65,12 @@ class FieldValueIntegrationTest extends FullIntegrationTest {
         |
         |data Step = Skip | Print(line: String)
         |
-        |def perform(step: Step): {Console} Unit = step match {
+        |def perform(step: Step) uses Console: Unit = step match {
         |   case Skip -> unit
         |   case Print(line) -> printLine(line)
         |}
         |
-        |def main: {Console} Unit =
+        |def main uses Console: Unit =
         |   foreach(s -> perform(s), prepend(prepend(prepend(empty, Print("b")), Skip), Print("a")))
         |""".stripMargin
     ).asserting(_ shouldBe "a\nb")

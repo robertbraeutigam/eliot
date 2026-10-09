@@ -22,7 +22,7 @@ class FileIoIntegrationTest extends FullIntegrationTest {
         |
         |def ext(p: Path): String = extension(p).foldOption("<none>", e -> e)
         |
-        |def main: {Console} Unit = {
+        |def main uses Console: Unit = {
         |   printLine(show(target))
         |   printLine(ext(path("Main.els")) ++ " " ++ ext(path("README")))
         |}""".stripMargin
@@ -102,8 +102,8 @@ class FileIoIntegrationTest extends FullIntegrationTest {
        |
        |def scratch: Path = path("$dir")
        |
-       |def report: {Console, FileSystem, Throw[IoError]} Unit = {$body
+       |def report uses Console, FileSystem, Throw[IoError]: Unit = {$body
        |}
        |
-       |def main: {Console, FileSystem} Unit = report catch ((err: IoError) -> printLine("failed"))""".stripMargin
+       |def main uses Console, FileSystem: Unit = report catch ((err: IoError) -> printLine("failed"))""".stripMargin
 }
