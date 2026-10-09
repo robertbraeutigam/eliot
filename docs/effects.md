@@ -832,7 +832,7 @@ D20 rule that does it. The witnesses are the five programs below, which become D
     through `useJob(j: Job): {Console} Unit` under `with recordingConsole` gets real output and an empty
     transcript: the read is charged to a binding the stored thunk never uses. A11 rejected a `with` *at* the read;
     this is the same lie one definition further out. D20 rule 6.
-13. **A slot launders an interpretation effect.** `launder(body: {Console} Unit): Unit = body` supplies `Console`
+13. ~~**A slot launders an interpretation effect.**~~ **Closed 2026-10-09 by D20 step 2.** `launder(body: {Console} Unit): Unit = body` supplies `Console`
     by `Default`, so `looksPure(name: String): Unit = launder(printLine(…))` performs real I/O with a pure
     signature, and an outer `with recordingConsole` binds nothing (which is item 1, the unused `with`). The
     two-site default meant for `main` is reachable from any definition with a body. D20 rule 5.
@@ -1359,6 +1359,20 @@ mechanical migration that §10's byte-identity gate can watch.
    that already knows which slots are blocks. Closes §8 items 10 and 11. Gate: §10, plus the probes as tests.
 2. **Rule 5** — the give-only-what-you-have check; the platform primitives' copies declare what they give; eliot-test
    names `recording`/`journal`. Closes item 13. Gate: §10; eliot-test's suites green.
+
+   **Built 2026-10-09.** A row-typed parameter's caller wrote its actual's bindings from the declaration, so each entry
+   the slot supplies by `Default` — and each effect a slot's `with` implementation performs in its own clauses — is a
+   promise. `BindingWriter.checkGiven` holds every run of the parameter to it: the entry must be bound there by a
+   callee's slot that supplies it (a `Binding` marked `bySlot`), by `Default` as promised. A row of the definition's own
+   is not a frame (the entry would ride, not be supplied), nor is a `with` in the body; a slot binding another
+   implementation is *"promised the default … but runs where a slot binds another implementation"*, and nothing at all is
+   *"'body' is given the effect 'Console' here, which this definition has no implementation of to give"*. The five jvm
+   primitive copies now state what they give — `escapeInternal`'s `body: {Abort} A` and `{Throw[K]} A`,
+   `withCellInternal`'s `{State[S]}`, `{Writer[S]}`, `{Dep[S]}` — and every discharger hands its computation to one.
+   The compile track's `escape`/`withCell` are generic over a key and cannot name one effect; that track is never
+   reported, so they are left as they are. eliot-test names `recording: Mocking` and `journal: Calls` and binds them on
+   `mocked`'s slot (green under `v0.7` and under this compiler). Gate: `./mill __.test` (the same five banner-sensitive
+   tests aside), 47 jars byte-identical, eliot-test 183 green; witnesses in `GivenEffectIntegrationTest`.
 3. **Rule 6** — reject a row on a field, and delete the stored-read machinery it leaves without a subject
    (`chargeStored`, A11's `byWith` read rule, `calledSpine`'s dot-read view if nothing else reads it,
    `StoredComputationIntegrationTest`). Closes item 12. No example stores a computation, so the jars do not move.

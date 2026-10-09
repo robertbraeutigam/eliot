@@ -84,6 +84,10 @@ object BindingWriter {
     *   slot supplies. The difference matters in exactly one place, [[Writer.chargeStored]]: a stored computation's
     *   calls were bound where it was constructed, so a `with` over a *read* of one has nothing left to bind (rule 3),
     *   while forwarding a declaration over it is an honest description of what running it performs.
+    * @param bySlot
+    *   Whether a callee's row slot **supplies** this binding to the actual written there — resolution-order step 3.
+    *   This is what a frame looks like from the outside, and the one thing a definition may hand to a computation it
+    *   was given ([[Writer.checkGiven]]).
     * @param received
     *   Whether this is the definition's own **received** binding — resolution-order step 2, a row entry its caller
     *   fills. Only these are tracked as consumed ([[Writer.consumed]]), because only a declared entry can be declared
@@ -94,7 +98,8 @@ object BindingWriter {
       term: OperatorResolvedExpression,
       byWith: Boolean = false,
       received: Boolean = false,
-      beyondValue: Boolean = false
+      beyondValue: Boolean = false,
+      bySlot: Boolean = false
   )
 
   /** The lexical environment at one point. `bindings` is innermost-first, so a nearer `with` shadows an outer one for
@@ -111,7 +116,8 @@ object BindingWriter {
       thunks: Set[String],
       uncoveredDefaults: Boolean = false,
       callbacks: Set[String] = Set.empty,
-      captured: Set[String] = Set.empty
+      captured: Set[String] = Set.empty,
+      thunkNeeds: Map[String, Seq[AbilityFQN]] = Map.empty
   ) {
     def bind(binding: Binding): Scope = copy(bindings = binding +: bindings)
     def shadow(name: String): Scope   =
@@ -159,7 +165,13 @@ object BindingWriter {
   def write(orv: OperatorResolvedValue, universe: RowChecker.Universe, atBoundary: Boolean = false): Written = {
     val writer     = new Writer(universe)
     val received   = receivedBindings(orv, universe)
-    val scope      = Scope(received, thunkParameters(orv), atBoundary, callbackParameters(orv))
+    val scope      = Scope(
+      received,
+      thunkParameters(orv),
+      atBoundary,
+      callbackParameters(orv),
+      thunkNeeds = thunkRequirements(orv, universe)
+    )
     val view       = SignatureView.of(orv.signature)
     val body       = Option
       .when(writableBody(orv))(orv.runtime)
@@ -270,6 +282,34 @@ object BindingWriter {
   /** The names of this definition's row-typed value parameters: a reference to one runs it. */
   private def thunkParameters(orv: OperatorResolvedValue): Set[String] =
     orv.effectRow.parameterEffects.flatMap(pe => valueParameterNames(orv).lift(pe.parameterIndex)).toSet
+
+  /** What each of this definition's row-typed parameters must be **given** when it runs (`docs/effects.md` D20 rule
+    * 5): its slot's caller wrote the actual's bindings from this definition's declaration, so every entry the slot
+    * *supplies* by `Default` — one this definition's own row does not have, and the slot's `with` does not name — was
+    * written as a promise that a frame for it is entered before the actual runs. So is every effect a slot's named
+    * implementation performs in its own clauses, which the caller also wrote as `Default`
+    * ([[Writer.slotImplementation]]). An entry the definition's own row has rides the caller's binding and needs
+    * nothing here.
+    */
+  private def thunkRequirements(
+      orv: OperatorResolvedValue,
+      universe: RowChecker.Universe
+  ): Map[String, Seq[AbilityFQN]] = {
+    val own        = orv.effectRow.returnEffects.map(_.abilityFQN).toSet
+    val parameters = SignatureView.of(orv.signature).parameters
+    orv.effectRow.parameterEffects.flatMap { pe =>
+      valueParameterNames(orv).lift(pe.parameterIndex).map { name =>
+        val markers   = parameters.lift(pe.parameterIndex).toSeq.flatMap(p => slotBindings(p.value))
+        val withBound = markers.flatMap(marker => abilityOf(marker.value, universe)).toSet
+        val clauses   = markers.flatMap(marker => bindingAbilities(marker.value, universe))
+        name -> (pe.effects.map(_.abilityFQN).filterNot(own).filterNot(withBound) ++ clauses).distinct
+      }
+    }.toMap
+  }
+
+  /** Every ability the implementation `marker` is parameterised by — its phantom binders' abilities. */
+  private def bindingAbilities(marker: ValueFQN, universe: RowChecker.Universe): Seq[AbilityFQN] =
+    universe.lookup(marker).toSeq.flatMap(orv => phantoms(orv).map(_._2))
 
   /** The names of this definition's **callback** parameters — function-typed, with a row in the codomain: code, which
     * may be called or passed on and never kept.
@@ -408,6 +448,7 @@ object BindingWriter {
 
         // A reference to one of this definition's row-typed parameters is a thunk: running it is applying it.
         case ParameterReference(name) if scope.thunks.contains(name.value) =>
+          checkGiven(name, scope)
           expr.as(FunctionApplication(expr, unitValue(expr)))
 
         // A callback here is neither called nor passed on to code: whatever receives it may keep it.
@@ -434,6 +475,42 @@ object BindingWriter {
               expr.as(applyChain(walkCode(expr.as(head), scope, args.size), args.map(walk(_, scope))))
           }
       }
+
+    /** A definition gives a computation it was handed **only what it has** (`docs/effects.md` D20 rule 5): every entry
+      * its caller was promised ([[thunkRequirements]]) must be bound here by a callee's slot that supplies it — the
+      * frame of a discharger the computation is passed on to — and supplied the way it was promised, by `Default`.
+      * Nothing else is a frame: no row of this definition's (that entry would ride, not be supplied), and no `with` in
+      * the body, which cannot rebind bindings the caller already wrote. Only a body-less declaration — a platform
+      * primitive — gives an effect from nothing, and it has no body to check, so an effect's default is handed out at
+      * `main` and by the primitives, nowhere else.
+      */
+    private def checkGiven(name: Sourced[String], scope: Scope): Unit =
+      if (!scope.uncoveredDefaults)
+        scope.thunkNeeds.getOrElse(name.value, Seq.empty).foreach { ability =>
+          scope.binding(ability) match {
+            case Some(binding) if binding.bySlot && !binding.byWith => ()
+            case Some(binding) if binding.bySlot                    =>
+              violations += Violation(
+                name.as(
+                  s"'${name.value}' was promised the default '${ability.abilityName}', but runs where a slot binds " +
+                    "another implementation for it."
+                ),
+                Seq(s"Name the same implementation on '${name.value}'s own slot with `with`, or pass it elsewhere.")
+              )
+            case _                                                  =>
+              violations += Violation(
+                name.as(
+                  s"'${name.value}' is given the effect '${ability.abilityName}' here, which this definition has " +
+                    "no implementation of to give."
+                ),
+                Seq(
+                  s"Declare '${ability.abilityName}' in this definition's own {...} effect set so its caller " +
+                    s"supplies it, pass '${name.value}' to a parameter that supplies it, or name an implementation " +
+                    "on the slot with `with`."
+                )
+              )
+          }
+        }
 
     /** An expression standing where **code** is expected — the argument of a code parameter, or the head of an
       * application — whose first `arity` lambdas are therefore the caller's text and keep its scope. A lambda past them
@@ -597,8 +674,8 @@ object BindingWriter {
         acc.bind(
           declared
             .get(ability)
-            .fold(Binding(ability, defaultBinding(anchor)))(marker =>
-              Binding(ability, slotImplementation(marker, acc), byWith = true)
+            .fold(Binding(ability, defaultBinding(anchor), bySlot = true))(marker =>
+              Binding(ability, slotImplementation(marker, acc), byWith = true, bySlot = true)
             )
         )
       }
@@ -635,12 +712,8 @@ object BindingWriter {
     ): OperatorResolvedExpression =
       boundImplementation(
         implementation,
-        scope.defaulting(bindingAbilities(implementation.value), implementation)
+        scope.defaulting(bindingAbilities(implementation.value, universe), implementation)
       )
-
-    /** Every ability the implementation `marker` is parameterised by — its phantom binders' abilities. */
-    private def bindingAbilities(marker: ValueFQN): Seq[AbilityFQN] =
-      universe.lookup(marker).toSeq.flatMap(orv => phantoms(orv).map(_._2))
 
     /** How many arguments a callee calls its parameter `index` with, when that parameter is a **callback** — code of
       * function type. A value constructor's parameters are fields, and a field holds a value (D20 rule 6), so it takes

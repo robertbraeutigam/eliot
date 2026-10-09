@@ -34,7 +34,7 @@ def runStateToPair[S, A](initial: S, p: {State[S]} A): Pair[A, S] =
  * that reads the cell is a loop — and the recursion gate (`termination/PurityGuardTest`) exists to keep that out.
  * Implemented by the backend.
  */
-private def withCellInternal[S, A, R](initial: S, body: {} A, combine: A => S => {} R): R
+private def withCellInternal[S, A, R](initial: S, body: {State[S]} A, combine: A => S => {} R): R
 
 /**
  * The content of the nearest enclosing cell for `S`. Implemented by the backend.

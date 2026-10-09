@@ -26,7 +26,7 @@ def runWriterToPair[W ~ Combine[W], A](p: {Writer[W]} A): Pair[A, W] =
  * its own — which is also what keeps a writer's cell and a state's cell apart at the same type. Implemented by the
  * backend.
  */
-private def withCellInternal[S, A, R](initial: S, body: {} A, combine: A => S => {} R): R
+private def withCellInternal[S, A, R](initial: S, body: {Writer[S]} A, combine: A => S => {} R): R
 
 /**
  * The content of the nearest enclosing cell for `S`. Implemented by the backend.
