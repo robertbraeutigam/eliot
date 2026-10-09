@@ -397,6 +397,17 @@ binders stands for. Three jobs, one walk:
    For an **effect** there is no default: an uncovered one is the "performs but does not declare" error,
    reported here at the reference.
 
+**A binding is for an entry, not only an ability.** Each step above looks for a binding of the reference's ability
+that **answers its entry**: one is passed over only when both sides know their type arguments and they differ —
+known meaning ground once the call's determined arguments are written in (`BindingWriter.knownArguments`), rendered
+and compared. So inside `catch[Refused, String](checked(…), …)` the slot's `Throw[Refused]` does not answer
+`checked`'s `Throw[Missing]`, which goes on to the enclosing definition's own entry or is the "performs but does not
+declare" error; and the same comparison decides whether a slot entry **rides** (§2.2), so `mocked`'s own
+`Throw[AssertionError]` does not make its slot's `Throw[IoError]` ride. An entry still generic in some binder (`raise`'s
+`Throw[E]`) answers the nearest binding of its ability, as every reference did before 2026-10-09 — when a
+`Throw[Missing]` raised in a `catch[Refused, …]` slot compiled with no declaration and escaped every frame at run
+time, and a declared one was reported as declared for nothing (`OverDeclaredEffectIntegrationTest`).
+
 **Effect-ness is read from one place only**: the callee's declared row. An ability appearing in
 `effectRow.returnEffects` is an effect at this reference — which for an `effect`'s member is what membership
 recorded, and for an ordinary definition is what its `{ … }` says. A `~` constraint's ability is in no row, so
