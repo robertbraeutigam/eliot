@@ -8,12 +8,12 @@ change decided and not yet built (a binding binder marked by its type, §9), and
 Part III is the list of things closed by measurement or decision, and enough provenance to read a source
 comment that cites a retired document or a retired section.
 
-**Decided 2026-10-05, D20 (§11); steps 1–4 of its work list built 2026-10-09, steps 5–7 not.** Effects become parameters in the surface as they already are in
+**Decided 2026-10-05, D20 (§11); steps 1–5 of its work list built 2026-10-09, steps 6–7 not.** Effects become parameters in the surface as they already are in
 the mechanism — `def greet(name: String) uses Console: Unit` — a lazy argument is `=> A`, a function parameter
 is a block that may be called or passed on but never kept, and a `data` field holds a value. It closes five
 silent defects found while designing it (§8 items 9–13) and reverses three of Part I's rules.
 
-**Decided 2026-10-09, D21 (§11); built with D20 through step 4** — it amends D20 before it is built: a function-typed parameter is an
+**Decided 2026-10-09, D21 (§11); built with D20 through step 5** — it amends D20 before it is built: a function-typed parameter is an
 ordinary pure value, keepable like any other, and the one kind of parameter that is code carries the one clause
 the surface has, `uses` — `uses *` for the caller's own effects
 (`def foreach[A](action uses *: A => Unit, list: List[A]): Unit`), `uses *, Throw[E]` for a handler's slot, `uses E`
@@ -744,7 +744,7 @@ landed; items 1, 4 and 6 remain open, and two more (items 7 and 8) were found an
 **Item 2 needed no decision** and closed on its own later that day: a dot-read is the same read as the call
 spelling, so the rule had only to be stated on the call rather than on one of its two spellings.
 
-**2026-10-05.** **D20** is decided (steps 1–4 built 2026-10-09, with D21): effects are parameters (`uses`), a lazy argument is `=> A`, a
+**2026-10-05.** **D20** is decided (steps 1–5 built 2026-10-09, with D21): effects are parameters (`uses`), a lazy argument is `=> A`, a
 function parameter is a block that is called or passed on and never kept, and a field holds a value. Designing it
 found **five more silent divergences**, §8 items 9–13, all of which D20 closes. It supersedes **D18**.
 
@@ -1212,9 +1212,9 @@ The experiment's diff is deliberately not kept in the tree — this entry is eno
 
 ### D20 — effects are parameters; a function you are given is called, never kept
 
-**Decided 2026-10-05. Steps 1–4 built 2026-10-09** (as D21 amends them: §8 items 9–13 closed, and the `uses`
-clause parses beside the row spelling, its closed form enforced); **steps 5–7 not built** — the migration, deleting
-the row spelling, and rewriting Part I. It changes the surface and three of Part I's rules. The mechanism of §3 —
+**Decided 2026-10-05. Steps 1–5 built 2026-10-09** (as D21 amends them: §8 items 9–13 closed, the `uses` clause
+parses beside the row spelling, its closed form enforced, and the corpus is migrated to it); **steps 6–7 not built** —
+deleting the row spelling, and rewriting Part I. It changes the surface and three of Part I's rules. The mechanism of §3 —
 phantom binders, the write, `with`, the primitives, the one verifier — stays. Until it lands, Part I is the tree.
 **D21 (below, 2026-10-09) amends this decision's rule 2 and its `=> A` spelling** — a function-typed parameter is a
 value, and caller's code is marked `uses *` — and records the reversals; the two land together, and this section is
@@ -1440,7 +1440,7 @@ Standing rule 1: each is written down as a reversal, not amended in place. They 
 
 ### D21 — purity is spelled by absence: a function parameter is a value, and caller's code is `uses *`
 
-**Decided 2026-10-09. Steps 1 and 4 built the same day** (below), with D20's 2 and 3; 5–6 not built. It amends one rule of D20 and one of its spellings; everything else D20 decided
+**Decided 2026-10-09. Steps 1, 4 and 5 built the same day** (below), with D20's 2 and 3; 6 not built. It amends one rule of D20 and one of its spellings; everything else D20 decided
 stands, and the two land together. Until they do, Part I is the tree. First written with a `block` keyword the same
 day, and respelled before anything was built: the mark says nothing about `{ … }`, and a second keyword beside `uses`
 was a second spelling of one fact.
@@ -1655,6 +1655,20 @@ D20's list stands with these substitutions; the numbering is D20's.
    `UsesClauseParserTest` and `UsesClauseIntegrationTest`.
 5. **Migrate**, by script: `{} A` ⤳ `uses *: A`, `A => {} B` ⤳ `uses *: A => B`, `{E} A` on a parameter ⤳
    `uses *, E: A`, a result row ⤳ `uses`. Gate: byte-identity over the 45 examples.
+
+   **Built 2026-10-09.** Every row in a signature is respelled — in eliot's `.els` (the three layers, the compiler
+   overlay and the examples, doc comments included), in the Eliot snippets of the Scala tests, and in eliot-test and
+   eliot-build — and with a slot's `with` chain each implementation now stands on the entry it binds
+   (`body uses *, Mocking with recording, Calls with journal: Unit`). What keeps the row spelling on purpose: a **row
+   alias**'s body (`type Test = {Writer[List[TestResult]]} Unit`, which has no `uses` form until D20a), the field rows
+   the tests reject, and the three tests about the old spelling itself (`EffectSyntaxParserTest`,
+   `UsesClauseParserTest`, `UsesClauseIntegrationTest`), which step 6 rewrites. The migration found one step-4 defect:
+   a parameter's clause put the row *inside* a parenthesized codomain, so `f uses *: String => (String => Unit)` was
+   code of arity two rather than code handing back a function value; the row now stands on the codomain as written.
+   The hints that told a user to write `f: A => {} B` name `f uses *: A => B`; the diagnostics' "effect set" wording
+   waits for step 6. Gate: `./mill __.test` green; all 46 example jars, their exit codes and their output identical;
+   eliot-test's runner and eliot-build's launcher and suite runner byte-identical to the row spelling's, eliot-test 183
+   green. eliot-test and eliot-build need an eliot release carrying `uses` before their `dep` lines can move to it.
 6. **Delete the old surface**: a row in a type, and `=> A`, are parse errors naming the `uses` spelling.
 
 #### Interactions

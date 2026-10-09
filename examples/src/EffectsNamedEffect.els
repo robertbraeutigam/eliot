@@ -21,7 +21,7 @@ effect Terminal {
 }
 
 // Production code: direct style, with no knowledge that a test exists.
-def greet: {Terminal} Unit = {
+def greet uses Terminal: Unit = {
    val name = read
    write("Hello, " ++ name ++ "!")
 }
@@ -30,7 +30,7 @@ def greet: {Terminal} Unit = {
 // its clause declares and the binding site is charged for. Neither performs any I/O, and neither could: a user module
 // declares no natives.
 implement session: Terminal {
-   def write(line: String): {Writer[String]} Unit = tell(line ++ ";")
+   def write(line: String) uses Writer[String]: Unit = tell(line ++ ";")
 
    def read: String = "Bob"
 }
@@ -39,4 +39,4 @@ implement session: Terminal {
 // clauses perform. The result is a plain `String` a test framework can assert on.
 def greetTranscript: String = runWriterToLog(greet with session)
 
-def main: {Console} Unit = printLine(greetTranscript)
+def main uses Console: Unit = printLine(greetTranscript)

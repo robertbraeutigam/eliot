@@ -535,7 +535,7 @@ object BindingWriter {
       Violation(
         name.as(s"'${name.value}' is code its caller wrote: it can be called or passed on, not kept."),
         Seq(
-          "Call it here, or pass it to a parameter that takes code (`f: A => {} B`); anything else may keep it past " +
+          "Call it here, or pass it to a parameter that takes code (`f uses *: A => B`); anything else may keep it past " +
             "the call that bound its effects."
         )
       )
@@ -556,7 +556,7 @@ object BindingWriter {
         name.as(s"'${name.value}' is code its caller wrote, and a function value cannot capture it."),
         Seq(
           "A function written where a value is expected may be kept, so it may not carry code; pass the function " +
-            "to a parameter that takes code (`f: A => {} B`) instead."
+            "to a parameter that takes code (`f uses *: A => B`) instead."
         )
       )
 
@@ -895,7 +895,7 @@ object BindingWriter {
             "a value may use no effect bound outside it."
         ),
         Seq(
-          s"Pass the function to a parameter that takes code (`f: A => {} B`), or discharge '${ability.abilityName}' " +
+          s"Pass the function to a parameter that takes code (`f uses *: A => B`), or discharge '${ability.abilityName}' " +
             "inside it."
         )
       )

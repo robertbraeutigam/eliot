@@ -24,9 +24,9 @@
 
 // --- Production code: direct style, unaware that a test exists. -----------------------------------------------------
 
-def greet(name: String): {Console} Unit = printLine("Hello, " ++ name ++ "!")
+def greet(name: String) uses Console: Unit = printLine("Hello, " ++ name ++ "!")
 
-def farewell(name: String): {Console} Unit = {
+def farewell(name: String) uses Console: Unit = {
    printLine("Goodbye, " ++ name ++ ".")
    printLine("Come back soon!")
 }
@@ -34,7 +34,7 @@ def farewell(name: String): {Console} Unit = {
 // --- The test double: one declaration, no fixture. -------------------------------------------------------------------
 
 implement recordingConsole: Console {
-   def printLine(s: String): {Writer[String]} Unit = tell(s ++ ";")
+   def printLine(s: String) uses Writer[String]: Unit = tell(s ++ ";")
 
    def readLine: Option[String] = None
 }
@@ -44,7 +44,7 @@ implement recordingConsole: Console {
 // What a `{Console}` program wrote, with no console involved. The `with` on the *slot's type* is what binds the
 // computation the caller writes there — the only way a callee binds calls it cannot see — and the `Writer[String]` the
 // double's clauses perform is supplied and discharged by `runWriterToLog`.
-def transcriptOf(program: {Console} Unit with recordingConsole): String = runWriterToLog(program)
+def transcriptOf(program uses *, Console with recordingConsole: Unit): String = runWriterToLog(program)
 
 data TestResult(name: String, failure: Option[String])
 
@@ -52,7 +52,7 @@ def expect(name: String, expected: String, actual: String): TestResult =
    if(expected == actual, TestResult(name, None))
    else TestResult(name, Some("expected '" ++ expected ++ "' but was '" ++ actual ++ "'"))
 
-def report(result: TestResult): {Console} Unit =
+def report(result: TestResult) uses Console: Unit =
    printLine(failure(result).foldOption("PASS " ++ name(result), f -> "FAIL " ++ name(result) ++ ": " ++ f))
 
 // --- The tests. ------------------------------------------------------------------------------------------------------
@@ -62,7 +62,7 @@ def greetTest: TestResult = expect("greet", "Hello, Bob!;", transcriptOf(greet("
 def farewellTest: TestResult =
    expect("farewell", "Goodbye, Bob.;Come back soon!;", transcriptOf(farewell("Bob")))
 
-def main: {Console} Unit = {
+def main uses Console: Unit = {
    report(greetTest)
    report(farewellTest)
 }

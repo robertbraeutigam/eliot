@@ -10,7 +10,7 @@ import eliot.collection.List
  * argument list and some working directory, even if the list is empty.
  *
  * ```eliot
- * def greet: {Console, Environment} Unit = {
+ * def greet uses Console, Environment: Unit = {
  *    val name = environmentVariable("USER")
  *    printLine("hello, " ++ (name orElse "stranger"))
  * }

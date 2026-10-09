@@ -43,6 +43,11 @@ class UsesClauseParserTest extends ProcessorTest(new Tokenizer(), new ASTParser(
     argument("def f[A, B](combine uses *: A => B => B): B").asserting(_ shouldBe Seq(("A => B => {} B", false)))
   }
 
+  it should "stop at a parenthesized codomain, which is the function the code hands back" in {
+    argument("def f(make uses *: String => (String => Unit)): Unit")
+      .asserting(_ shouldBe Seq(("String => {} String => Unit", false)))
+  }
+
   it should "add the entries the callee gives" in {
     argument("def runThrow[E, A](body uses *, Throw[E]: A): A").asserting(_ shouldBe Seq(("{Throw[E]} A", false)))
   }

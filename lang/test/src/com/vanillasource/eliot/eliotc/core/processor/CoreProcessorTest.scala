@@ -634,7 +634,7 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
   // gains that binder as its **first** type argument, and a top-level row in a parameter or a `data` field thunks to
   // `Unit => A`.
   "effect-row sugar" should "mint one marked binder for the row and thunk a rowed parameter" in {
-    namedValue("def f(x: {Suspend} String): {Suspend} Unit").asserting { nv =>
+    namedValue("def f(x uses *, Suspend: String) uses Suspend: Unit").asserting { nv =>
       nv.signature.value.structure shouldBe Lambda(
         "Impl",
         App(QualRef("Implementation", "eliot.lang.Implementation"), Ref("Suspend", T)),
@@ -644,12 +644,12 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
   }
 
   it should "record the binder as a binding in its declared type, and nowhere else" in {
-    namedValue("def f(x: {Suspend} String): {Suspend} Unit")
+    namedValue("def f(x uses *, Suspend: String) uses Suspend: Unit")
       .asserting(binderMarks(_) shouldBe Seq("Impl" -> Some("Suspend")))
   }
 
   it should "constrain the binder by the row's ability, applied to itself" in {
-    namedValue("def f(x: String): {Suspend} Unit").asserting { nv =>
+    namedValue("def f(x: String) uses Suspend: Unit").asserting { nv =>
       constraintShapes(nv) shouldBe Map("Impl" -> Seq(("Suspend", Seq(Ref("Impl", T)))))
     }
   }
@@ -657,13 +657,13 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
   // The binding is the constraint's **first** type argument, where the ability's marker declares it — constraint and
   // marker must agree on the position, or every dispatch queries the wrong shape.
   it should "put the binding first among a parameterized effect's arguments" in {
-    namedValue("def f(x: String): {State[Account]} String").asserting { nv =>
+    namedValue("def f(x: String) uses State[Account]: String").asserting { nv =>
       constraintShapes(nv) shouldBe Map("Impl" -> Seq(("State", Seq(Ref("Impl", T), Ref("Account", T)))))
     }
   }
 
   it should "mint one binder per distinct entry of a multi-effect row" in {
-    namedValue("def f(x: String): {Suspend, Abort} String").asserting { nv =>
+    namedValue("def f(x: String) uses Suspend, Abort: String").asserting { nv =>
       constraintShapes(nv) shouldBe Map(
         "Impl"  -> Seq(("Suspend", Seq(Ref("Impl", T)))),
         "Impl0" -> Seq(("Abort", Seq(Ref("Impl0", T))))
@@ -672,7 +672,7 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
   }
 
   it should "avoid clashing a minted name with an existing generic parameter" in {
-    namedValue("def f[Impl](x: Impl): {Suspend} Impl").asserting { nv =>
+    namedValue("def f[Impl](x: Impl) uses Suspend: Impl").asserting { nv =>
       constraintShapes(nv).keySet shouldBe Set("Impl0")
     }
   }
@@ -693,13 +693,13 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
   // The **empty row** `{}` names no ability, so it mints nothing. What it still says is "a value or a computation":
   // a top-level parameter row thunks whether or not it has entries.
   "the empty effect row" should "mint no binder and add no constraint" in {
-    namedValue("def f[A](x: {} A): A").asserting { nv =>
+    namedValue("def f[A](x uses *: A): A").asserting { nv =>
       (binderMarks(nv), constraintShapes(nv)) shouldBe (Seq("A" -> None), Map.empty)
     }
   }
 
   it should "thunk its parameter all the same" in {
-    namedValue("def f[A](x: {} A): A").asserting { nv =>
+    namedValue("def f[A](x uses *: A): A").asserting { nv =>
       nv.signature.value.structure shouldBe
         Lambda("A", Ref("Type", T), App(App(Ref("Function", T), thunk(Ref("A", T))), Ref("A", T)))
     }
@@ -708,7 +708,7 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
   // Only a *top-level* row thunks. A row in an arrow codomain (`onError: E => {} A`) is the callback's own row and
   // lowers to the bare payload, exactly as a return row does.
   it should "leave a row in an arrow codomain alone" in {
-    (namedValue("def f[A](x: A => {} A): A"), namedValue("def f[A](x: A => A): A"))
+    (namedValue("def f[A](x uses *: A => A): A"), namedValue("def f[A](x: A => A): A"))
       .mapN { (rowed, plain) => rowed.signature.value.structure shouldBe plain.signature.value.structure }
   }
 

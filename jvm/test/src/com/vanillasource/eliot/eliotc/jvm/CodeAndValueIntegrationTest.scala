@@ -17,11 +17,11 @@ class CodeAndValueIntegrationTest extends FullIntegrationTest {
         |   f("b")
         |}
         |
-        |def main: {Console} Unit = applyTwice(s -> printLine(s))
+        |def main uses Console: Unit = applyTwice(s -> printLine(s))
         |""".stripMargin
     ).asserting(
       _ should include(
-        ":8:44:This uses the effect 'Console' inside a function written where a value is expected"
+        ":8:47:This uses the effect 'Console' inside a function written where a value is expected"
       )
     )
   }
@@ -30,12 +30,12 @@ class CodeAndValueIntegrationTest extends FullIntegrationTest {
     compileAndRun(
       """import eliot.effect.Console
         |
-        |def applyTwice(f: String => {} Unit): Unit = {
+        |def applyTwice(f uses *: String => Unit): Unit = {
         |   f("a")
         |   f("b")
         |}
         |
-        |def main: {Console} Unit = applyTwice(s -> printLine(s))
+        |def main uses Console: Unit = applyTwice(s -> printLine(s))
         |""".stripMargin
     ).asserting(_ shouldBe "a\nb")
   }
@@ -46,7 +46,7 @@ class CodeAndValueIntegrationTest extends FullIntegrationTest {
         |
         |def twice(f: String => String, s: String): String = f(f(s))
         |
-        |def main: {Console} Unit = printLine(twice(s -> s ++ "!", "hi"))
+        |def main uses Console: Unit = printLine(twice(s -> s ++ "!", "hi"))
         |""".stripMargin
     ).asserting(_ shouldBe "hi!!")
   }
@@ -58,20 +58,20 @@ class CodeAndValueIntegrationTest extends FullIntegrationTest {
         |
         |data Holder(run: String => Unit)
         |
-        |def capture(f: String => {} Unit): Holder = Holder(f)
+        |def capture(f uses *: String => Unit): Holder = Holder(f)
         |
-        |def main: {Console} Unit = run(capture(s -> printLine(s)))("hi")
+        |def main uses Console: Unit = run(capture(s -> printLine(s)))("hi")
         |""".stripMargin
-    ).asserting(_ should include(":5:52:'f' is code its caller wrote: it can be called or passed on, not kept."))
+    ).asserting(_ should include(":5:56:'f' is code its caller wrote: it can be called or passed on, not kept."))
   }
 
   "a callback returned as a result" should "be rejected as kept" in {
     compileForErrors(
       """import eliot.effect.Console
         |
-        |def keep(f: String => {} Unit): String => Unit = f
+        |def keep(f uses *: String => Unit): String => Unit = f
         |
-        |def main: {Console} Unit = keep(s -> printLine(s))("hi")
+        |def main uses Console: Unit = keep(s -> printLine(s))("hi")
         |""".stripMargin
     ).asserting(_ should include("'f' is code its caller wrote: it can be called or passed on, not kept."))
   }
@@ -80,13 +80,13 @@ class CodeAndValueIntegrationTest extends FullIntegrationTest {
     compileAndRun(
       """import eliot.effect.Console
         |
-        |def each(action: String => {} Unit): Unit = {
+        |def each(action uses *: String => Unit): Unit = {
         |   action("a")
         |   action("b")
         |}
-        |def relay(action: String => {} Unit): Unit = each(action)
+        |def relay(action uses *: String => Unit): Unit = each(action)
         |
-        |def main: {Console} Unit = relay(s -> printLine(s))
+        |def main uses Console: Unit = relay(s -> printLine(s))
         |""".stripMargin
     ).asserting(_ shouldBe "a\nb")
   }
@@ -97,11 +97,11 @@ class CodeAndValueIntegrationTest extends FullIntegrationTest {
         |
         |data Holder(run: String => String)
         |
-        |def defer(body: {} String): Holder = Holder(s -> body)
+        |def defer(body uses *: String): Holder = Holder(s -> body)
         |
-        |def main: {Console} Unit = printLine(run(defer("x"))("y"))
+        |def main uses Console: Unit = printLine(run(defer("x"))("y"))
         |""".stripMargin
-    ).asserting(_ should include(":5:50:'body' is code its caller wrote, and a function value cannot capture it."))
+    ).asserting(_ should include(":5:54:'body' is code its caller wrote, and a function value cannot capture it."))
   }
 
   // §8 item 11: a lambda written in a value position captured the enclosing bindings.
@@ -111,18 +111,18 @@ class CodeAndValueIntegrationTest extends FullIntegrationTest {
         |
         |data Holder(run: String => Unit)
         |
-        |def built: {Console} Holder = Holder(s -> printLine(s))
+        |def built uses Console: Holder = Holder(s -> printLine(s))
         |
-        |def main: {Console} Unit = run(built)("hi")
+        |def main uses Console: Unit = run(built)("hi")
         |""".stripMargin
-    ).asserting(_ should include(":5:43:This uses the effect 'Console' inside a function written where a value is expected"))
+    ).asserting(_ should include(":5:46:This uses the effect 'Console' inside a function written where a value is expected"))
   }
 
   "an effectful lambda bound by a val" should "be rejected at the effect" in {
     compileForErrors(
       """import eliot.effect.Console
         |
-        |def main: {Console} Unit = {
+        |def main uses Console: Unit = {
         |   val shout = (s -> printLine(s))
         |   shout("hi")
         |}
@@ -137,9 +137,9 @@ class CodeAndValueIntegrationTest extends FullIntegrationTest {
         |
         |data Holder(run: String => String)
         |
-        |def lookup(key: String): {Abort} String = if(false, key)
+        |def lookup(key: String) uses Abort: String = if(false, key)
         |
-        |def main: {Console} Unit = printLine(run(Holder(s -> lookup(s) else "none"))("k"))
+        |def main uses Console: Unit = printLine(run(Holder(s -> lookup(s) else "none"))("k"))
         |""".stripMargin
     ).asserting(_ shouldBe "none")
   }
@@ -152,7 +152,7 @@ class CodeAndValueIntegrationTest extends FullIntegrationTest {
         |
         |def describe[T ~ Show](t: T): Holder = Holder(s -> s ++ show(t))
         |
-        |def main: {Console} Unit = printLine(run(describe(42))("answer: "))
+        |def main uses Console: Unit = printLine(run(describe(42))("answer: "))
         |""".stripMargin
     ).asserting(_ shouldBe "answer: 42")
   }
@@ -161,12 +161,12 @@ class CodeAndValueIntegrationTest extends FullIntegrationTest {
     compileAndRun(
       """import eliot.effect.Console
         |
-        |def report(o: Option[String]): {Console} Unit = o match {
+        |def report(o: Option[String]) uses Console: Unit = o match {
         |   case Some(s) -> printLine(s)
         |   case None    -> printLine("none")
         |}
         |
-        |def main: {Console} Unit = {
+        |def main uses Console: Unit = {
         |   report(Some("one"))
         |   report(None)
         |}
@@ -178,9 +178,9 @@ class CodeAndValueIntegrationTest extends FullIntegrationTest {
     compileForErrors(
       """import eliot.effect.Console
         |
-        |def produce(f: String => {} (String => Unit)): String => Unit = f("x")
+        |def produce(f uses *: String => (String => Unit)): String => Unit = f("x")
         |
-        |def main: {Console} Unit = produce(s -> t -> printLine(t))("y")
+        |def main uses Console: Unit = produce(s -> t -> printLine(t))("y")
         |""".stripMargin
     ).asserting(_ should include("This uses the effect 'Console' inside a function written where a value is expected"))
   }

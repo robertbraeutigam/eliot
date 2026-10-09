@@ -13,7 +13,7 @@ class GivenEffectIntegrationTest extends FullIntegrationTest {
       |import eliot.effect.Writer
       |
       |implement recordingConsole: Console {
-      |   def printLine(s: String): {Writer[String]} Unit = tell(s ++ ";")
+      |   def printLine(s: String) uses Writer[String]: Unit = tell(s ++ ";")
       |   def readLine: Option[String] = None
       |}
       |""".stripMargin
@@ -23,13 +23,13 @@ class GivenEffectIntegrationTest extends FullIntegrationTest {
     compileForErrors(
       """import eliot.effect.Console
         |
-        |def launder(body: {Console} Unit): Unit = body
+        |def launder(body uses *, Console: Unit): Unit = body
         |
-        |def main: {Console} Unit = launder(printLine("hi"))
+        |def main uses Console: Unit = launder(printLine("hi"))
         |""".stripMargin
     ).asserting(
       _ should include(
-        ":3:43:'body' is given the effect 'Console' here, which this definition has no implementation of to give."
+        ":3:49:'body' is given the effect 'Console' here, which this definition has no implementation of to give."
       )
     )
   }
@@ -39,9 +39,9 @@ class GivenEffectIntegrationTest extends FullIntegrationTest {
       """import eliot.effect.Console
         |import eliot.effect.Abort
         |
-        |def attempt(body: {Abort} String): String = body else "none"
+        |def attempt(body uses *, Abort: String): String = body else "none"
         |
-        |def main: {Console} Unit = printLine(attempt(if(false, "some")))
+        |def main uses Console: Unit = printLine(attempt(if(false, "some")))
         |""".stripMargin
     ).asserting(_ shouldBe "none")
   }
@@ -50,9 +50,9 @@ class GivenEffectIntegrationTest extends FullIntegrationTest {
     compileForErrors(
       recording +
         """
-          |def launder(body: {Console} Unit): String = runWriterToLog(body with recordingConsole)
+          |def launder(body uses *, Console: Unit): String = runWriterToLog(body with recordingConsole)
           |
-          |def main: {Console} Unit = printLine(launder(printLine("hi")))
+          |def main uses Console: Unit = printLine(launder(printLine("hi")))
           |""".stripMargin
     ).asserting(_ should include("'body' is given the effect 'Console' here"))
   }
@@ -61,9 +61,9 @@ class GivenEffectIntegrationTest extends FullIntegrationTest {
     compileAndRun(
       recording +
         """
-          |def transcriptOf(program: {Console} Unit with recordingConsole): String = runWriterToLog(program)
+          |def transcriptOf(program uses *, Console with recordingConsole: Unit): String = runWriterToLog(program)
           |
-          |def main: {Console} Unit = printLine(transcriptOf(printLine("hi")))
+          |def main uses Console: Unit = printLine(transcriptOf(printLine("hi")))
           |""".stripMargin
     ).asserting(_ shouldBe "hi;")
   }
@@ -72,9 +72,9 @@ class GivenEffectIntegrationTest extends FullIntegrationTest {
     compileForErrors(
       recording +
         """
-          |def silently(program: {Console} Unit with recordingConsole): Unit = program
+          |def silently(program uses *, Console with recordingConsole: Unit): Unit = program
           |
-          |def main: {Console} Unit = silently(printLine("hi"))
+          |def main uses Console: Unit = silently(printLine("hi"))
           |""".stripMargin
     ).asserting(_ should include("'program' is given the effect 'Writer' here"))
   }
@@ -83,10 +83,10 @@ class GivenEffectIntegrationTest extends FullIntegrationTest {
     compileForErrors(
       recording +
         """
-          |def transcriptOf(program: {Console} Unit with recordingConsole): String = runWriterToLog(program)
-          |def relay(program: {Console} Unit): String = transcriptOf(program)
+          |def transcriptOf(program uses *, Console with recordingConsole: Unit): String = runWriterToLog(program)
+          |def relay(program uses *, Console: Unit): String = transcriptOf(program)
           |
-          |def main: {Console} Unit = printLine(relay(printLine("hi")))
+          |def main uses Console: Unit = printLine(relay(printLine("hi")))
           |""".stripMargin
     ).asserting(
       _ should include(

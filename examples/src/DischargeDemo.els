@@ -2,9 +2,9 @@
 // Discharge falls out at the monomorphize-phase residual check: `demo` fully discharges the `{Abort}` of its internal
 // `if..else`, so it honestly declares only `{Console}` — the phantom
 // `Abort` false positive is gone. Before the fix this required declaring `{Console, Abort}`.
-def demo(flag: Bool): {Console} Unit = printLine(if(flag, "discharged: ON") else "discharged: OFF")
+def demo(flag: Bool) uses Console: Unit = printLine(if(flag, "discharged: ON") else "discharged: OFF")
 
-def main: {Console} Unit = {
+def main uses Console: Unit = {
    printLine("========== discharge demo ==========")
    demo(true)
 }

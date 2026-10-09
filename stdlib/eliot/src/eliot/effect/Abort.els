@@ -11,11 +11,11 @@
  * ```eliot
  * // Get a setting as string for a given key. If the setting
  * // does not exists, this function aborts.
- * def setting(key: String): {Abort} String
+ * def setting(key: String) uses Abort: String
  *
  * // Get a DB connection with settings. If any of the settings aborts,
  * // this function aborts without opening a connection.
- * def dbConnection: {Abort} Connection = {
+ * def dbConnection uses Abort: Connection = {
  *   val host = setting("host") // This is a String
  *   val port = setting("port") // Also a String
  *   openConnection(host, port)
@@ -41,7 +41,7 @@ effect Abort {
  * private (`docs/effects.md` §9.6). Consume the result with `foldOption`, or reach for `else` to supply a
  * fallback in one step without ever naming `Option`.
  */
-def runAbort[A](obj: {Abort} A): Option[A]
+def runAbort[A](obj uses *, Abort: A): Option[A]
 
 /**
  * Reflect an `Option` into the `Abort` effect: yield the present value, or `abort` on absence. The bridge from an
@@ -49,10 +49,10 @@ def runAbort[A](obj: {Abort} A): Option[A]
  * `runAbort`. Pair it with `else` to supply a fallback in one step:
  *
  * ```eliot
- * def name: {Console} String = orAbort(readLine) else "anonymous"
+ * def name uses Console: String = orAbort(readLine) else "anonymous"
  * ```
  */
-def orAbort[A](o: Option[A]): {Abort} A = foldOption(abort, a -> a, o)
+def orAbort[A](o: Option[A]) uses Abort: A = foldOption(abort, a -> a, o)
 
 /**
  * Discharge an `{Abort}` computation, supplying `fallback` if it short-circuits — the everyday way to run `Abort`, and
@@ -66,14 +66,14 @@ def orAbort[A](o: Option[A]): {Abort} A = foldOption(abort, a -> a, o)
  *
  * ```eliot
  * // Get a setting for a key; aborts if the setting does not exist.
- * def setting(key: String): {Abort} String
+ * def setting(key: String) uses Abort: String
  *
  * // Discharged at the use site, inside an effectful context.
- * def main: {Console} Unit = printLine(setting("host") else "localhost")
+ * def main uses Console: Unit = printLine(setting("host") else "localhost")
  *
  * // Discharged into a PURE function: nothing is left over, so the result is a plain String.
  * def port: String = setting("port") else "8080"
  * ```
  */
 infix right below (++, ||)
-def else[A](computation: {Abort} A, fallback: {} A): A = foldOption(fallback, a -> a, runAbort(computation))
+def else[A](computation uses *, Abort: A, fallback uses *: A): A = foldOption(fallback, a -> a, runAbort(computation))

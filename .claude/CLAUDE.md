@@ -539,7 +539,7 @@ decisions); Part III holds §12's **do-not-re-propose** list and the
 provenance for a comment citing a retired document or the retired v6 plan record (§13). **There is no carrier, no monad, no `Id`, and nothing to infer** — if you are
 reading code or a comment that mentions one, it is history.
 
-**Decided 2026-10-05, steps 1–4 of 7 built: D20 (`docs/effects.md` §11) replaces the surface below.** An effect is a
+**Decided 2026-10-05, steps 1–5 of 7 built: D20 (`docs/effects.md` §11) replaces the surface below.** An effect is a
 parameter you don't spell, resolved where it is written: `def greet(name: String) uses Console: Unit`. A parameter
 is a value or a **block** — a function type, or `=> A` for a lazy argument (today's `{} A`); a block may be called
 or passed on, **never kept**; a handler's slot is `body uses Throw[E]: => A`; a definition with a body gives its
@@ -554,7 +554,8 @@ cornerstone's last paragraph below says is unsayable today. Purity is the absenc
 signature, and the compiler enforces it; `=>` keeps its one meaning and D20's `=> A` is withdrawn. The two land
 together. Until they do, what follows is the tree — except that since D21 step 4 the `uses` clause **parses**, in both
 positions, onto the row spelling below (`ArgumentDefinition.parameter`, `FunctionDefinition`'s clause), so both
-spellings compile until step 6, and a clause without `*` is a closed row the `row` phase enforces.
+spellings compile until step 6, and a clause without `*` is a closed row the `row` phase enforces. Since step 5 the
+corpus is written in `uses` (row aliases aside, D20a), so the row spelling below survives only in the tests about it.
 
 **Four user rules, and the fourth outranks the other three** (§1):
 

@@ -14,6 +14,6 @@
  * echo "hello effects" | java -jar target/Effects.jar
  * ```
  */
-def echo: {Console} Unit = printLine(readLine orElse "(no input)")
+def echo uses Console: Unit = printLine(readLine orElse "(no input)")
 
-def main: {Console} Unit = echo
+def main uses Console: Unit = echo
