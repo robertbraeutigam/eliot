@@ -1,6 +1,7 @@
 package com.vanillasource.eliot.eliotc.row
 
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.core.fact.RoleHint
 import com.vanillasource.eliot.eliotc.module.fact.{Qualifier, Role, ValueFQN, WellKnownTypes}
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.*
 import com.vanillasource.eliot.eliotc.operator.fact.{OperatorResolvedExpression, OperatorResolvedValue}
@@ -44,10 +45,20 @@ import scala.collection.mutable
   * recorded ([[com.vanillasource.eliot.eliotc.ast.fact.AbilityMembers]]) and for an ordinary definition is what its
   * `{ … }` says. A `~` constraint's ability is in no row, so it defaults. Nothing keys on a name or a shape.
   *
-  * The walk crosses a lambda boundary iff the lambda's slot has a row (D5, §9.4): a lambda at a rowless arrow may bind
-  * and discharge locally but never reaches the enclosing declarations. That falls out of the walk rather than being a
-  * rule of its own — a rowless slot is not entered with a slot scope, and a lambda's own parameter shadows a thunk of
-  * the same name.
+  * **Code and values** (`docs/effects.md` D21, rules 2 and 3). A parameter whose type carries a row — a top-level
+  * one (`body: {} A`) or one in its codomain (`action: A => {} Unit`) — is **code**: the caller's text, run by the
+  * callee. Every other position is a **value**, and a value is pure. So:
+  *
+  *   - a lambda written as the argument of a code parameter, or applied where it stands, is the caller's code and
+  *     sees the caller's bindings; a lambda anywhere else — a rowless function parameter, a field, a generic slot, a
+  *     `val` — is a value, and may use no effect bound outside it ([[Scope.enterValue]]). It may still bind and
+  *     discharge its own, and an ordinary ability (a `~` constraint) is not an effect and stays reachable;
+  *   - this definition's own code parameters are **used, never kept**: a reference to one is the head of a call or
+  *     the argument of another code parameter, and nothing else — not an argument at a value slot, not a result, and
+  *     not a capture by a value lambda, which would carry the code past the call that bound it.
+  *
+  * A `match` is lowered to lambdas before this phase ([[isMatchMachinery]]): its arms are the author's code in place,
+  * so they are walked as code, not as the values their lowering makes them look like.
   */
 object BindingWriter {
 
@@ -82,7 +93,8 @@ object BindingWriter {
       ability: AbilityFQN,
       term: OperatorResolvedExpression,
       byWith: Boolean = false,
-      received: Boolean = false
+      received: Boolean = false,
+      beyondValue: Boolean = false
   )
 
   /** The lexical environment at one point. `bindings` is innermost-first, so a nearer `with` shadows an outer one for
@@ -94,9 +106,31 @@ object BindingWriter {
     *   boundary**, where every effect's chain ends (§9.5), and a **signature**, whose `raise`/`abort` is the guard
     *   channel's vocabulary and is discharged by the guarded-return read, not performed at runtime at all.
     */
-  private case class Scope(bindings: Seq[Binding], thunks: Set[String], uncoveredDefaults: Boolean = false) {
+  private case class Scope(
+      bindings: Seq[Binding],
+      thunks: Set[String],
+      uncoveredDefaults: Boolean = false,
+      callbacks: Set[String] = Set.empty,
+      captured: Set[String] = Set.empty
+  ) {
     def bind(binding: Binding): Scope = copy(bindings = binding +: bindings)
-    def shadow(name: String): Scope   = copy(thunks = thunks - name)
+    def shadow(name: String): Scope   =
+      copy(thunks = thunks - name, callbacks = callbacks - name, captured = captured - name)
+
+    /** The scope inside a lambda written in a **value** position. Every binding in scope so far is outside the value,
+      * so an effect may no longer be taken from it ([[Writer.bindingFor]]); and every code parameter in scope would be
+      * carried off by the value, so a reference to one is a capture. A region whose uncovered effects default — a
+      * signature, a run boundary — is not checked: its effects are not performed at runtime by this body.
+      */
+    def enterValue: Scope =
+      if (uncoveredDefaults) this
+      else
+        copy(
+          bindings = bindings.map(_.copy(beyondValue = true)),
+          thunks = Set.empty,
+          callbacks = Set.empty,
+          captured = captured ++ thunks ++ callbacks
+        )
 
     /** This scope with `abilities` bound to `Default` — what a slot's `with` resolves its own bindings against, since
       * the scope that covers them is the callee's and not this one.
@@ -125,7 +159,7 @@ object BindingWriter {
   def write(orv: OperatorResolvedValue, universe: RowChecker.Universe, atBoundary: Boolean = false): Written = {
     val writer     = new Writer(universe)
     val received   = receivedBindings(orv, universe)
-    val scope      = Scope(received, thunkParameters(orv), uncoveredDefaults = atBoundary)
+    val scope      = Scope(received, thunkParameters(orv), atBoundary, callbackParameters(orv))
     val view       = SignatureView.of(orv.signature)
     val body       = Option
       .when(writableBody(orv))(orv.runtime)
@@ -234,12 +268,32 @@ object BindingWriter {
   }
 
   /** The names of this definition's row-typed value parameters: a reference to one runs it. */
-  private def thunkParameters(orv: OperatorResolvedValue): Set[String] = {
-    val view            = SignatureView.of(orv.signature)
-    val (names, _)      = RowChecker.peelBinders(orv.runtime.map(_.value).getOrElse(view.returnType.value))
-    val valueParamNames = names.takeRight(view.parameters.size)
-    orv.effectRow.parameterEffects.flatMap(pe => valueParamNames.lift(pe.parameterIndex)).toSet
+  private def thunkParameters(orv: OperatorResolvedValue): Set[String] =
+    orv.effectRow.parameterEffects.flatMap(pe => valueParameterNames(orv).lift(pe.parameterIndex)).toSet
+
+  /** The names of this definition's **callback** parameters — function-typed, with a row in the codomain: code, which
+    * may be called or passed on and never kept.
+    */
+  private def callbackParameters(orv: OperatorResolvedValue): Set[String] =
+    orv.effectRow.callbackEffects.flatMap(cb => valueParameterNames(orv).lift(cb.parameterIndex)).toSet
+
+  private def valueParameterNames(orv: OperatorResolvedValue): Seq[String] = {
+    val view       = SignatureView.of(orv.signature)
+    val (names, _) = RowChecker.peelBinders(orv.runtime.map(_.value).getOrElse(view.returnType.value))
+    names.takeRight(view.parameters.size)
   }
+
+  /** Whether `callee` is one of the members a `match` lowers to — `handleCases` of a `PatternMatch` implementation, or
+    * `typeMatch` of a `TypeMatch` one. Their arguments are the arms of the `match`, which the author wrote in place:
+    * code, whatever the lowering's types say. No user can name them, so nothing else is read as an arm.
+    */
+  private def isMatchMachinery(callee: ValueFQN): Boolean =
+    WellKnownTypes.isPatternMatchHandleCases(callee) || WellKnownTypes.isTypeMatchTypeMatch(callee)
+
+  /** The parameter a `match`'s Church-encoded selector binds ([[isMatchMachinery]]): the lowering applies it to each
+    * arm, so its arguments are arms too. The `$` keeps it out of reach of anything a user writes.
+    */
+  private val matchSelector = "$selector"
 
   /** A definition's **binding binders**, as `(index, ability)` pairs in index order — read off the **marks** its own
     * declaration carries, and off nothing else.
@@ -348,26 +402,73 @@ object BindingWriter {
               walk(subject, scope)
           }
 
+        case ParameterReference(name) if scope.captured.contains(name.value) =>
+          violations += capturedCode(name)
+          expr
+
         // A reference to one of this definition's row-typed parameters is a thunk: running it is applying it.
         case ParameterReference(name) if scope.thunks.contains(name.value) =>
           expr.as(FunctionApplication(expr, unitValue(expr)))
 
+        // A callback here is neither called nor passed on to code: whatever receives it may keep it.
+        case ParameterReference(name) if scope.callbacks.contains(name.value) =>
+          violations += keptCode(name)
+          expr
+
+        // A lambda reaching this case stands in a value position, and a value is pure.
         case FunctionLiteral(paramName, paramType, body) =>
-          expr.as(FunctionLiteral(paramName, paramType, walk(body, scope.shadow(paramName.value))))
+          expr.as(FunctionLiteral(paramName, paramType, walk(body, scope.enterValue.shadow(paramName.value))))
 
         case _: IntegerLiteral | _: StringLiteral | _: ParameterReference => expr
 
         case _ =>
           val (head, args) = spine(expr.value)
           head match {
-            case ValueReference(callee, existing) =>
+            case ValueReference(callee, existing)                                   =>
               val written  = writeBindings(expr.as(head), callee.value, existing, scope, args)
               val adjusted = args.zipWithIndex.map { case (arg, index) => walkArgument(arg, callee.value, index, scope) }
               runStored(expr.as(applyChain(written, adjusted)), head, args, scope)
-            case _                                =>
-              expr.as(applyChain(walk(expr.as(head), scope), args.map(walk(_, scope))))
+            case ParameterReference(selector) if selector.value === matchSelector =>
+              expr.as(applyChain(walk(expr.as(head), scope), args.map(walkCode(_, scope, Int.MaxValue))))
+            case _                                                                  =>
+              expr.as(applyChain(walkCode(expr.as(head), scope, args.size), args.map(walk(_, scope))))
           }
       }
+
+    /** An expression standing where **code** is expected — the argument of a code parameter, or the head of an
+      * application — whose first `arity` lambdas are therefore the caller's text and keep its scope. A lambda past them
+      * is what the code hands back, which is a value again; and this definition's own callback, standing here, is being
+      * called or passed on rather than kept.
+      */
+    private def walkCode(
+        expr: Sourced[OperatorResolvedExpression],
+        scope: Scope,
+        arity: Int
+    ): Sourced[OperatorResolvedExpression] =
+      expr.value match {
+        case FunctionLiteral(paramName, paramType, body) if arity > 0          =>
+          expr.as(FunctionLiteral(paramName, paramType, walkCode(body, scope.shadow(paramName.value), arity - 1)))
+        case ParameterReference(name) if scope.callbacks.contains(name.value) => expr
+        case _                                                                => walk(expr, scope)
+      }
+
+    private def keptCode(name: Sourced[String]): Violation =
+      Violation(
+        name.as(s"'${name.value}' is code its caller wrote: it can be called or passed on, not kept."),
+        Seq(
+          "Call it here, or pass it to a parameter that takes code (`f: A => {} B`); anything else may keep it past " +
+            "the call that bound its effects."
+        )
+      )
+
+    private def capturedCode(name: Sourced[String]): Violation =
+      Violation(
+        name.as(s"'${name.value}' is code its caller wrote, and a function value cannot capture it."),
+        Seq(
+          "A function written where a value is expected may be kept, so it may not carry code; pass the function " +
+            "to a parameter that takes code (`f: A => {} B`) instead."
+        )
+      )
 
     /** A saturated call to a value whose declared return is a **stored computation** — a `data` field accessor (A7,
       * `docs/effects.md` §9.5 "Storage") — runs it: the value it hands back is the thunk the field holds, and running a
@@ -434,8 +535,9 @@ object BindingWriter {
       */
     private def chargeStored(ability: AbilityFQN, at: Sourced[?], scope: Scope): Unit =
       scope.binding(ability) match {
-        case None                             => reportUncovered(ability, at, scope)
-        case Some(binding) if binding.byWith  =>
+        case None                                => reportUncovered(ability, at, scope)
+        case Some(binding) if binding.beyondValue => violations += capturedEffect(ability, at)
+        case Some(binding) if binding.byWith     =>
           violations += Violation(
             at.as(
               s"This reads a stored computation, whose effect '${ability.abilityName}' was bound where the value " +
@@ -459,8 +561,13 @@ object BindingWriter {
         scope: Scope
     ): Sourced[OperatorResolvedExpression] =
       universe.lookup(callee).flatMap(orv => rowSlot(orv, index).map(orv -> _)) match {
-        case None                    => walk(arg, scope)
-        case Some((calleeOrv, slot)) =>
+        case None if isMatchMachinery(callee) => walkCode(arg, scope, Int.MaxValue)
+        case None                             =>
+          universe.lookup(callee).flatMap(callbackArity(_, index)) match {
+            case Some(arity) => walkCode(arg, scope, arity)
+            case None        => walk(arg, scope)
+          }
+        case Some((calleeOrv, slot))          =>
           val name    = thunkParameter
           val inside  = suppliedScope(calleeOrv, index, slot, scope, arg).shadow(name)
           arg.as(
@@ -534,6 +641,16 @@ object BindingWriter {
     /** Every ability the implementation `marker` is parameterised by — its phantom binders' abilities. */
     private def bindingAbilities(marker: ValueFQN): Seq[AbilityFQN] =
       universe.lookup(marker).toSeq.flatMap(orv => phantoms(orv).map(_._2))
+
+    /** How many arguments a callee calls its parameter `index` with, when that parameter is a **callback** — code of
+      * function type. A value constructor's parameters are fields, and a field holds a value (D20 rule 6), so it takes
+      * none.
+      */
+    private def callbackArity(orv: OperatorResolvedValue, index: Int): Option[Int] =
+      orv.roleHint match {
+        case _: RoleHint.ValueConstructor => None
+        case _                            => orv.effectRow.callbackEffects.find(_.parameterIndex === index).map(_.arity)
+      }
 
     /** The abilities a callee's parameter `index` declares, when that parameter is a row position at all. */
     private def rowSlot(orv: OperatorResolvedValue, index: Int): Option[Seq[AbilityFQN]] =
@@ -727,13 +844,28 @@ object BindingWriter {
         scope: Scope
     ): OperatorResolvedExpression =
       scope.binding(ability) match {
-        case Some(binding) =>
+        case Some(binding) if isEffect && binding.beyondValue =>
+          violations += capturedEffect(ability, at)
+          binding.term
+        case Some(binding)                                    =>
           consume(binding)
           binding.term
-        case None          =>
+        case None                                             =>
           if (isEffect) reportUncovered(ability, at, scope)
           defaultBinding(at)
       }
+
+    private def capturedEffect(ability: AbilityFQN, at: Sourced[?]): Violation =
+      Violation(
+        at.as(
+          s"This uses the effect '${ability.abilityName}' inside a function written where a value is expected, and " +
+            "a value may use no effect bound outside it."
+        ),
+        Seq(
+          s"Pass the function to a parameter that takes code (`f: A => {} B`), or discharge '${ability.abilityName}' " +
+            "inside it."
+        )
+      )
 
     private def reportUncovered(ability: AbilityFQN, at: Sourced[?], scope: Scope): Unit =
       if (!scope.uncoveredDefaults)

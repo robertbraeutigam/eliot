@@ -41,6 +41,14 @@ import cats.syntax.all.*
   *   the exact mirror of a row-typed *parameter* reference, and what makes wrap and apply cancel for a field read back
   *   at a rowed slot (`runThrow(body(b))`). The entries are what the read *performs*, so the scope check charges them
   *   at the call.
+  * @param callbackEffects
+  *   One entry per value parameter whose type is a **function with a row in its codomain** — `action: A => {} Unit`,
+  *   `combine: A => B => {} B` — holding the parameter's index, how many arguments the callee calls it with, and that
+  *   row's entries. Such a parameter is **code**:
+  *   the callee calls it, so a lambda written at it is the caller's text and sees the caller's bindings, while a
+  *   function parameter with no row is a **value**, and a value is pure (`docs/effects.md` D21, rules 2 and 3 — the
+  *   later `f uses *: A => B`). Unlike [[parameterEffects]] the type is not thunked: the codomain row lowers to its
+  *   payload, so nothing but this record tells the two spellings apart.
   * @tparam C
   *   The phase's ability-constraint representation: [[UnresolvedAbilityConstraint]] over the ast's and then the core's
   *   expression type, and from resolution onwards
@@ -49,7 +57,8 @@ import cats.syntax.all.*
 case class EffectRow[C](
     returnEffects: Seq[C] = Seq.empty[C],
     parameterEffects: Seq[EffectRow.ParameterEffects[C]] = Seq.empty[EffectRow.ParameterEffects[C]],
-    returnThunkEffects: Seq[C] = Seq.empty[C]
+    returnThunkEffects: Seq[C] = Seq.empty[C],
+    callbackEffects: Seq[EffectRow.CallbackEffects[C]] = Seq.empty[EffectRow.CallbackEffects[C]]
 ) {
 
   /** Convert every entry with a pure function, preserving positions — the pure fact-chain hops (ast→core,
@@ -59,7 +68,8 @@ case class EffectRow[C](
     EffectRow(
       returnEffects.map(f),
       parameterEffects.map(_.map(f)),
-      returnThunkEffects.map(f)
+      returnThunkEffects.map(f),
+      callbackEffects.map(_.map(f))
     )
 
   /** Convert every entry with an effectful function, preserving positions — the resolving fact-chain hops
@@ -69,7 +79,8 @@ case class EffectRow[C](
     (
       returnEffects.traverse(f),
       parameterEffects.traverse(_.traverse(f)),
-      returnThunkEffects.traverse(f)
+      returnThunkEffects.traverse(f),
+      callbackEffects.traverse(_.traverse(f))
     ).mapN(EffectRow.apply)
 }
 
@@ -83,6 +94,17 @@ object EffectRow {
 
     def traverse[F[_]: Applicative, D](f: C => F[D]): F[ParameterEffects[D]] =
       effects.traverse(f).map(ParameterEffects(parameterIndex, _))
+  }
+
+  /** A **code** parameter of function type — the callback `combine: A => B => {} B` — tagged with its positional index
+    * and its **arity**, the number of arrows before the row: that many nested lambdas written at the slot are the
+    * caller's code, and a lambda past them is the value the code hands back.
+    */
+  case class CallbackEffects[C](parameterIndex: Int, arity: Int, effects: Seq[C]) {
+    def map[D](f: C => D): CallbackEffects[D] = CallbackEffects(parameterIndex, arity, effects.map(f))
+
+    def traverse[F[_]: Applicative, D](f: C => F[D]): F[CallbackEffects[D]] =
+      effects.traverse(f).map(CallbackEffects(parameterIndex, arity, _))
   }
 
   def empty[C]: EffectRow[C] = EffectRow(Seq.empty, Seq.empty)

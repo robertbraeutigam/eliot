@@ -808,19 +808,22 @@ on a slot both *marks a block* and *mints bindings*, and nothing keeps the block
 the callee has the binding it hands over — and **D20 closes all five by construction**; each is listed with the
 D20 rule that does it. The witnesses are the five programs below, which become D20's regression tests.
 
-9. **Rule 4's third bullet is not enforced: a lambda at a rowless arrow reaches the enclosing bindings.**
+9. ~~**Rule 4's third bullet is not enforced: a lambda at a rowless arrow reaches the enclosing bindings.**~~
+   **Closed 2026-10-09 by D21 step 1, by rejecting it** (below).
    `def applyTwice(f: String => Unit): Unit` called as `applyTwice(s -> printLine(s))` from a `{Console}`
    definition compiles and prints, exactly as `f: String => {} Unit` would: the two spellings behave identically
    for a lambda written at the slot. So the tree already treats every function parameter as a block, just
    without the restriction that makes that safe (item 10). D20 makes this the rule (rule 2) rather than the
    accident, and adds the restriction (rule 3).
-10. **A function parameter can be kept, and its lambda runs after the call that bound it.** Rows erase from
+10. ~~**A function parameter can be kept, and its lambda runs after the call that bound it.**~~ **Closed 2026-10-09
+    by D21 step 1.** Rows erase from
     types, so `capture(f: String => {} Unit): Holder = Holder(f)` stores the block in a rowless field. With
     `leaky: {Console} Holder = capture(s -> printLine(s))`, a later `runIt(h: Holder): Unit` — declaring
     nothing — prints. With `escaped: Holder = catch[String, Holder](capture(s -> raise(s)), …)`, the `raise`
     runs after `catch` has returned and the program dies with a bare `RuntimeException` from
     `Throw.exitInternal`: a frame the type system said was there is not. D20 rule 3.
-11. **A lambda written in a value position captures the enclosing bindings.** `built: {Console} Holder =
+11. ~~**A lambda written in a value position captures the enclosing bindings.**~~ **Closed 2026-10-09 by D21 step
+    1.** `built: {Console} Holder =
     Holder(s -> printLine(s))` — no function parameter involved — compiles, and the stored lambda prints when a
     def declaring nothing runs it. D20 rule 4.
 12. **A data constructor supplies a field's row by `Default`.** With `data Job(run: {Console} Unit)`,
@@ -1404,7 +1407,7 @@ Standing rule 1: each is written down as a reversal, not amended in place. They 
 
 ### D21 — purity is spelled by absence: a function parameter is a value, and caller's code is `uses *`
 
-**Decided 2026-10-09. Not built.** It amends one rule of D20 and one of its spellings; everything else D20 decided
+**Decided 2026-10-09. Step 1 built the same day** (below); the rest not built. It amends one rule of D20 and one of its spellings; everything else D20 decided
 stands, and the two land together. Until they do, Part I is the tree. First written with a `block` keyword the same
 day, and respelled before anything was built: the mark says nothing about `{ … }`, and a second keyword beside `uses`
 was a second spelling of one fact.
@@ -1578,6 +1581,20 @@ D20's list stands with these substitutions; the numbering is D20's.
    position is a rowless slot, so the check is already expressible before the surface changes. Closes §8 items 9,
    10 and 11 (item 9 by rejecting it, not by legalising it as D20 did). Gate: §10, plus the probes as tests, plus a
    probe that an effectful lambda at a rowless arrow is rejected and a pure one at a row-typed slot is accepted.
+   **Built 2026-10-09.** `EffectRow.callbackEffects` records each parameter whose function type carries a row in its
+   final codomain, with its arity (the arrows before the row), so the `row` phase can tell `f: A => {} B` (code) from
+   `f: A => B` (a value) — the two lowered to one type and nothing else told them apart. `BindingWriter` then walks a
+   lambda as code only where it is the argument of a code parameter (up to that parameter's arity), the head of an
+   application, or an arm of a lowered `match` (`handleCases`/`typeMatch` and the `$selector` the lowering applies to
+   its arms); a lambda anywhere else is a value, and inside it every binding from outside is marked, so an effect taken
+   from one is *"This uses the effect 'X' inside a function written where a value is expected"*. An ordinary ability
+   (a `~` constraint) is not an effect and stays reachable. A callback parameter standing anywhere but the head of a
+   call or the argument of a code parameter is *"'f' is code its caller wrote: it can be called or passed on, not
+   kept"*, and any code parameter referenced inside a value lambda is *"… a function value cannot capture it"*. A
+   value constructor's parameters are values whatever their type says. Gate: `./mill __.test` green but for five
+   tests that compare stderr and read the sandbox's `JAVA_TOOL_OPTIONS` banner (green with it unset); all 47 example
+   jars byte-identical; eliot-test's suite green (183) under this compiler; the witnesses for items 9–11 are
+   `CodeAndValueIntegrationTest`.
 4. **The parser accepts `uses` in both positions, with `*` on a parameter** — not `=> A` — onto the existing
    `EffectRow` metadata (`uses *` is the row tag with an open empty row; `uses *, E` the open row `{E}`; `uses E`
    the same row closed, one bit the metadata does not carry today and the only thing a phase past `ast` learns).

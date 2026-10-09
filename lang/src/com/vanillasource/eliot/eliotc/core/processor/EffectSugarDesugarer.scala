@@ -193,8 +193,41 @@ object EffectSugarDesugarer {
         function.args.zipWithIndex.collect {
           case (arg, index) if isRow(arg.typeExpression) =>
             EffectRow.ParameterEffects(index, topLevelRowEntries(arg.typeExpression))
-        }
+        },
+      callbackEffects =
+        if (isMetaCompanion(function)) Seq.empty
+        else
+          function.args.zipWithIndex.flatMap { case (arg, index) =>
+            codomainRow(arg.typeExpression).map { case (arity, entries) =>
+              EffectRow.CallbackEffects(index, arity, entries)
+            }
+          }
     )
+
+  /** The row in a function type's **final codomain** — `A => {} B`, `A => B => {Log} C` — with the number of arrows
+    * before it, when the type is an arrow chain ending in one. That row marks the parameter as code the callee calls,
+    * not a function value it may keep ([[com.vanillasource.eliot.eliotc.ast.fact.EffectRow.callbackEffects]]). The
+    * `=>` chain is still a flat run at this phase, so its codomain is the run's last part, and a parenthesised last part
+    * (`A => (B => {} C)`) is a run of its own.
+    */
+  private def codomainRow(
+      expr: Sourced[Expression]
+  ): Option[(Int, Seq[UnresolvedAbilityConstraint[Sourced[Expression]]])] =
+    expr.value match {
+      case WithBinding(subject, _)                 => codomainRow(subject)
+      case FlatExpression(parts) if parts.size > 1 =>
+        val arrows = parts.count(isArrow)
+        parts.last.value match {
+          case EffectfulType(effects, _, None) => Option.when(arrows > 0)(arrows -> effects)
+          case _                               => codomainRow(parts.last).map { case (n, e) => (arrows + n, e) }
+        }
+      case _                                       => None
+    }
+
+  private def isArrow(part: Sourced[Expression]): Boolean = part.value match {
+    case FunctionApplication(None, name, None, Seq()) => name.value === "=>"
+    case _                                            => false
+  }
 
   /** The distinct entries a definition writes out in its **return position** — the ones it mints a binding binder for.
     * A row is declaration metadata, so the return type itself lowers to its payload.
