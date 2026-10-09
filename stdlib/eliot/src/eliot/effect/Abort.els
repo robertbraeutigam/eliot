@@ -57,7 +57,7 @@ def orAbort[A](o: Option[A]) uses Abort: A = foldOption(abort, a -> a, o)
 /**
  * Discharge an `{Abort}` computation, supplying `fallback` if it short-circuits — the everyday way to run `Abort`, and
  * the `else` of the `if..else` sugar. On completion it yields the computed value; on `abort` it runs `fallback`
- * instead, never exposing `Option`. The fallback is a suspended slot (`{} A`), so only the taken side ever runs and it
+ * instead, never exposing `Option`. The fallback is a suspended slot (`uses *`), so only the taken side ever runs and it
  * may itself perform whatever the enclosing definition declares. `else` discharges the `Abort` layer and touches
  * nothing else. Binds right-associatively, so `if(..) else if(..) else default` nests as expected, and looser than
  * every ordinary operator, so a fallback may be an operator expression as it stands:

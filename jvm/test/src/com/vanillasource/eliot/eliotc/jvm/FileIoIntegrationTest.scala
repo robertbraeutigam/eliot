@@ -89,7 +89,7 @@ class FileIoIntegrationTest extends FullIntegrationTest {
       .asserting(_ shouldBe "x\ny\nz")
   }
 
-  /** A `{Console, FileSystem, Throw[IoError]} Unit` report body (which prints its own result), wrapped in a program
+  /** A `uses Console, FileSystem, Throw[IoError]` report body (which prints its own result), wrapped in a program
     * whose `main` builds `scratch`, runs the report, and discharges the failure with `catch` — printing "failed" on an
     * `IoError`. The handler names `IoError` so the discharged error type is pinned; `catch` resolves to a direct call, so
     * the program needs no carrier machinery in scope at all.

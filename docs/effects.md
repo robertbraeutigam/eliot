@@ -8,12 +8,12 @@ change decided and not yet built (a binding binder marked by its type, §9), and
 Part III is the list of things closed by measurement or decision, and enough provenance to read a source
 comment that cites a retired document or a retired section.
 
-**Decided 2026-10-05, D20 (§11); steps 1–5 of its work list built 2026-10-09, steps 6–7 not.** Effects become parameters in the surface as they already are in
+**Decided 2026-10-05, D20 (§11); steps 1–6 of its work list built 2026-10-09, step 7 not.** Effects become parameters in the surface as they already are in
 the mechanism — `def greet(name: String) uses Console: Unit` — a lazy argument is `=> A`, a function parameter
 is a block that may be called or passed on but never kept, and a `data` field holds a value. It closes five
 silent defects found while designing it (§8 items 9–13) and reverses three of Part I's rules.
 
-**Decided 2026-10-09, D21 (§11); built with D20 through step 5** — it amends D20 before it is built: a function-typed parameter is an
+**Decided 2026-10-09, D21 (§11); built with D20 through step 6** — it amends D20 before it is built: a function-typed parameter is an
 ordinary pure value, keepable like any other, and the one kind of parameter that is code carries the one clause
 the surface has, `uses` — `uses *` for the caller's own effects
 (`def foreach[A](action uses *: A => Unit, list: List[A]): Unit`), `uses *, Throw[E]` for a handler's slot, `uses E`
@@ -755,7 +755,7 @@ landed; items 1, 4 and 6 remain open, and two more (items 7 and 8) were found an
 **Item 2 needed no decision** and closed on its own later that day: a dot-read is the same read as the call
 spelling, so the rule had only to be stated on the call rather than on one of its two spellings.
 
-**2026-10-05.** **D20** is decided (steps 1–5 built 2026-10-09, with D21): effects are parameters (`uses`), a lazy argument is `=> A`, a
+**2026-10-05.** **D20** is decided (steps 1–6 built 2026-10-09, with D21): effects are parameters (`uses`), a lazy argument is `=> A`, a
 function parameter is a block that is called or passed on and never kept, and a field holds a value. Designing it
 found **five more silent divergences**, §8 items 9–13, all of which D20 closes. It supersedes **D18**.
 
@@ -1223,9 +1223,9 @@ The experiment's diff is deliberately not kept in the tree — this entry is eno
 
 ### D20 — effects are parameters; a function you are given is called, never kept
 
-**Decided 2026-10-05. Steps 1–5 built 2026-10-09** (as D21 amends them: §8 items 9–13 closed, the `uses` clause
-parses beside the row spelling, its closed form enforced, and the corpus is migrated to it); **steps 6–7 not built** —
-deleting the row spelling, and rewriting Part I. It changes the surface and three of Part I's rules. The mechanism of §3 —
+**Decided 2026-10-05. Steps 1–6 built 2026-10-09** (as D21 amends them: §8 items 9–13 closed, the `uses` clause
+parsed, its closed form enforced, the corpus migrated to it, and the row spelling deleted but for a row alias's body);
+**step 7 not built** — rewriting Part I. It changes the surface and three of Part I's rules. The mechanism of §3 —
 phantom binders, the write, `with`, the primitives, the one verifier — stays. Until it lands, Part I is the tree.
 **D21 (below, 2026-10-09) amends this decision's rule 2 and its `=> A` spelling** — a function-typed parameter is a
 value, and caller's code is marked `uses *` — and records the reversals; the two land together, and this section is
@@ -1411,6 +1411,7 @@ mechanical migration that §10's byte-identity gate can watch.
    one shape (§8 item 9), so dropping the codomain `{}` must be byte-identical; that is this step's gate.
 5. **Migrate**, by script, every file listed under the costs. Gate: byte-identity over the 45 examples.
 6. **Delete the old surface**: a row in a result or a parameter type is a parse error naming the `uses` spelling.
+   **Built 2026-10-09**, as D21's step 6 records.
 7. **Documents**: Part I rewritten to the model above, the CLAUDE.md cornerstone, the user docs' effect chapters
    and the `eliot-code` skill.
 
@@ -1451,7 +1452,7 @@ Standing rule 1: each is written down as a reversal, not amended in place. They 
 
 ### D21 — purity is spelled by absence: a function parameter is a value, and caller's code is `uses *`
 
-**Decided 2026-10-09. Steps 1, 4 and 5 built the same day** (below), with D20's 2 and 3; 6 not built. It amends one rule of D20 and one of its spellings; everything else D20 decided
+**Decided 2026-10-09. Steps 1, 4, 5 and 6 built the same day** (below), with D20's 2 and 3. It amends one rule of D20 and one of its spellings; everything else D20 decided
 stands, and the two land together. Until they do, Part I is the tree. First written with a `block` keyword the same
 day, and respelled before anything was built: the mark says nothing about `{ … }`, and a second keyword beside `uses`
 was a second spelling of one fact.
@@ -1681,6 +1682,25 @@ D20's list stands with these substitutions; the numbering is D20's.
    eliot-test's runner and eliot-build's launcher and suite runner byte-identical to the row spelling's, eliot-test 183
    green. eliot-test and eliot-build need an eliot release carrying `uses` before their `dep` lines can move to it.
 6. **Delete the old surface**: a row in a type, and `=> A`, are parse errors naming the `uses` spelling.
+
+   **Built 2026-10-09.** `=> A` was never built, so the step is the row. A `{` in a type run is checked against the row
+   shape and, where it matches, refused as itself (`Parser.refusedAs`, from `Expression.typeRunAtom`): *"Expected a type,
+   with its effects in a `uses` clause before the colon (`def f uses Console: Unit`, `body uses *, Throw[E]: A`), but
+   encountered symbol '{'"* — on a return type, a parameter, an arrow codomain, after a clause, and for the empty row
+   alike. A `data` field's type gets its own refusal (`Expression.fieldTypeRunParser`), saying a field holds a value,
+   since it can take no clause either; the transfer brace and an `implement` body after a `where` do not match the row
+   shape and pass through as before. **What keeps the row spelling** is the one construct with no `uses` form: a **row
+   alias**'s body, as its whole body only (`Expression.rowAliasBodyParser`), until D20a decides one. The pinned form
+   `{E | G} A` went with it — the parser no longer reads a tail, so `EffectfulType` lost its `tail` — and so did every
+   core diagnostic the parser now pre-empts: `EffectSugarDesugarer.rowErrors` (a field row, a pinned row, a clause over
+   a rowed type) and the field erasure `DataDefinitionDesugarer` did for it. The diagnostics that told a user to edit
+   "its `{ ... }` effect set" name its `uses` clause. The node itself stays: the clause is still parsed onto it, so no
+   phase past `ast` changed. Step 5's script had missed three return rows written across several lines in
+   eliot-build (`Launcher.performed`/`compiled`, `CachedPackages.descriptorAt`), which this step's parser found; they
+   are respelled. Gate: `./mill __.test` green (the banner-sensitive tests run with `JAVA_TOOL_OPTIONS` unset); all 47
+   example jars byte-identical; eliot-test 183 green and eliot-build 368 green under this compiler, and eliot-build's
+   launcher jar byte-identical to the one the step-5 compiler built from the step-5 source. The witnesses are
+   `UsesClauseParserTest`'s "a row written in a type" and "a row alias", and `FieldValueIntegrationTest`.
 
 #### Interactions
 

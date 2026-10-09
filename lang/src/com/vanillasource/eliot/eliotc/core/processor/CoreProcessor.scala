@@ -32,8 +32,6 @@ class CoreProcessor
     // Each data definition's synthetic PatternMatch/TypeMatch implementations are keyed by the data type's name (a
     // stable per-module identity), so no cross-cutting index bookkeeping is needed — they cannot collide with each
     // other or with user implementations (which are keyed by their own `(ability, pattern)`).
-    // A field holds a value (`docs/effects.md` D20 rule 6), so the split erases any row written on one and
-    // `EffectSugarDesugarer.rowErrors` below reports it.
     val desugaredFromData: Seq[(FunctionDefinition, RoleHint)] =
       sourceAstData.typeDefinitions.flatMap(DataDefinitionDesugarer.desugar)
     // Meta-slot brace on a type declaration (`type Int {range: …}`) → the type's `^Meta` constructor
@@ -73,12 +71,6 @@ class CoreProcessor
     // contravariant position of a constructor field (the negative-recursive-datatype route to `Y`). See
     // StrictPositivityChecker. Errors are reported here but the CoreAST is still produced so other checks proceed.
     val positivityErrors = sourceAstData.typeDefinitions.flatMap(StrictPositivityChecker.check)
-    // Ill-formed effect rows: any row on a `data` field, which holds a value (D20 rule 6), and a pinned row anywhere,
-    // which named a carrier stack v6 does not have. Reported here, with the definitions still lowered (see
-    // EffectSugarDesugarer) so other checks proceed.
-    val rowErrors        =
-      sourceAstData.typeDefinitions.flatMap(EffectSugarDesugarer.rowErrors) ++
-        sourceAstData.functionDefinitions.flatMap(EffectSugarDesugarer.rowErrors)
     // Visibility-order check: a file's public API must be a prefix of its declarations, so no public declaration may
     // follow a private one. Runs on the desugared named values (not the source AST) so `def`/`type`/`data`/`ability`/
     // `implement` all answer to one rule with no per-construct arms. See VisibilityOrderChecker.
@@ -87,7 +79,7 @@ class CoreProcessor
     // reach match desugaring un-lowered and crash the compiler. See SignatureBlockChecker for why it is reported
     // rather than lowered.
     val signatureErrors  = coreAstData.namedValues.flatMap(SignatureBlockChecker.check)
-    (positivityErrors ++ rowErrors ++ visibilityErrors ++ signatureErrors)
+    (positivityErrors ++ visibilityErrors ++ signatureErrors)
       .traverse_(message => Sourced.compilerError(message)) >>
       debug[CompilerIO](
         s"Core functions in ${key.uri}: ${coreAstData.namedValues.map(_.render).mkString(", ")}"

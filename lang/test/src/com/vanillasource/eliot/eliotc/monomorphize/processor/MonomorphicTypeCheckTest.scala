@@ -915,9 +915,9 @@ class MonomorphicTypeCheckTest
     ).map(result => toTestErrors(result._1))
       .asserting(
         _ shouldBe Seq(
-          "This value performs the effect 'Console' but does not declare it; add it to its { ... } effect set."
+          "This value performs the effect 'Console' but does not declare it; add it to its `uses` clause."
             at "printLine(readLine)",
-          "This value performs the effect 'Console' but does not declare it; add it to its { ... } effect set."
+          "This value performs the effect 'Console' but does not declare it; add it to its `uses` clause."
             at "readLine"
         )
       )

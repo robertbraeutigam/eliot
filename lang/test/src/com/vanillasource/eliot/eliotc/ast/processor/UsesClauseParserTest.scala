@@ -6,8 +6,9 @@ import com.vanillasource.eliot.eliotc.ast.fact.{AST, SourceAST}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 import com.vanillasource.eliot.eliotc.token.Tokenizer
 
-/** The `uses` clause (`docs/effects.md` D21, step 4): parsed onto the row spelling the rest of the compiler already
-  * reads, so each new spelling is asserted against the old one it lowers to, plus the one bit that spelling lacks.
+/** The `uses` clause (`docs/effects.md` D21, step 4): parsed onto the row node the rest of the compiler reads, so each
+  * clause is asserted as that node renders, plus the one bit the node lacks. Since step 6 the clause is the only way to
+  * write a row outside a row alias's body: the row spelling in any other type position is refused, naming the clause.
   */
 class UsesClauseParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
   "a definition's uses clause" should "be the row on its return type" in {
@@ -81,15 +82,62 @@ class UsesClauseParserTest extends ProcessorTest(new Tokenizer(), new ASTParser(
       .asserting(_ shouldBe Seq("Expected symbol '*' or ability name, but encountered symbol ':'."))
   }
 
-  "a parameter with no clause" should "be open, whatever its type" in {
-    argument("def f(body: {Console} Unit, g: A => B): Unit")
-      .asserting(_ shouldBe Seq(("{Console} Unit", false), ("A => B", false)))
+  "a parameter with no clause" should "be a value, whatever its type" in {
+    argument("def f(body: Unit, g: A => B): Unit").asserting(_ shouldBe Seq(("Unit", false), ("A => B", false)))
   }
 
   "a data field" should "take no uses clause" in {
     errors("data Job(run uses *: Unit)")
       .asserting(_ shouldBe Seq("Expected symbol ':', but encountered keyword 'uses'."))
   }
+
+  "a row written in a type" should "be refused on a return type, naming the uses clause" in {
+    errors("def f: {Console} Unit = a").asserting(_ shouldBe Seq(rowInType))
+  }
+
+  it should "be refused on a parameter" in {
+    errors("def f(body: {Throw[E]} A): A = body").asserting(_ shouldBe Seq(rowInType))
+  }
+
+  it should "be refused when empty" in {
+    errors("def f(value: {} T): T = value").asserting(_ shouldBe Seq(rowInType))
+  }
+
+  it should "be refused in an arrow codomain" in {
+    errors("def f(action: A => {Console} Unit): Unit = a").asserting(_ shouldBe Seq(rowInType))
+  }
+
+  it should "be refused on a data field, saying a field holds a value" in {
+    errors("data Job(run: {Console} Unit)").asserting(_ shouldBe Seq(rowInField))
+  }
+
+  it should "be refused after a uses clause" in {
+    errors("def f(body uses *: {Console} Unit): Unit = body").asserting(_ shouldBe Seq(rowInType))
+  }
+
+  it should "be refused with a pinned base, which no longer parses as a row at all" in {
+    errors("def f: {Throw[E] | Id} Unit = a").asserting(_ should not be empty)
+  }
+
+  "a row alias" should "still be written as a row" in {
+    aliasBody("type Test = {Writer[List[TestResult]]} Unit")
+      .asserting(_ shouldBe Seq("{Writer[List[TestResult]]} Unit"))
+  }
+
+  it should "not admit a row anywhere but its whole body" in {
+    errors("type Handler = String => {Console} Unit").asserting(_ shouldBe Seq(rowInType))
+  }
+
+  private val rowInType: String =
+    "Expected a type, with its effects in a `uses` clause before the colon (`def f uses Console: Unit`, " +
+      "`body uses *, Throw[E]: A`), but encountered symbol '{'."
+
+  private val rowInField: String =
+    "Expected a value type, since a data field holds a value and not a computation (store data describing the work, " +
+      "and perform it where the effects are in scope), but encountered symbol '{'."
+
+  private def aliasBody(source: String): IO[Seq[String]] =
+    ast(source).map(_.functionDefinitions.flatMap(_.body.map(_.value.render)))
 
   private def ast(source: String): IO[AST] =
     runGenerator(source, SourceAST.Key(file))

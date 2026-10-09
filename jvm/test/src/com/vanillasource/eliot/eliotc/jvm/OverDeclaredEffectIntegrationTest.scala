@@ -67,15 +67,15 @@ class OverDeclaredEffectIntegrationTest extends FullIntegrationTest {
       |
       |implement fake: Terminal {
       |   def say(s: String) uses Writer[String]: Unit = tell(s)
-      |   def ask: %s String = "nothing"
+      |   def ask%s: String = "nothing"
       |}
       |
       |def main uses Console: Unit = printLine(runWriterToLog({ say(ask) } with fake))
       |""".stripMargin
 
   "an implement clause declaring an effect it never performs" should "be rejected at that clause" in {
-    compileForErrors(terminalDouble.format("{Writer[String]}"))
-      .asserting(_ should include(":11:14:This value declares the effect 'Writer' but does not perform it"))
+    compileForErrors(terminalDouble.format(" uses Writer[String]"))
+      .asserting(_ should include(":11:17:This value declares the effect 'Writer' but does not perform it"))
   }
 
   it should "not blame a clause for the effect a sibling clause declares" in {

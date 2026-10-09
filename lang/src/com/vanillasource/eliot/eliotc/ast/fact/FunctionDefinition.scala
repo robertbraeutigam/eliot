@@ -147,14 +147,14 @@ object FunctionDefinition {
       _                   <- symbol(":")
       returnType          <- sourced(Expression.typeRunParser)
       // The clause's entries are the row on the return type, `{Console} Unit`, so no phase past this one learns the
-      // clause. A return type carrying a row as well is refused at core (`EffectSugarDesugarer.rowErrors`).
+      // clause. A row cannot be written on the return type itself: `typeRunParser` refuses one.
       typeExpression       =
-        if (uses.isEmpty) returnType else returnType.as(Expression.EffectfulType(uses, returnType, None))
+        if (uses.isEmpty) returnType else returnType.as(Expression.EffectfulType(uses, returnType))
       // The return-position transfer brace `: T {expr, …}` (bounds-as-refinements §4.2). `typeRunParser`'s type-atom
-      // run tries a `{` as the effect-set sugar but backtracks off a transfer brace (its entries are arbitrary
-      // expressions, not ability references, and no type atom follows the closing `}` — only `=`, `where`, or the next
-      // definition can), so the brace sits unconsumed here, between the return type and the optional `= body`. Absent
-      // for an ordinary def.
+      // run checks a `{` for the retired effect-row spelling but does not match a transfer brace (its entries are
+      // arbitrary expressions, not ability references, and no type atom follows the closing `}` — only `=`, `where`,
+      // or the next definition can), so the brace sits unconsumed here, between the return type and the optional
+      // `= body`. Absent for an ordinary def.
       returnMeta          <- optionalBracketedCommaSeparatedItems("{", sourced(component[Expression]), "}")
       // The `where <predicate>` refinement precondition (bounds-as-refinements §4.3). `where` is a hard keyword, so the
       // return-type run above stops cleanly at it (as it does at `infix`/`def`); the predicate is a `typeRunParser` run

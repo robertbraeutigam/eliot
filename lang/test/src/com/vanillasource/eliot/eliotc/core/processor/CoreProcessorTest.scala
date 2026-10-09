@@ -712,29 +712,10 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
       .mapN { (rowed, plain) => rowed.signature.value.structure shouldBe plain.signature.value.structure }
   }
 
-  // A field holds a value (`docs/effects.md` D20 rule 6): a row on one is reported.
-  "an effect row on a data field" should "be rejected" in {
-    coreErrors("data Box(body: {Throw[Error]} Unit)").asserting(_ should contain(fieldRowError))
-  }
-
-  it should "be rejected in a field's arrow codomain too" in {
-    coreErrors("data Box(body: A => {} Unit)").asserting(_ should contain(fieldRowError))
-  }
-
-  it should "leave a data type with no effectful fields untouched" in {
+  "a data type" should "keep its fields' types as written" in {
     namedValue("data Box(value: A)", QualifiedName("Box", Qualifier.Default)).asserting { nv =>
       nv.signature.value.structure shouldBe App(App(Ref("Function", T), Ref("A", T)), Ref("Box", Qualifier.Type))
     }
-  }
-
-  // A **pinned** row `{E | T} A` has no v6 meaning — there is no carrier stack to name — and is rejected rather than
-  // silently read as an open row, so a v5 signature that survives the flag day fails at the position needing rewriting.
-  "a pinned row" should "be rejected in a def signature" in {
-    coreErrors("def f(x: {Throw[Error] | G} Unit): Unit = y").asserting(_ should contain(pinnedRowError))
-  }
-
-  it should "be rejected in a data field as a field row" in {
-    coreErrors("data Box(body: {Throw[Error] | Id} Unit)").asserting(_ should contain(fieldRowError))
   }
 
   "flat expressions" should "pass through as FlatExpression in core" in {
@@ -845,17 +826,6 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
   // What a top-level row lowers to: a thunk `Unit => A`, the shape a slot takes when it must not run its argument.
   private def thunk(payload: ExprStructure): ExprStructure =
     App(App(QualRef("Function", "eliot.lang.Function"), QualRef("Unit", "eliot.lang.Unit")), payload)
-
-  private val pinnedRowError =
-    "An effect row has no base: write `{Throw[Error]} String` rather than `{Throw[Error] | Id} String`. " +
-      "A computation is a thunk, and the implementation it runs on is bound by `with` or by the caller."
-
-  private val fieldRowError =
-    "A data field holds a value, not a computation, so its type cannot carry an effect row. " +
-      "Store data describing the work instead, and perform it where the effects are in scope."
-
-  private def coreErrors(source: String): IO[Seq[String]] =
-    runGenerator(source, CoreAST.Key(file)).map(_._1.map(_.message))
 
   /** Each generic binder of a definition as `name -> the ability its mark names`, in order — `None` for an ordinary
     * binder. The mark (`Impl: Implementation[Suspend]`) is the one record that a binder is a **binding**, so this is
