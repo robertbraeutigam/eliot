@@ -103,10 +103,17 @@ object ArgumentDefinition {
     def applyTo(typed: Sourced[Expression]): Sourced[Expression] =
       Expression.applyWithBindings(rowed(typed), entries.flatMap(_._2))
 
+    /** The row goes on the final codomain of the run as written, never inside it: `String => (String => Unit)` is code
+      * taking one argument and handing back a function value, so it is `String => {} (String => Unit)`. A nested run
+      * can only be a parenthesized one, since an unparenthesized `A => B => C` is a single flat run.
+      */
     private def rowed(typed: Sourced[Expression]): Sourced[Expression] = typed.value match {
-      case FlatExpression(parts) if parts.exists(isArrow) => typed.as(FlatExpression(parts.init :+ rowed(parts.last)))
-      case _                                              => typed.as(EffectfulType(entries.map(_._1), typed, None))
+      case FlatExpression(parts) if parts.exists(isArrow) => typed.as(FlatExpression(parts.init :+ onRow(parts.last)))
+      case _                                              => onRow(typed)
     }
+
+    private def onRow(typed: Sourced[Expression]): Sourced[Expression] =
+      typed.as(EffectfulType(entries.map(_._1), typed, None))
   }
 
   private def isArrow(part: Sourced[Expression]): Boolean = part.value match {
