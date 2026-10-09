@@ -539,7 +539,7 @@ decisions); Part III holds §12's **do-not-re-propose** list and the
 provenance for a comment citing a retired document or the retired v6 plan record (§13). **There is no carrier, no monad, no `Id`, and nothing to infer** — if you are
 reading code or a comment that mentions one, it is history.
 
-**Decided 2026-10-05, not yet built: D20 (`docs/effects.md` §11) replaces the surface below.** An effect is a
+**Decided 2026-10-05, steps 1–4 of 7 built: D20 (`docs/effects.md` §11) replaces the surface below.** An effect is a
 parameter you don't spell, resolved where it is written: `def greet(name: String) uses Console: Unit`. A parameter
 is a value or a **block** — a function type, or `=> A` for a lazy argument (today's `{} A`); a block may be called
 or passed on, **never kept**; a handler's slot is `body uses Throw[E]: => A`; a definition with a body gives its
