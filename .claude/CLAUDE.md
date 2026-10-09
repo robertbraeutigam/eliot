@@ -545,8 +545,12 @@ is a value or a **block** — a function type, or `=> A` for a lazy argument (to
 or passed on, **never kept**; a handler's slot is `body uses Throw[E]: => A`; a definition with a body gives its
 block only what it has (an effect's default is handed out at `main` and by platform primitives only); a `data`
 field holds a value, so stored computations go. It closes `docs/effects.md` §8 items 9–13 — five programs that
-compile today and misbehave — and reverses rule 3 and rule 4's predicate below. Until it lands, what follows is
-the tree.
+compile today and misbehave — and reverses rule 3 and rule 4's predicate below. **D21 (2026-10-09) amends D20
+before it is built**: a function-typed parameter is an ordinary *pure value*, keepable like any other, and the one
+kind of parameter that is code is marked **`block`** — `def foreach[A](block action: A => Unit, list: List[A]): Unit`,
+`def if[T](condition: Bool, block value: T) uses Abort: T`, a handler's slot `block body uses Throw[E]: A`. Purity is
+the absence of two words, `uses` and `block`, and the compiler enforces both; `=>` keeps its one meaning and D20's
+`=> A` is withdrawn. The two land together. Until they do, what follows is the tree.
 
 **Four user rules, and the fourth outranks the other three** (§1):
 
