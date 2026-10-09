@@ -1,0 +1,101 @@
+package com.vanillasource.eliot.eliotc.ast.processor
+
+import cats.effect.IO
+import com.vanillasource.eliot.eliotc.ProcessorTest
+import com.vanillasource.eliot.eliotc.ast.fact.{AST, SourceAST}
+import com.vanillasource.eliot.eliotc.source.content.Sourced
+import com.vanillasource.eliot.eliotc.token.Tokenizer
+
+/** The `uses` clause (`docs/effects.md` D21, step 4): parsed onto the row spelling the rest of the compiler already
+  * reads, so each new spelling is asserted against the old one it lowers to, plus the one bit that spelling lacks.
+  */
+class UsesClauseParserTest extends ProcessorTest(new Tokenizer(), new ASTParser()) {
+  "a definition's uses clause" should "be the row on its return type" in {
+    returnType("def greet(name: String) uses Console: Unit").asserting(_ shouldBe Seq("{Console} Unit"))
+  }
+
+  it should "take several entries, with their arguments" in {
+    returnType("def f uses Console, Throw[String]: Unit").asserting(_ shouldBe Seq("{Console, Throw[String]} Unit"))
+  }
+
+  it should "follow the generic parameters and the parameter list" in {
+    returnType("def if[T](condition: Bool, value uses *: T) uses Abort: T").asserting(_ shouldBe Seq("{Abort} T"))
+  }
+
+  it should "reject `*`, which only a parameter's clause may write" in {
+    errors("def f uses *: Unit").asserting(_ shouldBe Seq("Expected ability name, but encountered symbol '*'."))
+  }
+
+  it should "reject a `with`, as on a definition's own row" in {
+    errors("def f uses Console with mock: Unit").asserting(_ should not be empty)
+  }
+
+  "a parameter's `uses *`" should "be the empty row on a nullary type" in {
+    argument("def f(value uses *: T): T").asserting(_ shouldBe Seq(("{} T", false)))
+  }
+
+  it should "be the row on the codomain of a function type" in {
+    argument("def f[A](action uses *: A => Unit, list: List[A]): Unit")
+      .asserting(_ shouldBe Seq(("A => {} Unit", false), ("List[A]", false)))
+  }
+
+  it should "reach the final codomain of a curried function type" in {
+    argument("def f[A, B](combine uses *: A => B => B): B").asserting(_ shouldBe Seq(("A => B => {} B", false)))
+  }
+
+  it should "add the entries the callee gives" in {
+    argument("def runThrow[E, A](body uses *, Throw[E]: A): A").asserting(_ shouldBe Seq(("{Throw[E]} A", false)))
+  }
+
+  it should "put each entry's implementation after the slot's type, in the order written" in {
+    argument("def mocked(body uses *, Mocking with recording, Calls with journal: Unit): Unit")
+      .asserting(_ shouldBe Seq(("{Mocking, Calls} Unit with recording with journal", false)))
+  }
+
+  it should "reject `*` after an entry" in {
+    errors("def f(body uses Throw[E], *: A): A").asserting(
+      _ shouldBe Seq("Expected ability name, but encountered symbol '*'.")
+    )
+  }
+
+  it should "reject `*` twice" in {
+    errors("def f(body uses *, *: A): A")
+      .asserting(_ shouldBe Seq("Expected ability name, but encountered symbol '*'."))
+  }
+
+  it should "reject a trailing `with`, which belongs to the entry" in {
+    errors("def f(body uses *, Console: Unit with mock): Unit").asserting(_ should not be empty)
+  }
+
+  "a parameter's clause without `*`" should "be the same row, closed" in {
+    argument("def runPure[E, A](body uses Throw[E]: A): A").asserting(_ shouldBe Seq(("{Throw[E]} A", true)))
+  }
+
+  it should "need an entry" in {
+    errors("def f(body uses: A): A")
+      .asserting(_ shouldBe Seq("Expected symbol '*' or ability name, but encountered symbol ':'."))
+  }
+
+  "a parameter with no clause" should "be open, whatever its type" in {
+    argument("def f(body: {Console} Unit, g: A => B): Unit")
+      .asserting(_ shouldBe Seq(("{Console} Unit", false), ("A => B", false)))
+  }
+
+  "a data field" should "take no uses clause" in {
+    errors("data Job(run uses *: Unit)")
+      .asserting(_ shouldBe Seq("Expected symbol ':', but encountered keyword 'uses'."))
+  }
+
+  private def ast(source: String): IO[AST] =
+    runGenerator(source, SourceAST.Key(file))
+      .map(_._2.values.collectFirst { case SourceAST(_, Sourced(_, _, a)) => a }.get)
+
+  private def errors(source: String): IO[Seq[String]] =
+    runGenerator(source, SourceAST.Key(file)).map(_._1.map(_.message))
+
+  private def returnType(source: String): IO[Seq[String]] =
+    ast(source).map(_.functionDefinitions.map(_.typeDefinition.value.render))
+
+  private def argument(source: String): IO[Seq[(String, Boolean)]] =
+    ast(source).map(_.functionDefinitions.flatMap(_.args.map(a => (a.typeExpression.value.render, a.closedRow))))
+}

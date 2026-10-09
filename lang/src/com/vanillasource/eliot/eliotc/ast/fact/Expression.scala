@@ -266,6 +266,9 @@ object Expression {
       Sourced.outline(Seq(acc, implementation)).as(WithBinding(acc, implementation))
     }
 
+  /** The `with name` chain on its own, for a `uses` clause entry (`body uses *, Console with fake: Unit`). */
+  def withBindings: Parser[Sourced[Token], Seq[Sourced[Expression]]] = withBindingsParser
+
   /** [[withBindingsParser]] for a parameter's or field's type position (`body: {Console} Unit with mockConsole`). */
   def typeWithBindings(typeExpression: Sourced[Expression]): Parser[Sourced[Token], Sourced[Expression]] =
     withBindingsParser.map(applyWithBindings(typeExpression, _))

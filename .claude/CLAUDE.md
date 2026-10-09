@@ -539,7 +539,7 @@ decisions); Part III holds §12's **do-not-re-propose** list and the
 provenance for a comment citing a retired document or the retired v6 plan record (§13). **There is no carrier, no monad, no `Id`, and nothing to infer** — if you are
 reading code or a comment that mentions one, it is history.
 
-**Decided 2026-10-05, not yet built: D20 (`docs/effects.md` §11) replaces the surface below.** An effect is a
+**Decided 2026-10-05, steps 1–4 of 7 built: D20 (`docs/effects.md` §11) replaces the surface below.** An effect is a
 parameter you don't spell, resolved where it is written: `def greet(name: String) uses Console: Unit`. A parameter
 is a value or a **block** — a function type, or `=> A` for a lazy argument (today's `{} A`); a block may be called
 or passed on, **never kept**; a handler's slot is `body uses Throw[E]: => A`; a definition with a body gives its
@@ -552,7 +552,9 @@ kind of parameter that is code carries the same clause, with `*` for the caller'
 Abort: T`, a handler's slot `body uses *, Throw[E]: A`, and `body uses Throw[E]: A` alone a *closed* row, which the
 cornerstone's last paragraph below says is unsayable today. Purity is the absence of one word, `uses`, anywhere in a
 signature, and the compiler enforces it; `=>` keeps its one meaning and D20's `=> A` is withdrawn. The two land
-together. Until they do, what follows is the tree.
+together. Until they do, what follows is the tree — except that since D21 step 4 the `uses` clause **parses**, in both
+positions, onto the row spelling below (`ArgumentDefinition.parameter`, `FunctionDefinition`'s clause), so both
+spellings compile until step 6, and a clause without `*` is a closed row the `row` phase enforces.
 
 **Four user rules, and the fourth outranks the other three** (§1):
 
@@ -561,7 +563,8 @@ together. Until they do, what follows is the tree.
 2. **Suspension is declared.** A parameter that must *not* run its argument declares a row (`whenTrue: {} A`,
    `if`'s `value: {Abort} T`). After desugaring such a slot is a **thunk** (`Unit => A`), but the thunk is the
    lowering: every phase goes by the **row tag** on the declaration, never the shape.
-3. **A stored computation is bound where it is written.** A row-typed `data` field
+3. **A stored computation is bound where it is written.** *(Reversed in the tree by D20 step 3: a row on a `data`
+   field is a `core` error — a field holds a value.)* A row-typed `data` field
    (`data Task[E](step: {Throw[E]} String, label: String)`) is a thunk whose operation calls were bound at
    construction; reading the field runs it, so the field's row is charged **at the read**. No pin, no base, no
    `| Id`. A `with` applied to it later is an error, not a rebinding.
@@ -697,10 +700,11 @@ and an ambient name colliding with a local declaration or explicit import is sil
 so the prelude can grow without breaking code), while explicit imports keep the strict shadowing errors. There is
 no `eliot.carrier` package any more: `{}` names nothing and needs no import.
 
-**One thing has no spelling and is worth knowing before you reach for it: a row cannot be closed.** A slot's row
-says what it *supplies*, not what it forbids — an entry it does not supply continues the walk into the caller's
-scope — so "this body may perform nothing at all" is unsayable. That is what deleted `eliot.test`'s `pure { … }`,
-and making it expressible would be a language addition.
+**One thing had no spelling until D21 step 4: a closed row.** In the row spelling a slot's row says what it
+*supplies*, not what it forbids — an entry it does not supply continues the walk into the caller's scope — so "this
+body may perform nothing else" was unsayable, which is what deleted `eliot.test`'s `pure { … }`. A `uses` clause
+without `*` (`body uses Throw[E]: A`) now says it, and the `row` phase holds the argument to it
+(`BindingWriter.Scope.enterClosed`).
 
 **Cornerstone fidelity**: this is *more* types-are-values-faithful than the carrier was, not less — a phantom binder
 is an ordinary generic binder, an implementation is an ordinary ground value in `typeArguments`, specialisation is

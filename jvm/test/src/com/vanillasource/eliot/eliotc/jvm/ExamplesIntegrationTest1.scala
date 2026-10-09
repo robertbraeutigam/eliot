@@ -362,11 +362,8 @@ def main: {Console} Unit = printLine("Hello World!")""")
   // field** and the framework ran it later; v6's `eliot.test` carries no body at all (D13) — `in` runs the case in
   // place and discharges what it declares — so the framework shape here is the assertion run where it is written and
   // its `Throw` discharged around it.
-  //
-  // Storing a computation in a `data` field is *not* what replaced it, and deliberately is not tested here: a field
-  // row thunks in the type but the constructor's slot is not recorded as a row, so the actual is neither thunked nor
-  // charged to the right definition, and a field read back at a rowed slot is wrapped a second time. That is a real
-  // gap in the write (`docs/effects.md` A7), not a shape to pin.
+  // Storing a computation in a `data` field is not what replaced it: a field holds a value (`docs/effects.md` D20
+  // rule 6), so a row on one is rejected.
   private val namedImplementationFramework =
     """import eliot.effect.Throw
       |

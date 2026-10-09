@@ -712,26 +712,13 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
       .mapN { (rowed, plain) => rowed.signature.value.structure shouldBe plain.signature.value.structure }
   }
 
-  // A stored computation is an ordinary thunked field — no pin, and no generic parameter on the data type, because a
-  // thunk is an ordinary type.
-  "an effect row on a data field" should "keep the type constructor nullary" in {
-    namedValue("data Box(body: {Throw[Error]} Unit)", QualifiedName("Box", Qualifier.Type)).asserting { nv =>
-      nv.signature.value.structure shouldBe Ref("Type", T)
-    }
+  // A field holds a value (`docs/effects.md` D20 rule 6): a row on one is reported.
+  "an effect row on a data field" should "be rejected" in {
+    coreErrors("data Box(body: {Throw[Error]} Unit)").asserting(_ should contain(fieldRowError))
   }
 
-  it should "thunk the field in the value constructor" in {
-    namedValue("data Box(body: {Throw[Error]} Unit)", QualifiedName("Box", Qualifier.Default)).asserting { nv =>
-      nv.signature.value.structure shouldBe
-        App(App(Ref("Function", T), thunk(Ref("Unit", T))), Ref("Box", Qualifier.Type))
-    }
-  }
-
-  it should "thunk it through the accessor too" in {
-    namedValue("data Box(body: {Throw[Error]} Unit)", QualifiedName("body", Qualifier.Default)).asserting { nv =>
-      nv.signature.value.structure shouldBe
-        App(App(Ref("Function", T), Ref("Box", Qualifier.Type)), thunk(Ref("Unit", T)))
-    }
+  it should "be rejected in a field's arrow codomain too" in {
+    coreErrors("data Box(body: A => {} Unit)").asserting(_ should contain(fieldRowError))
   }
 
   it should "leave a data type with no effectful fields untouched" in {
@@ -746,8 +733,8 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
     coreErrors("def f(x: {Throw[Error] | G} Unit): Unit = y").asserting(_ should contain(pinnedRowError))
   }
 
-  it should "be rejected in a data field" in {
-    coreErrors("data Box(body: {Throw[Error] | Id} Unit)").asserting(_ should contain(pinnedRowError))
+  it should "be rejected in a data field as a field row" in {
+    coreErrors("data Box(body: {Throw[Error] | Id} Unit)").asserting(_ should contain(fieldRowError))
   }
 
   "flat expressions" should "pass through as FlatExpression in core" in {
@@ -862,6 +849,10 @@ class CoreProcessorTest extends ProcessorTest(Tokenizer(), ASTParser(), CoreProc
   private val pinnedRowError =
     "An effect row has no base: write `{Throw[Error]} String` rather than `{Throw[Error] | Id} String`. " +
       "A computation is a thunk, and the implementation it runs on is bound by `with` or by the caller."
+
+  private val fieldRowError =
+    "A data field holds a value, not a computation, so its type cannot carry an effect row. " +
+      "Store data describing the work instead, and perform it where the effects are in scope."
 
   private def coreErrors(source: String): IO[Seq[String]] =
     runGenerator(source, CoreAST.Key(file)).map(_._1.map(_.message))

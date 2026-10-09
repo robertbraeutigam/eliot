@@ -8,12 +8,12 @@ change decided and not yet built (a binding binder marked by its type, §9), and
 Part III is the list of things closed by measurement or decision, and enough provenance to read a source
 comment that cites a retired document or a retired section.
 
-**Decided 2026-10-05, not built: D20 (§11).** Effects become parameters in the surface as they already are in
+**Decided 2026-10-05, D20 (§11); steps 1–4 of its work list built 2026-10-09, steps 5–7 not.** Effects become parameters in the surface as they already are in
 the mechanism — `def greet(name: String) uses Console: Unit` — a lazy argument is `=> A`, a function parameter
 is a block that may be called or passed on but never kept, and a `data` field holds a value. It closes five
 silent defects found while designing it (§8 items 9–13) and reverses three of Part I's rules.
 
-**Decided 2026-10-09, not built: D21 (§11)** amends D20 before it is built: a function-typed parameter is an
+**Decided 2026-10-09, D21 (§11); built with D20 through step 4** — it amends D20 before it is built: a function-typed parameter is an
 ordinary pure value, keepable like any other, and the one kind of parameter that is code carries the one clause
 the surface has, `uses` — `uses *` for the caller's own effects
 (`def foreach[A](action uses *: A => Unit, list: List[A]): Unit`), `uses *, Throw[E]` for a handler's slot, `uses E`
@@ -56,7 +56,8 @@ land, this Part is the tree.*
    an unrun computation — but the thunk is an artefact of the lowering, not the surface: what a reader and
    every phase go by is the **row tag** on the declaration (`EffectRow.parameterEffects`), never the shape.
 
-3. **A stored computation is bound where it is written.** A row-typed `data` field (`data TestCase(body:
+3. **A stored computation is bound where it is written.** *(Reversed in the tree 2026-10-09 by D20 step 3: a row on
+   a `data` field is rejected, since a field holds a value. Kept until step 7 rewrites Part I.)* A row-typed `data` field (`data TestCase(body:
    {Throw[E]} Unit)`) is a thunk whose operation calls were bound at construction, by the declarations in
    force *there*. Storing it, passing it through a plain generic and running it later are all ordinary;
    running it performs what the field's row declares, charged at the read. A `with` applied to it afterwards
@@ -222,6 +223,10 @@ declares — which is what lets `describedAs(body: {Throw[AssertionError]} Unit)
 catch its body's failure and re-raise a better one.
 
 ### 2.3 Storing a computation
+
+*Reversed in the tree 2026-10-09 by D20 step 3 (§11): a row anywhere in a `data` field's type is rejected at `core`,
+since a field holds a value, and the read rule below is deleted with the accessor's stored row. What follows is the
+design that was built, kept until step 7 rewrites Part I.*
 
 A row-typed `data` field is the one place a type holds a computation, and it needs no extra spelling:
 
@@ -707,7 +712,8 @@ Each is stated, fail-safe, and either has a plan entry or is a deliberate trade.
    a rewrite of the slot rather than of the type naming it. Lifting it is **D18** (§9.5). The alias's *other*
    limit — that it had to be declared in the file using it — is gone: it is reached by ordinary name resolution
    (§2.4), so it crosses files, honours import scope, and is shadowed by a binder of the same name.
-6. **A stored computation's binding is fixed where it is constructed.** Deciding the handler before storing is
+6. **A stored computation's binding is fixed where it is constructed.** *(Moot since D20 step 3, 2026-10-09: no
+   field stores a computation.)* Deciding the handler before storing is
    unambiguous and easier to understand; losing first-classness is the accepted price. A `with` applied to a
    stored computation later is an error, never a rebinding — rejected at the read, in both of `with`'s positions.
 7. **An undischarged control effect reaching `main` fails at runtime, not at the boundary.** The run boundary
@@ -738,7 +744,7 @@ landed; items 1, 4 and 6 remain open, and two more (items 7 and 8) were found an
 **Item 2 needed no decision** and closed on its own later that day: a dot-read is the same read as the call
 spelling, so the rule had only to be stated on the call rather than on one of its two spellings.
 
-**2026-10-05.** **D20** is decided and not built: effects are parameters (`uses`), a lazy argument is `=> A`, a
+**2026-10-05.** **D20** is decided (steps 1–4 built 2026-10-09, with D21): effects are parameters (`uses`), a lazy argument is `=> A`, a
 function parameter is a block that is called or passed on and never kept, and a field holds a value. Designing it
 found **five more silent divergences**, §8 items 9–13, all of which D20 closes. It supersedes **D18**.
 
@@ -826,7 +832,7 @@ D20 rule that does it. The witnesses are the five programs below, which become D
     1.** `built: {Console} Holder =
     Holder(s -> printLine(s))` — no function parameter involved — compiles, and the stored lambda prints when a
     def declaring nothing runs it. D20 rule 4.
-12. **A data constructor supplies a field's row by `Default`.** With `data Job(run: {Console} Unit)`,
+12. ~~**A data constructor supplies a field's row by `Default`.**~~ **Closed 2026-10-09 by D20 step 3.** With `data Job(run: {Console} Unit)`,
     `makeJob: Job = Job(printLine(…))` declares nothing, because the constructor *supplies* `Console` (it is an
     entry the constructor's own row lacks, §2.2) and binds the **platform's** console. A test reading the job
     through `useJob(j: Job): {Console} Unit` under `with recordingConsole` gets real output and an empty
@@ -1206,7 +1212,9 @@ The experiment's diff is deliberately not kept in the tree — this entry is eno
 
 ### D20 — effects are parameters; a function you are given is called, never kept
 
-**Decided 2026-10-05. Not built.** It changes the surface and three of Part I's rules. The mechanism of §3 —
+**Decided 2026-10-05. Steps 1–4 built 2026-10-09** (as D21 amends them: §8 items 9–13 closed, and the `uses`
+clause parses beside the row spelling, its closed form enforced); **steps 5–7 not built** — the migration, deleting
+the row spelling, and rewriting Part I. It changes the surface and three of Part I's rules. The mechanism of §3 —
 phantom binders, the write, `with`, the primitives, the one verifier — stays. Until it lands, Part I is the tree.
 **D21 (below, 2026-10-09) amends this decision's rule 2 and its `=> A` spelling** — a function-typed parameter is a
 value, and caller's code is marked `uses *` — and records the reversals; the two land together, and this section is
@@ -1376,6 +1384,17 @@ mechanical migration that §10's byte-identity gate can watch.
 3. **Rule 6** — reject a row on a field, and delete the stored-read machinery it leaves without a subject
    (`chargeStored`, A11's `byWith` read rule, `calledSpine`'s dot-read view if nothing else reads it,
    `StoredComputationIntegrationTest`). Closes item 12. No example stores a computation, so the jars do not move.
+
+   **Built 2026-10-09.** `EffectSugarDesugarer.rowErrors` reports a row anywhere in a field's type — top-level,
+   `{}`, an arrow codomain, a pinned one — as *"A data field holds a value, not a computation, so its type cannot
+   carry an effect row"*, and `DataDefinitionDesugarer` lowers every field to its payload first, so the constructor,
+   the accessors and the eliminator see a value and that error is the only diagnostic. With no field row left to
+   record, `EffectRow.returnThunkEffects` is gone, and with it the `row` phase's read rule: `runStored`, `storedRow`,
+   `chargeStored` (A11's `with`-at-the-read rejection) and `calledSpine`, whose dot-read view nothing else consulted.
+   `Binding.byWith` stays, for `checkGiven`. `StoredComputationIntegrationTest` and the three stored-`Inf` cases of
+   `TerminationIntegrationTest` are deleted; `FieldValueIntegrationTest` holds the witnesses, item 12's program among
+   them, and the replacement shape — data describing the work, performed where the effects are in scope. Gate:
+   `./mill __.test` green, all 46 example jars byte-identical, eliot-test 183 green under this compiler.
 4. **The parser accepts the new surface** — `uses` on a definition and a parameter, `=> A` in parameter position —
    onto the *existing* `EffectRow` metadata, so no phase past `ast` learns anything. `A => {} B` and `A => B` are
    one shape (§8 item 9), so dropping the codomain `{}` must be byte-identical; that is this step's gate.
@@ -1421,7 +1440,7 @@ Standing rule 1: each is written down as a reversal, not amended in place. They 
 
 ### D21 — purity is spelled by absence: a function parameter is a value, and caller's code is `uses *`
 
-**Decided 2026-10-09. Step 1 built the same day** (below); the rest not built. It amends one rule of D20 and one of its spellings; everything else D20 decided
+**Decided 2026-10-09. Steps 1 and 4 built the same day** (below), with D20's 2 and 3; 5–6 not built. It amends one rule of D20 and one of its spellings; everything else D20 decided
 stands, and the two land together. Until they do, Part I is the tree. First written with a `block` keyword the same
 day, and respelled before anything was built: the mark says nothing about `{ … }`, and a second keyword beside `uses`
 was a second spelling of one fact.
@@ -1613,6 +1632,27 @@ D20's list stands with these substitutions; the numbering is D20's.
    `EffectRow` metadata (`uses *` is the row tag with an open empty row; `uses *, E` the open row `{E}`; `uses E`
    the same row closed, one bit the metadata does not carry today and the only thing a phase past `ast` learns).
    `*` first and at most once, `*` on a definition and `uses` on a field rejected at the parser.
+
+   **Built 2026-10-09.** `uses` is a hard keyword. A definition's clause (`FunctionDefinition`, entries only) is
+   parsed onto the row on its return type, `{Console} Unit`; a parameter's
+   (`ArgumentDefinition.parameter`) onto the row on the slot's type — `{E…} T` for a type with no arrow, the arrow
+   codomain's `A => {E…} B` for one with — and each entry's `with` chain after the type in the order written, so
+   `body uses *, Mocking with recording: Unit` is `body: {Mocking} Unit with recording`. No phase past `ast` reads the
+   clause; the one bit it adds, **closed**, rides `ArgumentDefinition.closedRow` into `ParameterEffects.closed` and
+   `CallbackEffects.closed`, and `BindingWriter` enforces it (D21 rule 4): the argument at a closed slot is walked in
+   `Scope.enterClosed`, the value-position cut with the slot's *riding* entries left reachable, so it may use what the
+   slot supplies or rides and what it discharges itself — an effect from around it is *"This uses the effect 'X' inside
+   an argument whose `uses` clause is closed"*, and the caller's own code passed there is *"… cannot run it"*. The
+   parser refuses `*` on a definition, `*` anywhere but first and once, an entry-less clause, a trailing `with` after a
+   clause and `uses` on a field (a field's binder has no clause); a clause over a type that already carries a row is a
+   `core` error, since it is the only thing that makes a row stand directly on a row. Top-level error recovery no
+   longer restarts at `uses` (`Primitives.isItemBoundary`), which otherwise swallowed the real error. **D20b is
+   answered by the sequencing**: both spellings parse until step 6. **One gap carried, not opened**: a function-typed
+   code parameter's entries (`f uses *, E: A => B`) are written where today's `A => {E} B` writes them, which the
+   callee never supplies, so code using `E` there is rejected — fail-safe, and no corpus file needs it. Gate:
+   `./mill __.test` green; the 46 example jars byte-identical, and byte-identical again from a scratch copy of the
+   examples rewritten to `uses` by script (48 files), which is step 5's gate run early over the examples; witnesses in
+   `UsesClauseParserTest` and `UsesClauseIntegrationTest`.
 5. **Migrate**, by script: `{} A` ⤳ `uses *: A`, `A => {} B` ⤳ `uses *: A => B`, `{E} A` on a parameter ⤳
    `uses *, E: A`, a result row ⤳ `uses`. Gate: byte-identity over the 45 examples.
 6. **Delete the old surface**: a row in a type, and `=> A`, are parse errors naming the `uses` spelling.
