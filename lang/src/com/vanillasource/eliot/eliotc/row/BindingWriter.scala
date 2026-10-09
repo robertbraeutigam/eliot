@@ -1,6 +1,7 @@
 package com.vanillasource.eliot.eliotc.row
 
 import cats.syntax.all.*
+import com.vanillasource.eliot.eliotc.ast.fact.EffectRow
 import com.vanillasource.eliot.eliotc.core.fact.RoleHint
 import com.vanillasource.eliot.eliotc.module.fact.{Qualifier, Role, ValueFQN, WellKnownTypes}
 import com.vanillasource.eliot.eliotc.operator.fact.OperatorResolvedExpression.*
@@ -116,7 +117,8 @@ object BindingWriter {
       uncoveredDefaults: Boolean = false,
       callbacks: Set[String] = Set.empty,
       captured: Set[String] = Set.empty,
-      thunkNeeds: Map[String, Seq[AbilityFQN]] = Map.empty
+      thunkNeeds: Map[String, Seq[AbilityFQN]] = Map.empty,
+      closed: Boolean = false
   ) {
     def bind(binding: Binding): Scope = copy(bindings = binding +: bindings)
     def shadow(name: String): Scope   =
@@ -134,7 +136,22 @@ object BindingWriter {
           bindings = bindings.map(_.copy(beyondValue = true)),
           thunks = Set.empty,
           callbacks = Set.empty,
-          captured = captured ++ thunks ++ callbacks
+          captured = captured ++ thunks ++ callbacks,
+          closed = false
+        )
+
+    /** The scope inside an argument at a **closed** slot (`body uses Throw[E]: A`, `docs/effects.md` D21 rule 4): the
+      * same cut as [[enterValue]] — nothing bound outside reaches in, and no code parameter of this definition may be
+      * run or passed on there — except for the entries in `rides`, which the slot names and the callee's own row has,
+      * so they continue to the caller's binding as they do at an open slot. What the slot *supplies* is bound inside
+      * by the caller of this, exactly as at an open slot.
+      */
+    def enterClosed(rides: Set[AbilityFQN]): Scope =
+      if (uncoveredDefaults) this
+      else
+        enterValue.copy(
+          bindings = bindings.map(b => if (rides.contains(b.ability)) b else b.copy(beyondValue = true)),
+          closed = true
         )
 
     /** This scope with `abilities` bound to `Default` — what a slot's `with` resolves its own bindings against, since
@@ -428,7 +445,7 @@ object BindingWriter {
           }
 
         case ParameterReference(name) if scope.captured.contains(name.value) =>
-          violations += capturedCode(name)
+          violations += capturedCode(name, scope)
           expr
 
         // A reference to one of this definition's row-typed parameters is a thunk: running it is applying it.
@@ -523,7 +540,18 @@ object BindingWriter {
         )
       )
 
-    private def capturedCode(name: Sourced[String]): Violation =
+    private def capturedCode(name: Sourced[String], scope: Scope): Violation =
+      if (scope.closed)
+        Violation(
+          name.as(
+            s"'${name.value}' is code its caller wrote, and an argument whose `uses` clause is closed cannot run it."
+          ),
+          Seq(
+            "A closed clause (no `*`) admits only the effects it names, while this code may use its caller's; pass " +
+              s"'${name.value}' to a parameter whose clause is open (`uses *`) instead."
+          )
+        )
+      else
       Violation(
         name.as(s"'${name.value}' is code its caller wrote, and a function value cannot capture it."),
         Seq(
@@ -544,13 +572,16 @@ object BindingWriter {
       universe.lookup(callee).flatMap(orv => rowSlot(orv, index).map(orv -> _)) match {
         case None if isMatchMachinery(callee) => walkCode(arg, scope, Int.MaxValue)
         case None                             =>
-          universe.lookup(callee).flatMap(callbackArity(_, index)) match {
-            case Some(arity) => walkCode(arg, scope, arity)
-            case None        => walk(arg, scope)
+          universe.lookup(callee).flatMap(orv => callback(orv, index).map(orv -> _)) match {
+            case Some((calleeOrv, cb)) =>
+              val base = if (cb.closed) scope.enterClosed(rides(calleeOrv, cb.effects.map(_.abilityFQN))) else scope
+              walkCode(arg, base, cb.arity)
+            case None                  => walk(arg, scope)
           }
         case Some((calleeOrv, slot))          =>
           val name    = thunkParameter
-          val inside  = suppliedScope(calleeOrv, index, slot, scope, arg).shadow(name)
+          val base    = if (closedSlot(calleeOrv, index)) scope.enterClosed(rides(calleeOrv, slot)) else scope
+          val inside  = suppliedScope(calleeOrv, index, slot, base, arg).shadow(name)
           arg.as(
             FunctionLiteral(
               arg.as(name),
@@ -623,11 +654,24 @@ object BindingWriter {
       * function type. A value constructor's parameters are fields, and a field holds a value (D20 rule 6), so it takes
       * none.
       */
-    private def callbackArity(orv: OperatorResolvedValue, index: Int): Option[Int] =
+    private def callback(
+        orv: OperatorResolvedValue,
+        index: Int
+    ): Option[EffectRow.CallbackEffects[AbilityConstraint[OperatorResolvedExpression]]] =
       orv.roleHint match {
         case _: RoleHint.ValueConstructor => None
-        case _                            => orv.effectRow.callbackEffects.find(_.parameterIndex === index).map(_.arity)
+        case _                            => orv.effectRow.callbackEffects.find(_.parameterIndex === index)
       }
+
+    /** Whether the callee's parameter `index` is a row slot whose row is **closed** ([[Scope.enterClosed]]). */
+    private def closedSlot(orv: OperatorResolvedValue, index: Int): Boolean =
+      orv.effectRow.parameterEffects.exists(pe => pe.parameterIndex === index && pe.closed)
+
+    /** The entries of a slot's row that **ride** — the callee's own declared row has them, so the walk continues to the
+      * caller's binding instead of the slot supplying one (§2.2).
+      */
+    private def rides(orv: OperatorResolvedValue, slot: Seq[AbilityFQN]): Set[AbilityFQN] =
+      slot.toSet.intersect(orv.effectRow.returnEffects.map(_.abilityFQN).toSet)
 
     /** The abilities a callee's parameter `index` declares, when that parameter is a row position at all. */
     private def rowSlot(orv: OperatorResolvedValue, index: Int): Option[Seq[AbilityFQN]] =
@@ -822,7 +866,7 @@ object BindingWriter {
     ): OperatorResolvedExpression =
       scope.binding(ability) match {
         case Some(binding) if isEffect && binding.beyondValue =>
-          violations += capturedEffect(ability, at)
+          violations += capturedEffect(ability, at, scope)
           binding.term
         case Some(binding)                                    =>
           consume(binding)
@@ -832,7 +876,19 @@ object BindingWriter {
           defaultBinding(at)
       }
 
-    private def capturedEffect(ability: AbilityFQN, at: Sourced[?]): Violation =
+    private def capturedEffect(ability: AbilityFQN, at: Sourced[?], scope: Scope): Violation =
+      if (scope.closed)
+        Violation(
+          at.as(
+            s"This uses the effect '${ability.abilityName}' inside an argument whose `uses` clause is closed, and " +
+              "names it not."
+          ),
+          Seq(
+            s"Discharge '${ability.abilityName}' inside the argument, or pass it to a parameter whose clause is open " +
+              "(`uses *`)."
+          )
+        )
+      else
       Violation(
         at.as(
           s"This uses the effect '${ability.abilityName}' inside a function written where a value is expected, and " +

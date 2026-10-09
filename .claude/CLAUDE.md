@@ -552,7 +552,9 @@ kind of parameter that is code carries the same clause, with `*` for the caller'
 Abort: T`, a handler's slot `body uses *, Throw[E]: A`, and `body uses Throw[E]: A` alone a *closed* row, which the
 cornerstone's last paragraph below says is unsayable today. Purity is the absence of one word, `uses`, anywhere in a
 signature, and the compiler enforces it; `=>` keeps its one meaning and D20's `=> A` is withdrawn. The two land
-together. Until they do, what follows is the tree.
+together. Until they do, what follows is the tree — except that since D21 step 4 the `uses` clause **parses**, in both
+positions, onto the row spelling below (`ArgumentDefinition.parameter`, `FunctionDefinition`'s clause), so both
+spellings compile until step 6, and a clause without `*` is a closed row the `row` phase enforces.
 
 **Four user rules, and the fourth outranks the other three** (§1):
 
@@ -698,10 +700,11 @@ and an ambient name colliding with a local declaration or explicit import is sil
 so the prelude can grow without breaking code), while explicit imports keep the strict shadowing errors. There is
 no `eliot.carrier` package any more: `{}` names nothing and needs no import.
 
-**One thing has no spelling and is worth knowing before you reach for it: a row cannot be closed.** A slot's row
-says what it *supplies*, not what it forbids — an entry it does not supply continues the walk into the caller's
-scope — so "this body may perform nothing at all" is unsayable. That is what deleted `eliot.test`'s `pure { … }`,
-and making it expressible would be a language addition.
+**One thing had no spelling until D21 step 4: a closed row.** In the row spelling a slot's row says what it
+*supplies*, not what it forbids — an entry it does not supply continues the walk into the caller's scope — so "this
+body may perform nothing else" was unsayable, which is what deleted `eliot.test`'s `pure { … }`. A `uses` clause
+without `*` (`body uses Throw[E]: A`) now says it, and the `row` phase holds the argument to it
+(`BindingWriter.Scope.enterClosed`).
 
 **Cornerstone fidelity**: this is *more* types-are-values-faithful than the carrier was, not less — a phantom binder
 is an ordinary generic binder, an implementation is an ordinary ground value in `typeArguments`, specialisation is

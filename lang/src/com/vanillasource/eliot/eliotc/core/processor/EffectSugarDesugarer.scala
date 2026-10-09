@@ -173,14 +173,14 @@ object EffectSugarDesugarer {
       else
         function.args.zipWithIndex.collect {
           case (arg, index) if isRow(arg.typeExpression) =>
-            EffectRow.ParameterEffects(index, topLevelRowEntries(arg.typeExpression))
+            EffectRow.ParameterEffects(index, topLevelRowEntries(arg.typeExpression), arg.closedRow)
         },
       callbackEffects =
         if (isMetaCompanion(function)) Seq.empty
         else
           function.args.zipWithIndex.flatMap { case (arg, index) =>
             codomainRow(arg.typeExpression).map { case (arity, entries) =>
-              EffectRow.CallbackEffects(index, arity, entries)
+              EffectRow.CallbackEffects(index, arity, entries, arg.closedRow)
             }
           }
     )
@@ -347,7 +347,19 @@ object EffectSugarDesugarer {
       .map(fieldRowError)
 
   def rowErrors(function: FunctionDefinition): Seq[Sourced[String]] =
-    signatureAndBodyRows(function).filter(_.value.tail.isDefined).map(pinnedRowError)
+    signatureAndBodyRows(function).filter(_.value.tail.isDefined).map(pinnedRowError) ++
+      (function.args.map(_.typeExpression) :+ function.typeDefinition).flatMap(collectRows).collect {
+        case Sourced(_, _, EffectfulType(_, inner @ Sourced(_, _, _: EffectfulType), _)) => doubleRowError(inner)
+      }
+
+  /** A row directly on a row — only a `uses` clause and a row written on the type as well can produce one, since the
+    * clause is parsed onto that very spelling (`def f(body uses *: {Console} A)`). Two spellings of one fact, so the
+    * second is refused rather than silently merged or dropped.
+    */
+  private def doubleRowError(row: Sourced[Expression]): Sourced[String] =
+    row.as(
+      "A `uses` clause is the effect row, so the type after it cannot carry one as well; name the effects in it."
+    )
 
   /** A row anywhere in a `data` field's type (`docs/effects.md` D20 rule 6): **a field holds a value**. A stored
     * computation was a thunk whose operations were bound where it was constructed, and that binding outlived the frames

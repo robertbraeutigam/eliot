@@ -1630,6 +1630,27 @@ D20's list stands with these substitutions; the numbering is D20's.
    `EffectRow` metadata (`uses *` is the row tag with an open empty row; `uses *, E` the open row `{E}`; `uses E`
    the same row closed, one bit the metadata does not carry today and the only thing a phase past `ast` learns).
    `*` first and at most once, `*` on a definition and `uses` on a field rejected at the parser.
+
+   **Built 2026-10-09.** `uses` is a hard keyword. A definition's clause (`FunctionDefinition`, entries only) is
+   parsed onto the row on its return type, `{Console} Unit`; a parameter's
+   (`ArgumentDefinition.parameter`) onto the row on the slot's type — `{E…} T` for a type with no arrow, the arrow
+   codomain's `A => {E…} B` for one with — and each entry's `with` chain after the type in the order written, so
+   `body uses *, Mocking with recording: Unit` is `body: {Mocking} Unit with recording`. No phase past `ast` reads the
+   clause; the one bit it adds, **closed**, rides `ArgumentDefinition.closedRow` into `ParameterEffects.closed` and
+   `CallbackEffects.closed`, and `BindingWriter` enforces it (D21 rule 4): the argument at a closed slot is walked in
+   `Scope.enterClosed`, the value-position cut with the slot's *riding* entries left reachable, so it may use what the
+   slot supplies or rides and what it discharges itself — an effect from around it is *"This uses the effect 'X' inside
+   an argument whose `uses` clause is closed"*, and the caller's own code passed there is *"… cannot run it"*. The
+   parser refuses `*` on a definition, `*` anywhere but first and once, an entry-less clause, a trailing `with` after a
+   clause and `uses` on a field (a field's binder has no clause); a clause over a type that already carries a row is a
+   `core` error, since it is the only thing that makes a row stand directly on a row. Top-level error recovery no
+   longer restarts at `uses` (`Primitives.isItemBoundary`), which otherwise swallowed the real error. **D20b is
+   answered by the sequencing**: both spellings parse until step 6. **One gap carried, not opened**: a function-typed
+   code parameter's entries (`f uses *, E: A => B`) are written where today's `A => {E} B` writes them, which the
+   callee never supplies, so code using `E` there is rejected — fail-safe, and no corpus file needs it. Gate:
+   `./mill __.test` green; the 46 example jars byte-identical, and byte-identical again from a scratch copy of the
+   examples rewritten to `uses` by script (48 files), which is step 5's gate run early over the examples; witnesses in
+   `UsesClauseParserTest` and `UsesClauseIntegrationTest`.
 5. **Migrate**, by script: `{} A` ⤳ `uses *: A`, `A => {} B` ⤳ `uses *: A => B`, `{E} A` on a parameter ⤳
    `uses *, E: A`, a result row ⤳ `uses`. Gate: byte-identity over the 45 examples.
 6. **Delete the old surface**: a row in a type, and `=> A`, are parse errors naming the `uses` spelling.

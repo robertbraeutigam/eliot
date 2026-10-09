@@ -75,23 +75,29 @@ object EffectRow {
 
   /** A single value parameter's open-row entries, tagged with the parameter's positional index into the definition's
     * value args (stable through the fact chain — no phase reorders value parameters).
+    *
+    * @param closed
+    *   Whether the row is **closed** — written `body uses Throw[E]: A`, with no `*` (`docs/effects.md` D21 rule 4): the
+    *   argument may use what the slot supplies and must discharge everything else itself, reaching nothing from the
+    *   scope it is written in.
     */
-  case class ParameterEffects[C](parameterIndex: Int, effects: Seq[C]) {
-    def map[D](f: C => D): ParameterEffects[D] = ParameterEffects(parameterIndex, effects.map(f))
+  case class ParameterEffects[C](parameterIndex: Int, effects: Seq[C], closed: Boolean = false) {
+    def map[D](f: C => D): ParameterEffects[D] = ParameterEffects(parameterIndex, effects.map(f), closed)
 
     def traverse[F[_]: Applicative, D](f: C => F[D]): F[ParameterEffects[D]] =
-      effects.traverse(f).map(ParameterEffects(parameterIndex, _))
+      effects.traverse(f).map(ParameterEffects(parameterIndex, _, closed))
   }
 
   /** A **code** parameter of function type — the callback `combine: A => B => {} B` — tagged with its positional index
     * and its **arity**, the number of arrows before the row: that many nested lambdas written at the slot are the
-    * caller's code, and a lambda past them is the value the code hands back.
+    * caller's code, and a lambda past them is the value the code hands back. [[closed]] is as for
+    * [[ParameterEffects.closed]]: the code may reach nothing from where it is written.
     */
-  case class CallbackEffects[C](parameterIndex: Int, arity: Int, effects: Seq[C]) {
-    def map[D](f: C => D): CallbackEffects[D] = CallbackEffects(parameterIndex, arity, effects.map(f))
+  case class CallbackEffects[C](parameterIndex: Int, arity: Int, effects: Seq[C], closed: Boolean = false) {
+    def map[D](f: C => D): CallbackEffects[D] = CallbackEffects(parameterIndex, arity, effects.map(f), closed)
 
     def traverse[F[_]: Applicative, D](f: C => F[D]): F[CallbackEffects[D]] =
-      effects.traverse(f).map(CallbackEffects(parameterIndex, arity, _))
+      effects.traverse(f).map(CallbackEffects(parameterIndex, arity, _, closed))
   }
 
   def empty[C]: EffectRow[C] = EffectRow(Seq.empty, Seq.empty)
