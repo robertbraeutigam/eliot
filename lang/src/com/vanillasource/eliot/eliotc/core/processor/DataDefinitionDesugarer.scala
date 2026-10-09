@@ -10,7 +10,6 @@ import com.vanillasource.eliot.eliotc.ast.fact.{
   Expression as SourceExpression,
   Pattern as SourcePattern
 }
-import com.vanillasource.eliot.eliotc.ast.fact.EffectRow
 import com.vanillasource.eliot.eliotc.core.fact.RoleHint
 import com.vanillasource.eliot.eliotc.module.fact.{QualifiedName, Qualifier}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
@@ -27,8 +26,14 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 object DataDefinitionDesugarer {
 
   def desugar(
-      definition: DataDefinition
+      written: DataDefinition
   ): Seq[(FunctionDefinition, RoleHint)] = {
+    // A field holds a value (`docs/effects.md` D20 rule 6): a row written on one is reported by
+    // `EffectSugarDesugarer.rowErrors` and erased here, so the constructor, the accessors and the eliminator all see
+    // the payload and nothing downstream reads the row as a computation.
+    val definition = written.copy(constructors = written.constructors.map(_.map { ctor =>
+      ctor.copy(fields = ctor.fields.map(f => f.copy(typeExpression = EffectSugarDesugarer.fieldType(f.typeExpression))))
+    }))
     // The synthetic `PatternMatch`/`TypeMatch` implementations are keyed by the data type's own name — there is exactly
     // one of each per data type per module, so the name is a stable, position-independent identity (matching the
     // `(ability, pattern)` scheme user implementations use, with the data type standing in for the pattern).
@@ -136,13 +141,8 @@ object DataDefinitionDesugarer {
           )
         )
       ),
-      // The accessor hands the field back **as stored**, so a row-typed field is its thunk here rather than the row it
-      // was written as: a return row would mint a phantom binder and say the accessor *performs* those effects, which
-      // is exactly what it does not do (A7, `docs/effects.md` §9.5 "Storage"). The row is recorded instead, so the
-      // write knows a saturated call yields a thunk and running it is applying it.
-      EffectSugarDesugarer.storedFieldType(field.typeExpression),
-      Some(field.name.as(matchBody)),
-      effectRow = EffectRow(returnThunkEffects = EffectSugarDesugarer.storedFieldEntries(field.typeExpression))
+      field.typeExpression,
+      Some(field.name.as(matchBody))
     )
   }
 
@@ -333,7 +333,7 @@ object DataDefinitionDesugarer {
       ctor.fields.foldRight(typeExpr(definition.name.as(resultParamName))) { (field, acc) =>
         typeExpr(
           definition.name.as("Function"),
-          Seq(EffectSugarDesugarer.storedFieldType(field.typeExpression), acc)
+          Seq(field.typeExpression, acc)
         )
       }
     }

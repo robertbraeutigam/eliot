@@ -34,10 +34,11 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   *     [[com.vanillasource.eliot.eliotc.monomorphize.check.ImplementationBinding]] reads it back. Constraint and
   *     marker must agree on the position: a reference's ability-level arguments are matched against the marker's
   *     parameters, so appending here while the marker prepends made every dispatch query the wrong shape.
-  *   - **a top-level row in a parameter or a `data` field thunks.** `computation: {Throw[E]} A` becomes `computation:
-  *     Unit => A`: a slot that must not run its argument says so by being a function, since there is no carrier left
-  *     to hold an unrun computation. Only a *top-level* row thunks; a row in an arrow codomain (`onError: E => {} A`)
-  *     is the callback's own row and lowers to the bare payload, exactly as a return row does.
+  *   - **a top-level row in a parameter thunks.** `computation: {Throw[E]} A` becomes `computation: Unit => A`: a slot
+  *     that must not run its argument says so by being a function, since there is no carrier left to hold an unrun
+  *     computation. Only a *top-level* row thunks; a row in an arrow codomain (`onError: E => {} A`) is the callback's
+  *     own row and lowers to the bare payload, exactly as a return row does. A `data` field takes no row at all — it
+  *     holds a value ([[rowErrors]]).
   *
   * **Every minted binder carries the mark** as its declared type — `Impl: Implementation[Console]`,
   * [[com.vanillasource.eliot.eliotc.ast.fact.GenericParameter.implementationMark]] — which is the one place the fact
@@ -60,26 +61,11 @@ object EffectSugarDesugarer {
   /** The binder name minted for a row entry or a `~` constraint. Nothing reads it: it is written positionally. */
   private val binderPrefix = "Impl"
 
-  /** How a stored (`data`-field) row appears where the field's type is used **as a type** — an accessor's return, and
-    * the Church-encoded handler `handleCases` takes: as the thunk `Unit => A`, exactly as a parameter row does.
-    *
-    * A `data` is **split before this is applied** ([[DataDefinitionDesugarer]]), and that ordering is the whole of A7.
-    * Thunking the field on the `data` itself came first and erased the row before the split could see it, so the value
-    * constructor's slot was never recorded as a row position: the actual at `Box(failing)` was neither thunked nor
-    * supplied, and its effect was charged to whoever *built* the value. Splitting first hands the constructor an
-    * ordinary parameter row, which [[desugar(FunctionDefinition)]] then thunks and records like any other; what still
-    * has to be spelled out here are the two positions where the field's type is a type rather than a parameter.
-    *
-    * A field with no row is returned untouched, so a `data` that stores no computation lowers byte-for-byte as before.
+  /** A `data` field's type as the constructor, the accessor and the eliminator see it: its **payload**, with every row
+    * erased. A field holds a value (`docs/effects.md` D20 rule 6), so a row there has no meaning; [[rowErrors]] reports
+    * it, and erasing it here keeps that the only diagnostic, while the definitions are still lowered for other checks.
     */
-  def storedFieldType(field: Sourced[Expression]): Sourced[Expression] =
-    if (isRow(field)) thunked(field) else field
-
-  /** The entries of a stored field's row — what an accessor returning it records as
-    * [[com.vanillasource.eliot.eliotc.ast.fact.EffectRow.returnThunkEffects]].
-    */
-  def storedFieldEntries(field: Sourced[Expression]): Seq[UnresolvedAbilityConstraint[Sourced[Expression]]] =
-    topLevelRowEntries(field)
+  def fieldType(field: Sourced[Expression]): Sourced[Expression] = bare(field)
 
   /** Rewrite one function definition — see the object comment. */
   def desugar(function: FunctionDefinition): FunctionDefinition =
@@ -130,12 +116,7 @@ object EffectSugarDesugarer {
         body = function.body.map(bare),
         // An ability member arrives with the row its membership implies already recorded
         // ([[com.vanillasource.eliot.eliotc.ast.fact.AbilityMembers]]); its own row is added to that, never over it.
-        effectRow = declared.copy(
-          returnEffects = function.effectRow.returnEffects ++ declared.returnEffects,
-          // A stored row is recorded by whoever minted the definition ([[DataDefinitionDesugarer]]'s accessor) and is
-          // never derived from a signature, so it is carried through rather than recomputed.
-          returnThunkEffects = function.effectRow.returnThunkEffects
-        )
+        effectRow = declared.copy(returnEffects = function.effectRow.returnEffects ++ declared.returnEffects)
       )
     }
 
@@ -363,11 +344,22 @@ object EffectSugarDesugarer {
     data.constructors.toSeq.flatten
       .flatMap(_.fields.map(_.typeExpression))
       .flatMap(collectRows)
-      .filter(_.value.tail.isDefined)
-      .map(pinnedRowError)
+      .map(fieldRowError)
 
   def rowErrors(function: FunctionDefinition): Seq[Sourced[String]] =
     signatureAndBodyRows(function).filter(_.value.tail.isDefined).map(pinnedRowError)
+
+  /** A row anywhere in a `data` field's type (`docs/effects.md` D20 rule 6): **a field holds a value**. A stored
+    * computation was a thunk whose operations were bound where it was constructed, and that binding outlived the frames
+    * it named — a discharger had returned before the read ran it — or bound the platform's default where a test's
+    * double was meant (§8 item 12). Store data instead (`data Step = Skip | Print(line: String)`) and interpret it
+    * where the effects are in scope. A pinned row there is the same mistake and gets the same message.
+    */
+  private def fieldRowError(row: Sourced[EffectfulType]): Sourced[String] =
+    row.as(
+      "A data field holds a value, not a computation, so its type cannot carry an effect row. " +
+        "Store data describing the work instead, and perform it where the effects are in scope."
+    )
 
   private def pinnedRowError(row: Sourced[EffectfulType]): Sourced[String] =
     row.as(

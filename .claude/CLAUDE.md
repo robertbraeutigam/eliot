@@ -561,7 +561,8 @@ together. Until they do, what follows is the tree.
 2. **Suspension is declared.** A parameter that must *not* run its argument declares a row (`whenTrue: {} A`,
    `if`'s `value: {Abort} T`). After desugaring such a slot is a **thunk** (`Unit => A`), but the thunk is the
    lowering: every phase goes by the **row tag** on the declaration, never the shape.
-3. **A stored computation is bound where it is written.** A row-typed `data` field
+3. **A stored computation is bound where it is written.** *(Reversed in the tree by D20 step 3: a row on a `data`
+   field is a `core` error — a field holds a value.)* A row-typed `data` field
    (`data Task[E](step: {Throw[E]} String, label: String)`) is a thunk whose operation calls were bound at
    construction; reading the field runs it, so the field's row is charged **at the read**. No pin, no base, no
    `| Id`. A `with` applied to it later is an error, not a rebinding.

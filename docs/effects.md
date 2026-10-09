@@ -56,7 +56,8 @@ land, this Part is the tree.*
    an unrun computation — but the thunk is an artefact of the lowering, not the surface: what a reader and
    every phase go by is the **row tag** on the declaration (`EffectRow.parameterEffects`), never the shape.
 
-3. **A stored computation is bound where it is written.** A row-typed `data` field (`data TestCase(body:
+3. **A stored computation is bound where it is written.** *(Reversed in the tree 2026-10-09 by D20 step 3: a row on
+   a `data` field is rejected, since a field holds a value. Kept until step 7 rewrites Part I.)* A row-typed `data` field (`data TestCase(body:
    {Throw[E]} Unit)`) is a thunk whose operation calls were bound at construction, by the declarations in
    force *there*. Storing it, passing it through a plain generic and running it later are all ordinary;
    running it performs what the field's row declares, charged at the read. A `with` applied to it afterwards
@@ -222,6 +223,10 @@ declares — which is what lets `describedAs(body: {Throw[AssertionError]} Unit)
 catch its body's failure and re-raise a better one.
 
 ### 2.3 Storing a computation
+
+*Reversed in the tree 2026-10-09 by D20 step 3 (§11): a row anywhere in a `data` field's type is rejected at `core`,
+since a field holds a value, and the read rule below is deleted with the accessor's stored row. What follows is the
+design that was built, kept until step 7 rewrites Part I.*
 
 A row-typed `data` field is the one place a type holds a computation, and it needs no extra spelling:
 
@@ -707,7 +712,8 @@ Each is stated, fail-safe, and either has a plan entry or is a deliberate trade.
    a rewrite of the slot rather than of the type naming it. Lifting it is **D18** (§9.5). The alias's *other*
    limit — that it had to be declared in the file using it — is gone: it is reached by ordinary name resolution
    (§2.4), so it crosses files, honours import scope, and is shadowed by a binder of the same name.
-6. **A stored computation's binding is fixed where it is constructed.** Deciding the handler before storing is
+6. **A stored computation's binding is fixed where it is constructed.** *(Moot since D20 step 3, 2026-10-09: no
+   field stores a computation.)* Deciding the handler before storing is
    unambiguous and easier to understand; losing first-classness is the accepted price. A `with` applied to a
    stored computation later is an error, never a rebinding — rejected at the read, in both of `with`'s positions.
 7. **An undischarged control effect reaching `main` fails at runtime, not at the boundary.** The run boundary
@@ -826,7 +832,7 @@ D20 rule that does it. The witnesses are the five programs below, which become D
     1.** `built: {Console} Holder =
     Holder(s -> printLine(s))` — no function parameter involved — compiles, and the stored lambda prints when a
     def declaring nothing runs it. D20 rule 4.
-12. **A data constructor supplies a field's row by `Default`.** With `data Job(run: {Console} Unit)`,
+12. ~~**A data constructor supplies a field's row by `Default`.**~~ **Closed 2026-10-09 by D20 step 3.** With `data Job(run: {Console} Unit)`,
     `makeJob: Job = Job(printLine(…))` declares nothing, because the constructor *supplies* `Console` (it is an
     entry the constructor's own row lacks, §2.2) and binds the **platform's** console. A test reading the job
     through `useJob(j: Job): {Console} Unit` under `with recordingConsole` gets real output and an empty
@@ -1376,6 +1382,17 @@ mechanical migration that §10's byte-identity gate can watch.
 3. **Rule 6** — reject a row on a field, and delete the stored-read machinery it leaves without a subject
    (`chargeStored`, A11's `byWith` read rule, `calledSpine`'s dot-read view if nothing else reads it,
    `StoredComputationIntegrationTest`). Closes item 12. No example stores a computation, so the jars do not move.
+
+   **Built 2026-10-09.** `EffectSugarDesugarer.rowErrors` reports a row anywhere in a field's type — top-level,
+   `{}`, an arrow codomain, a pinned one — as *"A data field holds a value, not a computation, so its type cannot
+   carry an effect row"*, and `DataDefinitionDesugarer` lowers every field to its payload first, so the constructor,
+   the accessors and the eliminator see a value and that error is the only diagnostic. With no field row left to
+   record, `EffectRow.returnThunkEffects` is gone, and with it the `row` phase's read rule: `runStored`, `storedRow`,
+   `chargeStored` (A11's `with`-at-the-read rejection) and `calledSpine`, whose dot-read view nothing else consulted.
+   `Binding.byWith` stays, for `checkGiven`. `StoredComputationIntegrationTest` and the three stored-`Inf` cases of
+   `TerminationIntegrationTest` are deleted; `FieldValueIntegrationTest` holds the witnesses, item 12's program among
+   them, and the replacement shape — data describing the work, performed where the effects are in scope. Gate:
+   `./mill __.test` green, all 46 example jars byte-identical, eliot-test 183 green under this compiler.
 4. **The parser accepts the new surface** — `uses` on a definition and a parameter, `=> A` in parameter position —
    onto the *existing* `EffectRow` metadata, so no phase past `ast` learns anything. `A => {} B` and `A => B` are
    one shape (§8 item 9), so dropping the codomain `{}` must be byte-identical; that is this step's gate.
