@@ -547,10 +547,12 @@ block only what it has (an effect's default is handed out at `main` and by platf
 field holds a value, so stored computations go. It closes `docs/effects.md` §8 items 9–13 — five programs that
 compile today and misbehave — and reverses rule 3 and rule 4's predicate below. **D21 (2026-10-09) amends D20
 before it is built**: a function-typed parameter is an ordinary *pure value*, keepable like any other, and the one
-kind of parameter that is code is marked **`block`** — `def foreach[A](block action: A => Unit, list: List[A]): Unit`,
-`def if[T](condition: Bool, block value: T) uses Abort: T`, a handler's slot `block body uses Throw[E]: A`. Purity is
-the absence of two words, `uses` and `block`, and the compiler enforces both; `=>` keeps its one meaning and D20's
-`=> A` is withdrawn. The two land together. Until they do, what follows is the tree.
+kind of parameter that is code carries the same clause, with `*` for the caller's own effects —
+`def foreach[A](action uses *: A => Unit, list: List[A]): Unit`, `def if[T](condition: Bool, value uses *: T) uses
+Abort: T`, a handler's slot `body uses *, Throw[E]: A`, and `body uses Throw[E]: A` alone a *closed* row, which the
+cornerstone's last paragraph below says is unsayable today. Purity is the absence of one word, `uses`, anywhere in a
+signature, and the compiler enforces it; `=>` keeps its one meaning and D20's `=> A` is withdrawn. The two land
+together. Until they do, what follows is the tree.
 
 **Four user rules, and the fourth outranks the other three** (§1):
 

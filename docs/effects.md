@@ -14,9 +14,11 @@ is a block that may be called or passed on but never kept, and a `data` field ho
 silent defects found while designing it (§8 items 9–13) and reverses three of Part I's rules.
 
 **Decided 2026-10-09, not built: D21 (§11)** amends D20 before it is built: a function-typed parameter is an
-ordinary pure value, keepable like any other, and the one kind of parameter that is code is marked `block`
-(`def foreach[A](block action: A => Unit, list: List[A]): Unit`). Purity is then the absence of two words, `uses`
-and `block`, and the compiler enforces both; `=>` keeps its one meaning and D20's `=> A` is withdrawn.
+ordinary pure value, keepable like any other, and the one kind of parameter that is code carries the one clause
+the surface has, `uses` — `uses *` for the caller's own effects
+(`def foreach[A](action uses *: A => Unit, list: List[A]): Unit`), `uses *, Throw[E]` for a handler's slot, `uses E`
+alone for a closed row. Purity is then the absence of one word anywhere in a signature, and the compiler enforces
+it; `=>` keeps its one meaning and D20's `=> A` is withdrawn.
 
 **One-sentence summary.** The user writes **effect rows**; each row entry desugars to one **phantom generic
 binder** whose value is an implementation, written at every reference by a syntax-directed pass that reads
@@ -38,8 +40,8 @@ flag-day log F1–F9 and the follow-ups A2–A11) is in git history, and §13 sa
 
 *D20 (§11, decided 2026-10-05) replaces this Part's surface and three of its rules — §1 rules 3 and 4, §2.1's
 `{}`, §2.2's supply by `Default`, §2.3 and §2.4's form; its "Reversals this records" lists them. D21 (§11, decided
-2026-10-09) amends D20 in turn: a function parameter is a value and a block is marked. Until they land, this Part is
-the tree.*
+2026-10-09) amends D20 in turn: a function parameter is a value, and caller's code is marked `uses *`. Until they
+land, this Part is the tree.*
 
 ## 1. The user model — four rules
 
@@ -1204,8 +1206,8 @@ The experiment's diff is deliberately not kept in the tree — this entry is eno
 **Decided 2026-10-05. Not built.** It changes the surface and three of Part I's rules. The mechanism of §3 —
 phantom binders, the write, `with`, the primitives, the one verifier — stays. Until it lands, Part I is the tree.
 **D21 (below, 2026-10-09) amends this decision's rule 2 and its `=> A` spelling** — a function-typed parameter is a
-value, and a block is marked `block` — and records the reversals; the two land together, and this section is kept
-as decided so its citations resolve.
+value, and caller's code is marked `uses *` — and records the reversals; the two land together, and this section is
+kept as decided so its citations resolve.
 
 #### Why
 
@@ -1400,10 +1402,12 @@ Standing rule 1: each is written down as a reversal, not amended in place. They 
 - **§12's "not now: `with` on a def's own return row"** is restated, not reopened: `with` on a definition's own
   `uses` clause is likewise rejected.
 
-### D21 — purity is spelled by absence: a function parameter is a value, and a block is marked
+### D21 — purity is spelled by absence: a function parameter is a value, and caller's code is `uses *`
 
 **Decided 2026-10-09. Not built.** It amends one rule of D20 and one of its spellings; everything else D20 decided
-stands, and the two land together. Until they do, Part I is the tree.
+stands, and the two land together. Until they do, Part I is the tree. First written with a `block` keyword the same
+day, and respelled before anything was built: the mark says nothing about `{ … }`, and a second keyword beside `uses`
+was a second spelling of one fact.
 
 #### Why
 
@@ -1414,105 +1418,153 @@ itself", and a reader had to know that an arrow in a parameter means code while 
 It also kept `compose` and every helper that stores a callback illegal, since a block may never be kept, although a
 pure function is harmless to keep. Robert asked for purity to be expressible. The smallest change that does it is
 to make a function-typed parameter what every other parameter is — a value — and to mark the one kind of parameter
-that is code with a word.
+that is code with the clause the surface already has: `uses`.
 
 #### The model, as a developer is told it
 
-> **An effect is a parameter you don't spell**, as D20 says. **A parameter is a value or a block.** A value is
-> computed before the call and is pure: a function value among them, which is why it can be kept, stored and
-> returned. A block is marked `block`: it is code from your caller, run where it is written as far as effects go,
-> and the callee may call it or pass it on but never keep it. `uses` on a block lists what the callee gives it.
+> **An effect is a parameter you don't spell**, as D20 says, and **`uses` is where you spell which.** On a
+> definition, `uses Console` means its caller hands it a `Console`. On a parameter, `uses` means the argument is
+> *code*, not a value: `uses *` says it may use whatever effects are in scope where it is written — your effects,
+> since you write it — and `uses Throw[E]` says the callee gives it `Throw[E]`. The callee may call that code or
+> pass it on to another `uses` slot, never keep it. A parameter without `uses` is a value, computed before the call,
+> and a value is pure: a function value among them, which is why it can be kept, stored and returned.
 >
-> **No `uses` and no `block`: pure and total.** `block` and no `uses`: performs nothing of its own, and a call to
-> it performs exactly what you wrote in the blocks. `uses`: performs those, handed down by its caller.
+> **A signature with no `uses` anywhere is pure and total.** `uses` on a parameter means a call runs code you
+> wrote, so the call performs exactly what you wrote there. `uses` on the definition means it performs those,
+> handed down by you.
 
 #### The surface
 
-A parameter is `[block] name [uses R]: Type`. `=>` keeps its one meaning, the stdlib alias for `Function`; D20's
-`=> A` and today's `{}` both go.
+A parameter is `name [uses <entries>]: Type`, where the entries are `*` and effect names, `*` at most once and
+first (`uses *, Throw[E]` is the spelling; `uses Throw[E], *` is a parse error). `*` is legal only on a parameter,
+since only an argument has a caller's text to be open to. `=>` keeps its one meaning, the stdlib alias for
+`Function`; D20's `=> A` and today's `{}` both go.
 
 ```eliot
-def map[A, B](f: A => B, list: List[A]): List[B]                          // pure: f is a pure function value
-def compose[A, B, C](f: B => C, g: A => B): A => C = a -> f(g(a))         // legal again: a value may be kept
-def foreach[A](block action: A => Unit, list: List[A]): Unit             // transparent: runs the caller's code
-def if[T](condition: Bool, block value: T) uses Abort: T                 // a nullary block runs when mentioned
-def fold[A](condition: Bool, block whenTrue: A, block whenFalse: A): A { join(whenTrue, whenFalse) }
-def runThrow[E, A](block body uses Throw[E]: A): Either[E, A]            // a handler gives its block an effect
-def catch[E, A](block computation uses Throw[E]: A, block onError: E => A): A
-infix left below apply def .[A, B](a: A, block f: A => B): B = f(a)
+def map[A, B](f: A => B, list: List[A]): List[B]                        // pure: f is a pure function value
+def compose[A, B, C](f: B => C, g: A => B): A => C = a -> f(g(a))       // legal again: a value may be kept
+def foreach[A](action uses *: A => Unit, list: List[A]): Unit          // action is the caller's code
+def if[T](condition: Bool, value uses *: T) uses Abort: T              // nullary: mentioning value runs it
+def fold[A](condition: Bool, whenTrue uses *: A, whenFalse uses *: A): A { join(whenTrue, whenFalse) }
+def runThrow[E, A](body uses *, Throw[E]: A): Either[E, A]             // the caller's effects plus Throw[E]
+def catch[E, A](computation uses *, Throw[E]: A, onError uses *: E => A): A
+infix left below apply def .[A, B](a: A, f uses *: A => B): B = f(a)
 def greet(name: String) uses Console: Unit = printLine("Hello, " ++ name)
 
-def mocked(block body uses Mocking with recording, Calls with journal: Unit): Unit
-def transcriptOf(block program uses Console with recordingConsole: Unit): String = runWriterToLog(program)
+def mocked(body uses *, Mocking with recording, Calls with journal: Unit): Unit
+def transcriptOf(program uses *, Console with recordingConsole: Unit): String = runWriterToLog(program)
+def runPure[E, A](body uses Throw[E]: A): Either[E, A]                 // closed: Throw[E] and nothing else
 ```
 
-| written | what it is | lowers to |
+| parameter clause | what the argument is | lowers to |
 | --- | --- | --- |
-| `x: A` | a value, computed before the call | `A` |
-| `f: A => B` | a pure function value — keepable, storable, returnable | `A => B` |
-| `block x: A` | code from the caller taking nothing; mentioning it runs it | `Unit => A`, today's `{} A` |
-| `block f: A => B` | code from the caller taking `A`; the callee applies it | `A => B`, today's `A => {} B` |
-| `block x uses E: A` | a block the callee gives `E` — a handler's slot | `Unit => A`, today's `{E} A` |
+| none | a value, computed before the call — a pure function value when its type is one; keepable | its type |
+| `uses *` | the caller's code, open to the effects in scope where it is written | `Unit => A` or `A => B`; today's `{} A`, `A => {} B` |
+| `uses *, E` | the caller's code, plus `E` given by the callee — a handler's slot | the same; today's `{E} A` |
+| `uses E` | code that may use `E` and nothing else — a **closed row** | the same; unsayable today (§2.6) |
 
-A block's type is read as the function the callee calls it at: one with no arrow takes nothing and runs when
-mentioned. A block that should *produce* a function is `block g: Unit => F`, applied by the callee — the same thing
-spelled out, and no corpus wants it. `block` is not a type and never appears in one: like `uses` it is a clause on
-the declaration, lowered and checked by the `row` phase, so `unify` sees `Function[A, B]` on both sides and
-guardrail 1 (no assignability arm) is untouched. The word is the one the language already uses for `{ … }`, which
-is what a block parameter is usually given.
+`*` is not "any effects" and not a row variable: it names *the effects in scope where the argument is written* —
+the caller's own `uses`, an enclosing `with`, an enclosing `uses *` parameter's scope. That is D20 rule 1's lexical
+capture, so nothing is unified and standing rule 3 is untouched; in the mechanism it is the row tag with an open
+row, which is what `{}` is today, and a closed clause is the same tag with the row closed. A code parameter's type
+is read as the function the callee calls it at: one with no arrow takes nothing and runs when mentioned. Code that
+should *produce* a function is `g uses *: Unit => F`, applied by the callee — the same thing spelled out, and no
+corpus wants it. `uses` is not a type and never appears in one: it is a clause on the declaration, lowered and
+checked by the `row` phase, so `unify` sees `Function[A, B]` on both sides and guardrail 1 (no assignability arm)
+is untouched.
+
+`uses *` on a definition's own clause is **rejected**: a body has no caller's text to be open to, and the only
+meaning it could carry — "I run my `uses *` parameters" — the parameter list already states. Two spellings of one
+fact, and the second invites the misreading that the body may perform anything. If a one-glance "may a call
+perform?" read on the definition line alone is ever wanted, that is where it would go, with a "declares `*` but
+runs no such parameter" check beside it; not now.
 
 #### The rules, as they differ from D20
 
-1. **A parameter is a block iff it is marked `block`** — D20 rule 2 with the predicate moved from the type to the
-   keyword. A **value constructor's parameters are values** (D20 rule 6 stands: `block` on a field is rejected).
+1. **A parameter is code iff it has a `uses` clause** — D20 rule 2 with the predicate moved from the type to the
+   clause. A **value constructor's parameters are values** (D20 rule 6 stands: `uses` on a field is rejected).
 2. **A value is pure.** A lambda in any value position — an unmarked `f: A => B` parameter, a field, a generic
    slot, a result, a `val` — may use no effect it does not discharge itself: it binds and discharges locally
    (`x -> runAbort(lookup(x))` is fine) and reaches no enclosing binding. A reference to a `uses` definition that is
-   neither the head of an application nor the direct argument of a block slot is rejected the same way — a
-   `uses` definition is not a first-class value. This is D20 rule 4 widened from "a field, a generic slot, a result,
-   a `val`" to every value position, and it is what makes an unmarked signature mean pure.
-3. **A block is used, never kept** — D20 rule 3 unchanged, now a corollary: a block has no value type, so there is
-   nothing to store it in. A pure function value may be passed where a block is expected (the block simply uses no
-   effects). A block may not be passed where a value is expected — including an unmarked function parameter, which
-   is a value position by rule 2.
-4. **Effects resolve where they are written**, **a definition gives its block only what it has**, and **a field
-   holds a value** — D20 rules 1, 5 and 6, unchanged. So is the frames argument for rule 3: a block run after its
+   neither the head of an application nor the direct argument of a `uses` slot is rejected the same way — a `uses`
+   definition is not a first-class value. This is D20 rule 4 widened from "a field, a generic slot, a result, a
+   `val`" to every value position, and it is what makes an unmarked signature mean pure.
+3. **Code is used, never kept** — D20 rule 3 unchanged, now a corollary: a `uses` parameter has no value type, so
+   there is nothing to store it in. A pure function value may be passed where code is expected (it simply uses no
+   effects). Code may not be passed where a value is expected — including an unmarked function parameter, which is
+   a value position by rule 2. Two conventions this matches: Swift's closure parameters are non-escaping by default
+   and may be called but not stored, and Kotlin's inline-function parameters may only be invoked or passed to
+   another inline parameter.
+4. **A closed clause supplies and closes.** At `body uses Throw[E]: A`, the argument's text may use `Throw[E]`, bound
+   by the slot's `with` or the callee, and must discharge everything else itself; it is rule 2's check with the
+   supplied entries added to what is in scope. §2.6's "a row cannot be closed" is reversed below.
+5. **Effects resolve where they are written**, **a definition gives its code only what it has**, and **a field
+   holds a value** — D20 rules 1, 5 and 6, unchanged. So is the frames argument for rule 3: code run after its
    discharger returned finds no frame (§8 item 10), and the design keys on no family, so one rule covers the
    interpretation effects too.
 
+#### Storing effectful computations
+
+Under D20 and D21 a stored computation is pure, and an effectful one has no spelling. The reason is not purity: a
+closure that captured the platform's native `Console` would be harmless to keep. The reason is frames — `Throw`,
+`Abort`, `State`, `Writer` and `Dep` are a frame the discharger installs, and frame dependence is a property of the
+*implementation*, not the effect: a test's `recordingConsole` is written over `Writer`, so a stored closure bound to
+it is a stored `tell` with the same escape risk. Three ways to have a heap trampoline, and the first is the one:
+
+1. **Store data, not code.** The queue holds `data Step = Print(line) | Read(continue)` and the loop interprets it
+   under its own `uses Console`. It compiles today, is testable with a double, and on a microcontroller is what is
+   wanted anyway — a `data` step is a fixed-size record, a stored closure a heap allocation.
+2. **Frame-free capture — the `@escaping` opt-in.** A lambda in a value position may use effects whose written
+   bindings are frame-free (the implementation's clauses `uses` nothing: every platform default, no `Writer`- or
+   `State`-backed double). The check is at the keep site and needs the written binding, so it runs after
+   monomorphization. Its cost is the testing story: a program that stores `Console` closures cannot bind a
+   `Writer`-backed double to them, and the error arrives under test. This is where Scala 3's capture checking
+   lands too (a scoped capability cannot be captured by an escaping closure), for a fraction of the machinery. It
+   is §12's "not now" entry B, and D21 reserves keeping for it; not taken, because option 1 covers the trampoline
+   and keeps every stored step testable.
+3. **Bind at the run instead of where written.** A Π-typed field, which §12 measured the checker cannot
+   represent, and dynamic scoping of handlers, the prohibited class. Closed.
+
+Natives that keep callbacks — an event loop's handler table — stay the platform's axiom under all three.
+
 #### What it buys
 
-- **Purity reads off the signature as the absence of two words**, and the compiler enforces both: rule 2 for the
-  blocks a pure signature does not have, and the scope check for the `uses` it does not have. A pure definition is
+- **Purity reads off the signature as the absence of one word**, and the compiler enforces it: rule 2 for the
+  code a pure signature does not take, and the scope check for the `uses` it does not have. A pure definition is
   total too, since `Inf` is a `uses` entry, so the pure fragment is exactly the language a type may be computed in.
 - **A pure function parameter exists.** A sort can demand a pure key, so how often it calls it is unobservable; a
   type-level helper can demand pure arguments; a `data` constructor already could, and now a definition can too.
 - **Keeping a function is legal again** — `compose`, a handler table, `Handler(name, f)` — because what is kept
   is a pure value. `eliot.lang.Function`'s own doc, which shows `compose` and says `A => B` is the function type,
   becomes true of parameters again. D20's "what it costs" first bullet is withdrawn.
-- **One arrow, one meaning.** `=>` is `Function`, in a parameter as in a field or a result. Nothing is read off a
-  type's shape (§3.6), and D20's `=> A` — a second arrow that is not a type — is not needed.
+- **One clause.** The whole effect surface is `uses`, in two positions; `*` is its one extra symbol. One arrow,
+  one meaning: `=>` is `Function`, in a parameter as in a field or a result. Nothing is read off a type's shape
+  (§3.6), and D20's `=> A` — a second arrow that is not a type — is not needed.
+- **A closed row exists**, for free: `uses E` without `*`. What deleted eliot-test's `pure { … }` is sayable again.
 
 #### What it costs
 
-- **One keyword**, on every block parameter. The base already marks them: 43 signatures in `stdlib` and `lang`
-  carry `{}` or a row on a parameter today, and the migration is one word for one word, `{}` ⤳ `block`, the
-  handler slots gaining `uses`.
+- **`uses *` on every code parameter.** The base already marks them: 43 signatures in `stdlib` and `lang` carry
+  `{}` or a row on a parameter today, and the migration is one spelling for one spelling, the handler slots gaining
+  `*,` before their entry.
 - **The widened value check rejects what the tree accepts by accident.** §8 item 9 measured that a lambda using
   effects at a rowless arrow (`applyTwice(f: String => Unit)` from a `{Console}` definition) compiles and prints.
-  Under rule 2 that lambda is a value and the program is rejected at the lambda, naming `block` as the fix. The
+  Under rule 2 that lambda is a value and the program is rejected at the lambda, naming `uses *` as the fix. The
   base cannot be affected (its function parameters all carry `{}`); §10's byte-identity gate over the 45 examples
   says whether any example relied on it.
 - **Why not `A -> B` pure and `A => B` effectful, as Scala 3's capture checking spells it.** `->` is a hard
   symbol for a lambda and a `match` arm, and a type is an expression in this language, so a second meaning for it
   in type position fights the types-are-values cornerstone. The default would also point the wrong way: the
   unmarked arrow would be the effectful one, and purity would need the extra mark.
+- **Why not a keyword (`block`, `impure`).** A second word beside `uses` for a fact `uses` can state; `block`
+  additionally named the wrong thing. `impure` had one merit, separating openness from the supplied list, and
+  `*` keeps that merit inside the one clause.
 - **Why not an effect variable, `f uses E: A => B` with `uses E` on the callee.** It is Koka's spelling, and it
-  needs row unification, which is §12's closed inference class. It is also unnecessary: a block is resolved
-  lexically and may not be kept, so every block in one call is written in one scope and draws from one set of
-  effects. One implicit variable — the caller's scope — is all there ever is, and `block` is its spelling. Eliot
-  gets effect polymorphism from capture, for free.
-- **Why not pure blocks everywhere.** Then the base needs `map` and `mapM`, `foldLeft` and `foldLeftM`; the 43
+  needs row unification, which is §12's closed inference class. It is also unnecessary: code is resolved lexically
+  and may not be kept, so every code argument in one call is written in one scope and draws from one set of
+  effects. One implicit variable — the caller's scope — is all there ever is, and `*` is its spelling. Eliot gets
+  effect polymorphism from capture, for free.
+- **Why not pure code everywhere.** Then the base needs `map` and `mapM`, `foldLeft` and `foldLeftM`; the 43
   signatures say which they want, and `foldLeft`, `catch`, `if` and `.` all want the caller's effects.
 - **Unchanged from D20**: eliot-test names `recording` and `journal`; a native that keeps a callback has no
   spelling; the migration is wide and mechanical.
@@ -1526,18 +1578,19 @@ D20's list stands with these substitutions; the numbering is D20's.
    position is a rowless slot, so the check is already expressible before the surface changes. Closes §8 items 9,
    10 and 11 (item 9 by rejecting it, not by legalising it as D20 did). Gate: §10, plus the probes as tests, plus a
    probe that an effectful lambda at a rowless arrow is rejected and a pure one at a row-typed slot is accepted.
-4. **The parser accepts `block` and `uses`** — not `=> A` — onto the existing `EffectRow` metadata (`block` is
-   the row tag with an empty row; `block … uses E` is the row). No phase past `ast` learns anything.
-5. **Migrate**, by script: `{} A` ⤳ `block … : A`, `A => {} B` ⤳ `block … : A => B`, `{E} A` on a parameter ⤳
-   `block … uses E: A`, a result row ⤳ `uses`. Gate: byte-identity over the 45 examples.
-6. **Delete the old surface**: a row in a type, and `=> A`, are parse errors naming the `uses` and `block`
-   spellings.
+4. **The parser accepts `uses` in both positions, with `*` on a parameter** — not `=> A` — onto the existing
+   `EffectRow` metadata (`uses *` is the row tag with an open empty row; `uses *, E` the open row `{E}`; `uses E`
+   the same row closed, one bit the metadata does not carry today and the only thing a phase past `ast` learns).
+   `*` first and at most once, `*` on a definition and `uses` on a field rejected at the parser.
+5. **Migrate**, by script: `{} A` ⤳ `uses *: A`, `A => {} B` ⤳ `uses *: A => B`, `{E} A` on a parameter ⤳
+   `uses *, E: A`, a result row ⤳ `uses`. Gate: byte-identity over the 45 examples.
+6. **Delete the old surface**: a row in a type, and `=> A`, are parse errors naming the `uses` spelling.
 
 #### Interactions
 
-- **D20a** (naming a set of effects) is unchanged: `uses Git` on a definition or a block.
-- **D20b** (window or flag day) is unchanged; one keyword more in the same migration.
-- **D19** names control implementations on the dischargers' slots; its spelling is `block body uses Throw[E] with
+- **D20a** (naming a set of effects) is unchanged: `uses Git` on a definition, `uses *, Git` on a parameter.
+- **D20b** (window or flag day) is unchanged; one symbol more in the same migration.
+- **D19** names control implementations on the dischargers' slots; its spelling is `body uses *, Throw[E] with
   throwByEscape: A`, the handler-slot row of the table above.
 
 #### Reversals this records
@@ -1546,16 +1599,24 @@ Standing rule 1: written down as reversals, not amended in D20's text. They take
 together.
 
 - **D20 rule 2's predicate** ("a parameter is a block iff its declared type is a function type or `=> A`") is
-  reversed to "iff it is marked `block`"; a function-typed parameter is a value.
-- **D20's `=> A`** is withdrawn before it is built; `block x: A` is the lazy argument, and §2.1's `{}` is replaced by
-  it rather than by a second arrow.
+  reversed to "iff it has a `uses` clause"; a function-typed parameter is a value.
+- **D20's `=> A`** is withdrawn before it is built; `value uses *: A` is the lazy argument, and §2.1's `{}` is
+  replaced by it rather than by a second arrow.
 - **D20 rule 4** ("a lambda may use effects from around it only as a block") is widened: the value positions it
-  names are every position that is not a block slot, an unmarked function parameter included, and an unapplied
+  names are every position that is not a `uses` slot, an unmarked function parameter included, and an unapplied
   reference to a `uses` definition is rejected in them too.
 - **D20's cost "`compose`, and any helper that stores a callback"** is withdrawn: a kept function is pure.
+- **§2.6's "a row cannot be closed"** is reversed: `uses E` without `*` is a closed row, and the sentence in the
+  CLAUDE.md cornerstone ("this body may perform nothing at all is unsayable") goes with it. eliot-test's `pure { … }`
+  becomes expressible as a slot `body uses Throw[AssertionError]: Unit`; whether it is reinstated is eliot-test's
+  call.
 - **§8 item 9's resolution** changes: D20 legalised the measured behaviour (every function parameter is a block);
   D21 rejects it, and the two spellings `f: A => B` and `f: A => {} B` that behave identically today become the
-  value and the block.
+  value and the code.
+- **§12's "a third kind of parameter for a function the callee keeps"** stands as a rejection of a *third* kind,
+  and D21 admits `compose` without one: a kept function is the *first* kind, a value, so the entry's "`compose` is
+  not worth a third" has no subject and its "D20 rule 3 forbids keeping instead" now reads "keeping code"; keeping a
+  frame-bound closure is still entry B.
 
 **Closed, numbers kept so citations resolve.** **D17** (a `val`-bound computation) closed 2026-09-12: **a `val`
 is a bind**, rule 1 unchanged, §3.5's sentence struck as a reversal — the tree was already right and no code
