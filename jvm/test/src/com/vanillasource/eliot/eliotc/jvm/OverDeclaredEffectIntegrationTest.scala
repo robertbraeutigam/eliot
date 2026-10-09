@@ -94,4 +94,50 @@ class OverDeclaredEffectIntegrationTest extends FullIntegrationTest {
         |""".stripMargin
     ).asserting(_ should (include("performs the effect 'Console' but does not declare it") and not include "declares the effect 'Console' but does not perform it"))
   }
+
+  // A slot supplying one `Throw` does not answer another: inside `catch[Refused, …]`'s slot, `checked`'s
+  // `Throw[Missing]` is still this definition's own, received from its caller, and so it is performed here.
+  private val twoErrors =
+    """import eliot.effect.Console
+      |
+      |data Refused(reason: String)
+      |data Missing(name: String)
+      |
+      |def lookup(name: String) uses Throw[Missing]: String = raise(Missing(name))
+      |def refuse uses Throw[Refused]: String = raise(Refused("refused"))
+      |def checked(found: Bool, name: String) uses Throw[Missing], Throw[Refused]: String = fold(found, refuse, lookup(name))
+      |
+      |def described(found: Bool, name: String) uses Throw[Missing]: String =
+      |   catch[Refused, String](checked(found, name), refused -> reason(refused))
+      |
+      |def shown(found: Bool): String = catch[Missing, String](described(found, "missing"), missing -> name(missing))
+      |""".stripMargin
+
+  "an entry received alongside a slot supplying the same effect at another argument" should "count as performed" in {
+    compileAndRun(
+      twoErrors +
+        """
+          |def main uses Console: Unit = {
+          |   printLine(shown(true))
+          |   printLine(shown(false))
+          |}
+          |""".stripMargin
+    ).asserting(_ shouldBe "refused\nmissing")
+  }
+
+  "a slot supplying the same effect at another argument" should "not cover an undeclared entry" in {
+    compileForErrors(
+      """import eliot.effect.Console
+        |
+        |data Refused(reason: String)
+        |data Missing(name: String)
+        |
+        |def lookup(name: String) uses Throw[Missing]: String = raise(Missing(name))
+        |
+        |def described(name: String): String = catch[Refused, String](lookup(name), refused -> reason(refused))
+        |
+        |def main uses Console: Unit = printLine(described("x"))
+        |""".stripMargin
+    ).asserting(_ should include("performs the effect 'Throw' but does not declare it"))
+  }
 }

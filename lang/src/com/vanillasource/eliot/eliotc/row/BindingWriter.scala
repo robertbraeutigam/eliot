@@ -92,6 +92,12 @@ object BindingWriter {
     *   Whether this is the definition's own **received** binding — resolution-order step 2, a row entry its caller
     *   fills. Only these are tracked as consumed ([[Writer.consumed]]), because only a declared entry can be declared
     *   for nothing.
+    * @param arguments
+    *   The type arguments of the row entry this binding answers, where they are **known** ([[knownArguments]]):
+    *   `Throw[Refused]` at a `catch[Refused, String]` slot, `Throw[Missing]` received from a row that spells it. A
+    *   binding answers a reference to the same ability unless both sides know their arguments and they differ, so the
+    *   slot's `Throw[Refused]` does not shadow the received `Throw[Missing]` ([[Scope.binding]]). `None` — an entry still
+    *   generic in some binder, or a `with` — answers any.
     */
   private case class Binding(
       ability: AbilityFQN,
@@ -99,7 +105,8 @@ object BindingWriter {
       byWith: Boolean = false,
       received: Boolean = false,
       beyondValue: Boolean = false,
-      bySlot: Boolean = false
+      bySlot: Boolean = false,
+      arguments: Option[Seq[String]] = None
   )
 
   /** The lexical environment at one point. `bindings` is innermost-first, so a nearer `with` shadows an outer one for
@@ -160,7 +167,12 @@ object BindingWriter {
     def defaulting(abilities: Seq[AbilityFQN], at: Sourced[?]): Scope =
       abilities.foldLeft(this)((acc, ability) => acc.bind(Binding(ability, defaultBinding(at))))
 
-    def binding(ability: AbilityFQN): Option[Binding] = bindings.find(_.ability == ability)
+    /** The nearest binding for `ability` that answers an entry with these `arguments` — every binding for it, but one
+      * known to bind the same ability at other arguments. A reference whose own arguments are unknown takes the
+      * nearest, which is the fail-safe reading: it is only ever narrowed by two declarations that disagree.
+      */
+    def binding(ability: AbilityFQN, arguments: Option[Seq[String]] = None): Option[Binding] =
+      bindings.find(b => b.ability == ability && !differ(b.arguments, arguments))
   }
 
   /** Writes both halves of a definition, because both hold references: the **body**, and the **signature**.
@@ -276,8 +288,14 @@ object BindingWriter {
     */
   private def receivedBindings(orv: OperatorResolvedValue, universe: RowChecker.Universe): Seq[Binding] = {
     val binders = SignatureView.of(orv.signature).binders
+    val entries = entryArguments(orv)
     phantoms(orv).map { case (index, ability) =>
-      Binding(ability, ParameterReference(binders(index).name), received = true)
+      Binding(
+        ability,
+        ParameterReference(binders(index).name),
+        received = true,
+        arguments = entries.get(index).flatMap(knownArguments(_, Map.empty))
+      )
     }
   }
 
@@ -359,6 +377,48 @@ object BindingWriter {
     SignatureView.of(orv.signature).binders.zipWithIndex.flatMap { case (binder, index) =>
       binder.parameterType.flatMap(declared => markedAbility(declared.value)).map(index -> _)
     }
+
+  /** The row entry each of a definition's binding binders stands for, by binder index: the `k`-th binder marked for an
+    * ability is the `k`-th entry of the declared row naming it, since the desugar mints them in the order written. An
+    * ability whose marks and entries do not pair one to one — a `~` constraint's binder has no entry — pairs none.
+    */
+  private def entryArguments(orv: OperatorResolvedValue): Map[Int, Seq[OperatorResolvedExpression]] =
+    phantoms(orv)
+      .groupBy(_._2)
+      .toSeq
+      .flatMap { case (ability, marks) =>
+        val entries = orv.effectRow.returnEffects.filter(_.abilityFQN == ability)
+        if (entries.size =!= marks.size) Seq.empty
+        else marks.map(_._1).zip(entries.map(_.typeArgs))
+      }
+      .toMap
+
+  /** Whether two entries of one ability are known to stand at different arguments — the one case in which they are not
+    * the same entry. Either side unknown, and they may be.
+    */
+  private def differ(left: Option[Seq[String]], right: Option[Seq[String]]): Boolean =
+    left.isDefined && right.isDefined && left != right
+
+  /** An entry's type arguments, once `substitution` has written what this call determines for the callee's binders —
+    * **known** only when every one of them is then ground, rendered so that two of them compare by what they say and
+    * not by where they were written. One still naming a binder (`Throw[E]` in `E`'s own definition) is unknown.
+    */
+  private def knownArguments(
+      arguments: Seq[OperatorResolvedExpression],
+      substitution: Map[String, OperatorResolvedExpression]
+  ): Option[Seq[String]] = {
+    val written = arguments.map(argument =>
+      substitution.foldLeft(argument) { case (acc, (name, value)) => substitute(acc, name, value) }
+    )
+    Option.when(written.forall(isGround))(written.map(_.render))
+  }
+
+  private def isGround(expression: OperatorResolvedExpression): Boolean = expression match {
+    case ValueReference(_, typeArgs)           => typeArgs.forall(argument => isGround(argument.value))
+    case FunctionApplication(target, argument) => isGround(target.value) && isGround(argument.value)
+    case _: IntegerLiteral | _: StringLiteral  => true
+    case _                                     => false
+  }
 
   /** The ability a binder's declared type **marks** it as binding, if it is marked at all — the head of the declared
     * type is [[WellKnownTypes.implementationTypeFQN]] and its single argument names an ability
@@ -468,8 +528,12 @@ object BindingWriter {
           val (head, args) = spine(expr.value)
           head match {
             case ValueReference(callee, existing)                                   =>
-              val written  = writeBindings(expr.as(head), callee.value, existing, scope, args)
-              val adjusted = args.zipWithIndex.map { case (arg, index) => walkArgument(arg, callee.value, index, scope) }
+              val written      = writeBindings(expr.as(head), callee.value, existing, scope, args)
+              val substitution =
+                universe.lookup(callee.value).fold(Map.empty)(orv => callSubstitution(orv, existing, args))
+              val adjusted     = args.zipWithIndex.map { case (arg, index) =>
+                walkArgument(arg, callee.value, index, scope, substitution)
+              }
               expr.as(applyChain(written, adjusted))
             case ParameterReference(selector) if selector.value === matchSelector =>
               expr.as(applyChain(walk(expr.as(head), scope), args.map(walkCode(_, scope, Int.MaxValue))))
@@ -567,7 +631,8 @@ object BindingWriter {
         arg: Sourced[OperatorResolvedExpression],
         callee: ValueFQN,
         index: Int,
-        scope: Scope
+        scope: Scope,
+        substitution: Map[String, OperatorResolvedExpression]
     ): Sourced[OperatorResolvedExpression] =
       universe.lookup(callee).flatMap(orv => rowSlot(orv, index).map(orv -> _)) match {
         case None if isMatchMachinery(callee) => walkCode(arg, scope, Int.MaxValue)
@@ -581,7 +646,7 @@ object BindingWriter {
         case Some((calleeOrv, slot))          =>
           val name    = thunkParameter
           val base    = if (closedSlot(calleeOrv, index)) scope.enterClosed(rides(calleeOrv, slot)) else scope
-          val inside  = suppliedScope(calleeOrv, index, slot, base, arg).shadow(name)
+          val inside  = suppliedScope(calleeOrv, index, base, arg, substitution).shadow(name)
           arg.as(
             FunctionLiteral(
               arg.as(name),
@@ -592,25 +657,37 @@ object BindingWriter {
       }
 
     /** The scope inside a row-typed slot: every entry the slot **supplies** — one the callee's own declared row does
-      * not already have — bound to the slot's `with` for that ability, or to `Default`.
+      * not already have — bound to the slot's `with` for that ability, or to `Default`, and carrying the entry's
+      * arguments as this call determines them (`substitution`), so a supplied `Throw[Refused]` answers only a
+      * `Throw[Refused]` and a received `Throw[Missing]` is still reached past it. "Already has" is the same comparison:
+      * `mocked`'s own `Throw[AssertionError]` does not make its slot's `Throw[IoError]` ride, since the `catch` it
+      * hands the slot to is that entry's frame.
       */
     private def suppliedScope(
         calleeOrv: OperatorResolvedValue,
         index: Int,
-        slot: Seq[AbilityFQN],
         scope: Scope,
-        anchor: Sourced[?]
+        anchor: Sourced[?],
+        substitution: Map[String, OperatorResolvedExpression]
     ): Scope = {
-      val rides    = calleeOrv.effectRow.returnEffects.map(_.abilityFQN).toSet
+      val own      = calleeOrv.effectRow.returnEffects
+        .map(entry => entry.abilityFQN -> knownArguments(entry.typeArgs, substitution))
+      val rides    = (entry: AbilityConstraint[OperatorResolvedExpression]) => {
+        val arguments = knownArguments(entry.typeArgs, substitution)
+        own.exists((ability, known) => ability == entry.abilityFQN && !differ(known, arguments))
+      }
       val declared = slotBindings(SignatureView.of(calleeOrv.signature).parameters(index).value)
         .flatMap(marker => abilityOf(marker.value, universe).map(_ -> marker))
         .toMap
-      slot.filterNot(rides).foldLeft(scope) { (acc, ability) =>
+      val entries  = calleeOrv.effectRow.parameterEffects.find(_.parameterIndex === index).toSeq.flatMap(_.effects)
+      entries.filterNot(rides).foldLeft(scope) { (acc, entry) =>
+        val ability   = entry.abilityFQN
+        val arguments = knownArguments(entry.typeArgs, substitution)
         acc.bind(
           declared
             .get(ability)
-            .fold(Binding(ability, defaultBinding(anchor), bySlot = true))(marker =>
-              Binding(ability, slotImplementation(marker, acc), byWith = true, bySlot = true)
+            .fold(Binding(ability, defaultBinding(anchor), bySlot = true, arguments = arguments))(marker =>
+              Binding(ability, slotImplementation(marker, acc), byWith = true, bySlot = true, arguments = arguments)
             )
         )
       }
@@ -700,11 +777,22 @@ object BindingWriter {
           val effects          = orv.effectRow.returnEffects.map(_.abilityFQN).toSet
           val marks            = phantoms(orv).toMap
           val determined       = if (existing.isEmpty) suppliedArguments(orv, args, marks.keySet) else existing
+          val entries          = entryArguments(orv)
+          val substitution     = substitutionOf(orv, marks.keySet, determined)
           val (written, reach) = mergeTypeArguments(
             SignatureView.of(orv.signature).binders.size,
             marks,
             determined,
-            ability => reference.as(bindingFor(ability, effects.contains(ability), reference, scope))
+            (index, ability) =>
+              reference.as(
+                bindingFor(
+                  ability,
+                  entries.get(index).flatMap(knownArguments(_, substitution)),
+                  effects.contains(ability),
+                  reference,
+                  scope
+                )
+              )
           )
           marks.toSeq.filter(_._1 >= reach).sortBy(_._1).foreach { case (_, ability) =>
             violations += unreachableBinding(orv, ability, reference)
@@ -724,13 +812,13 @@ object BindingWriter {
         binderCount: Int,
         marks: Map[Int, AbilityFQN],
         determined: Seq[Sourced[OperatorResolvedExpression]],
-        binding: AbilityFQN => Sourced[OperatorResolvedExpression]
+        binding: (Int, AbilityFQN) => Sourced[OperatorResolvedExpression]
     ): (Seq[Sourced[OperatorResolvedExpression]], Int) = {
       val (slots, leftover) = (0 until binderCount).foldLeft(
         (Seq.empty[Option[Sourced[OperatorResolvedExpression]]], determined)
       ) { case ((acc, rest), index) =>
         marks.get(index) match {
-          case Some(ability) => (acc :+ Some(binding(ability)), rest)
+          case Some(ability) => (acc :+ Some(binding(index, ability)), rest)
           case None          => (acc :+ rest.headOption, rest.drop(1))
         }
       }
@@ -762,6 +850,31 @@ object BindingWriter {
             "and give it its own row."
         )
       )
+
+    /** What this call determines for the callee's binders, by name — the same values [[writeBindings]] writes for its
+      * unmarked binders: the call's explicit type arguments, else what a supplied row slot settles.
+      */
+    private def callSubstitution(
+        orv: OperatorResolvedValue,
+        existing: Seq[Sourced[OperatorResolvedExpression]],
+        args: Seq[Sourced[OperatorResolvedExpression]]
+    ): Map[String, OperatorResolvedExpression] = {
+      val marked = phantoms(orv).map(_._1).toSet
+      substitutionOf(orv, marked, if (existing.isEmpty) suppliedArguments(orv, args, marked) else existing)
+    }
+
+    private def substitutionOf(
+        orv: OperatorResolvedValue,
+        marked: Set[Int],
+        determined: Seq[Sourced[OperatorResolvedExpression]]
+    ): Map[String, OperatorResolvedExpression] =
+      SignatureView
+        .of(orv.signature)
+        .binders
+        .zipWithIndex
+        .collect { case (binder, index) if !marked.contains(index) => binder.name.value }
+        .zip(determined.map(_.value))
+        .toMap
 
     /** The run of the callee's *unmarked* binders — those its declaration does not mark as bindings — that this
       * call's **declarations** determine, written explicitly so the checker never mints a metavariable where a
@@ -860,11 +973,12 @@ object BindingWriter {
       */
     private def bindingFor(
         ability: AbilityFQN,
+        arguments: Option[Seq[String]],
         isEffect: Boolean,
         at: Sourced[?],
         scope: Scope
     ): OperatorResolvedExpression =
-      scope.binding(ability) match {
+      scope.binding(ability, arguments) match {
         case Some(binding) if isEffect && binding.beyondValue =>
           violations += capturedEffect(ability, at, scope)
           binding.term
