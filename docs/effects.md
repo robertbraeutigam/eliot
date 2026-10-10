@@ -297,8 +297,9 @@ entry-by-entry against the slot's clause (an actual `bad` declared `uses Throw[S
 `E := String`). Where no declaration answers, the call spells it — `runThrow[AssertionError, Unit](body)` — and an
 argument nothing determines is **rejected** rather than defaulted, which is what stops a `catch` from compiling
 against a frame it will not meet at runtime. Three shapes reach that rejection honestly, and all three are ordinary:
-the actual is a **parameter reference** (a parameter has no callee whose declaration could state the row — D20
-expected a code parameter's own clause to answer this one; not measured); the actual **raises nothing**, so it has no
+the actual is a **parameter reference** (a parameter has no callee whose declaration could state the row — except a
+code parameter, whose own clause does: measured 2026-10-10, `runThrow(body)` over `body uses *, Throw[String]: Unit`
+determines `E` with nothing spelled, so eliot-test's `runThrow[E, Unit](body)` spellings are now redundant); the actual **raises nothing**, so it has no
 entry of that ability at all; or the slot's clause names the **same ability twice** (`uses *, Throw[IoError],
 Throw[AssertionError]`), where only the call can say which one is being discharged.
 
@@ -1005,6 +1006,11 @@ D20 rule that does it. The witnesses are the five programs below, which become D
     instead of a lambda, and the silent family (standing rule 8). The fix belongs beside `Scope.enterValue`: a
     reference whose callee declares a clause, standing at a value position, is the rule-2 error, exactly as an
     η-expanded `s -> printLine(s)` there already is.
+15. **An effectful ability method needs its ability's type arguments spelled.** Found 2026-10-10 while the
+    `eliot-code` skill was rewritten. With `ability Greeter[A] { def greetAs(a: A) uses Console: Unit }`,
+    `greetAs(Bob(…))` is rejected — *"Cannot pass the implementation of 'Console' … behind a type parameter this call
+    does not determine"* — although the argument determines `A`; `greetAs[Bob](…)` compiles. Loud, not silent, so it
+    is a usability gap rather than a soundness one; the cause is not yet traced.
 
 ## 9. Built: a binding binder is marked by its type
 
