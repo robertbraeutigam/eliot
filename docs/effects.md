@@ -21,6 +21,22 @@ code carries the one clause the surface has, `uses` — `uses *` for the caller'
 alone for a closed row. Purity is the absence of one word anywhere in a signature, and the compiler enforces it;
 `=>` keeps its one meaning and D20's `=> A` was withdrawn. Part I is written in this surface since 2026-10-10.
 
+**Where things stand (2026-10-10).** D20 and D21 are built in full: the surface is the `uses` clause, the brace
+spelling is a parse error outside a row alias's body, and Part I, the CLAUDE.md cornerstone, the `.els` doc comments,
+the user docs site and the `eliot-code` skill all describe it. Open, in order of severity:
+
+- **Silent:** an unapplied reference to a `uses` definition passes as a value (§8 item 14) — D21 rule 2's second
+  half, unbuilt; and an unused `with` binds nothing without complaint (§8 item 1).
+- **Loud, at runtime:** an undischarged control effect reaching `main` (§7 item 7, §8 item 5; D19 decided, not built).
+- **Loud, at compile time:** an effectful ability method needs its ability's type arguments spelled (§8 item 15); a
+  `catch` over a parameter still spells its arguments (§2.2, §7 item 2); a function-typed code parameter's own
+  entries are never supplied (§7 item 1).
+- **Undecided:** a `uses` form for the row alias (D20a), `~`/`&` in user space (D3).
+- **Outside this document:** no eliot release carries `uses` yet — v0.7 rejects it — so eliot-test's and
+  eliot-build's `dep` lines, and the docs site's install page, wait on the next tag; the site's generated `apidoc/`
+  pages predate effects v6 and need regenerating; and eliot-test's own notes still say a row cannot be closed and
+  list `runThrow` spellings that are now redundant.
+
 **One-sentence summary.** The user writes **`uses` clauses**; each clause entry desugars to one **phantom generic
 binder** whose value is an implementation, written at every reference by a syntax-directed pass that reads
 declarations only — so an operation call is an ordinary call to a known method, effects verify as a
