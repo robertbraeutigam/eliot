@@ -35,7 +35,7 @@ def foreach[A](action uses *: A => Unit, list: List[A]): Unit =
  * ```eliot
  * def lengths(words: List[String]): List[Int] = words.map(length)
  *
- * // An effectful mapping: each prompt is answered in turn, and {Console} propagates to the caller.
+ * // An effectful mapping: each prompt is answered in turn, on the Console `answers` declares.
  * def answers(prompts: List[String]) uses Console: List[String] =
  *    prompts.map(p -> { printLine(p) ; readLine orElse "" })
  * ```

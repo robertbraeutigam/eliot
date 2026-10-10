@@ -16,7 +16,7 @@ import eliot.collection.List
  * }
  * ```
  *
- * A target with no process model simply ships no default `implement Environment`, so an `{Environment}` program
+ * A target with no process model simply ships no default `implement Environment`, so a `uses Environment` program
  * fails at the run boundary there — the layer system is the capability, exactly as it is for `FileSystem`. A test
  * binds a double with `with`.
  */

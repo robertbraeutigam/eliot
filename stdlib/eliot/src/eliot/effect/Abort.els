@@ -1,10 +1,10 @@
 /**
  * The abort effect: a computation that may short-circuit, abandoning the rest of the work.
  *
- * A function that might stop processing at any point in its body may declare `{Abort}` and call `abort` to stop.
+ * A function that might stop processing at any point in its body may declare `uses Abort` and call `abort` to stop.
  * Because `abort` stands in
- * for a value of any type, it drops straight into ordinary code; the `{Abort}` then floats up to the
- * caller. Whether the computation aborted is materialised only when the effect is discharged by
+ * for a value of any type, it drops straight into ordinary code; the `Abort` then floats up into the
+ * caller's `uses` clause. Whether the computation aborted is materialised only when the effect is discharged by
  * `runAbort`, as an `Option` that is `none` if it aborted. The untyped sibling of `Throw[E]`, which also
  * carries a reason.
  *
@@ -55,10 +55,10 @@ def runAbort[A](obj uses *, Abort: A): Option[A]
 def orAbort[A](o: Option[A]) uses Abort: A = foldOption(abort, a -> a, o)
 
 /**
- * Discharge an `{Abort}` computation, supplying `fallback` if it short-circuits — the everyday way to run `Abort`, and
+ * Discharge a computation that uses `Abort`, supplying `fallback` if it short-circuits — the everyday way to run `Abort`, and
  * the `else` of the `if..else` sugar. On completion it yields the computed value; on `abort` it runs `fallback`
  * instead, never exposing `Option`. The fallback is a suspended slot (`uses *`), so only the taken side ever runs and it
- * may itself perform whatever the enclosing definition declares. `else` discharges the `Abort` layer and touches
+ * may itself perform whatever the enclosing definition declares. `else` discharges the `Abort` frame and touches
  * nothing else. Binds right-associatively, so `if(..) else if(..) else default` nests as expected, and looser than
  * every ordinary operator, so a fallback may be an operator expression as it stands:
  * `if(failed == 0) "ok" else "failed " ++ show(failed)`. (The *first* arm of an `if` is a juxtaposed argument, which

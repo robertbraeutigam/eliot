@@ -1,4 +1,4 @@
-// {Abort} business logic — the same code that runs in production.
+// Business logic that uses `Abort` — the same code that runs in production.
 def access(user: String) uses Abort: String = if(user == "admin", "granted")
 
 def allowed uses Abort: String = access("admin")

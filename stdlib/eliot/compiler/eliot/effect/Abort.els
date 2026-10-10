@@ -31,7 +31,7 @@ def runAbort[A](obj uses *, Abort: A): Option[A] = foldEither(_ -> None, a -> So
  * to be a name no other effect has a reason to hand to `escape`.
  *
  * Public because `private` reaches only `data` and `def` — a body-less `type` cannot be marked. That is a small hole:
- * compile-track code that deliberately wrote `{Throw[Aborted]}` would share frames with `abort`. It is not worth a
+ * compile-track code that deliberately wrote `uses Throw[Aborted]` would share frames with `abort`. It is not worth a
  * language change; a real fix would be a private abstract type, or keying on the effect's own marker.
  */
 type Aborted

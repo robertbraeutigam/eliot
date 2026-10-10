@@ -2,9 +2,9 @@
  * The dependency effect (a reader): read-only access to an environment value of type `X` that is
  * *supplied at the discharge site*, not fixed globally.
  *
- * A function that needs an `X` from the environment declares `{Dep[X]}` and calls `dependency` to read
+ * A function that needs an `X` from the environment declares `uses Dep[X]` and calls `dependency` to read
  * it; `dependency` is dispatched by the type expected at the call site, so distinct dependency types are
- * distinct effects (`{Dep[Database], Dep[Topic]}`). The effect floats up to the caller unchanged, exactly
+ * distinct effects (`uses Dep[Database], Dep[Topic]`). The effect floats up to the caller unchanged, exactly
  * like `State` or `Throw` — nothing about *which* `X` is provided is baked into the signature.
  *
  * The value is injected only when the effect is discharged, by `provide`: it hands `x` to

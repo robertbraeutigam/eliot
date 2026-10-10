@@ -36,10 +36,10 @@ prefix def !(a: Bool): Bool
  * ranges.
  *
  * ```eliot
- * // Pure arms of one type: fold selects a value, adding nothing to the effect row.
+ * // Pure arms of one type: fold selects a value, using no effect at all.
  * def label(active: Bool): String = fold(active, "ON", "OFF")
  *
- * // Effectful arms: both are {Console} Unit, and only the selected one runs.
+ * // Effectful arms: both are the caller's code using Console, and only the selected one runs.
  * def report(ok: Bool) uses Console: Unit =
  *    fold(ok, printLine("all good"), printLine("check failed"))
  * ```
@@ -52,10 +52,10 @@ def fold[A](condition: Bool, whenTrue uses *: A, whenFalse uses *: A): A { join(
  *
  * Pair it with the infix `else` (in `eliot.effect.Abort`), which discharges the `Abort` with an alternative;
  * `else` binds right-associatively, so chains spell naturally as `if(..) else if(..) else ..`. Without an `else`
- * the `{Abort}` floats up to the caller, making a bare `if` a guard inside an `{Abort}` function.
+ * the `Abort` floats up into the caller's `uses` clause, making a bare `if` a guard in a `uses Abort` function.
  *
- * `value` may be a pure value (`if(cond, "yes")`, auto-lifted) or an effectful computation
- * (`if(cond, printLine("hi"))`, whose own effects join the row). Both branches of an `if..else` are *built*, but
+ * `value` is the caller's code: a plain value (`if(cond, "yes")`) or an effectful computation
+ * (`if(cond, printLine("hi"))`, on the caller's own effects). Both branches of an `if..else` are *built*, but
  * only the selected one is ever *run*, so this reads like an imperative `if`.
  *
  * Since `if` curries just like all functions do, the second argument can appear after the first
@@ -67,11 +67,11 @@ def fold[A](condition: Bool, whenTrue uses *: A, whenFalse uses *: A): A { join(
  * def sign(n: Int): String = if(n > 0) "+" else if(n < 0) "-" else "0"
  *
  * // Effectful branches: only the taken branch's printLine runs, and else discharges
- * // the {Abort}, so greet declares only {Console}.
+ * // the Abort, so greet declares only `uses Console`.
  * def greet(known: Bool, name: String) uses Console: Unit =
  *    if(known) printLine(name) else printLine("hello, stranger")
  *
- * // No else: a guard — the {Abort} floats up to the caller.
+ * // No else: a guard — the Abort floats up into the caller's clause.
  * def requirePositive(n: Int) uses Abort: Int = if(n > 0) n
  * ```
  */

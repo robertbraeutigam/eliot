@@ -38,7 +38,7 @@ def standardError(result: ProcessResult): String
  * never as a string to be re-split — quoting rules are the one part of process spawning that is
  * different on every platform and wrong in every hand-rolled implementation.
  *
- * A target with no process model simply ships no default `implement Process`, so a `{Process}`
+ * A target with no process model simply ships no default `implement Process`, so a `uses Process`
  * program fails at the run boundary there — the layer system is the capability, exactly as it is
  * for `Environment` and `FileSystem`. That is also why an exit code may be named here at all: a
  * platform that has no notion of one is a platform on which none of this effect exists.

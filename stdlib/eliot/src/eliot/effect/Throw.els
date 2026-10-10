@@ -2,15 +2,15 @@
  * The typed-error effect: a computation that may fail with an error value of type `E`.
  *
  * The typed sibling of `Abort`, which discards the reason. A function that may fail declares
- * `{Throw[E]}` and calls `raise` to stop with an `E`. `raise` returns a value of any type, so it
- * drops straight into ordinary code, and the effect floats up to the caller. The success-or-error
+ * `uses Throw[E]` and calls `raise` to stop with an `E`. `raise` returns a value of any type, so it
+ * drops straight into ordinary code, and the effect floats up to the caller's clause. The success-or-error
  * outcome is materialised only when the effect is discharged by `runThrow`, as an `Either[E, A]`.
  *
  * Programs can use `String` as `E` to just indicate an issue without being able to recover
  * from distinguished error cases.
  *
  * If recovering from different errors is expected, then programs should create their own error
- * union type and raise that. Different error types compose in the effect set freely so using
+ * union type and raise that. Different error types compose in a `uses` clause freely so using
  * different error hierarchies comes at no cost to the user.
  *
  * ```eliot
@@ -52,7 +52,7 @@ def runThrow[E, A](obj uses *, Throw[E]: A): Either[E, A]
 def orRaise[E, A](e: Either[E, A]) uses Throw[E]: A = foldEither(err -> raise(err), a -> a, e)
 
 /**
- * Run a `{Throw[E]}` computation, recovering any raised error with `onError`. The everyday way to discharge `Throw` —
+ * Run a computation that uses `Throw[E]`, recovering any raised error with `onError`. The everyday way to discharge `Throw` —
  * reads like an exception handler and never exposes `Either`:
  *
  * ```eliot
@@ -63,7 +63,7 @@ def orRaise[E, A](e: Either[E, A]) uses Throw[E]: A = foldEither(err -> raise(er
  * def configOrDefault(config: String): Configuration = parseConfiguration(config) catch (_ -> emptyConfiguration)
  * ```
  *
- * The handler is an ordinary parameter applied after the escape returns, outside the frame, so it may itself
+ * The handler is the caller's code, applied after the escape returns, outside the frame, so it may itself
  * perform whatever the enclosing definition declares — e.g. log and recover:
  * `readConfig catch (err -> printLine(err))`. On success it yields the computed value; on `raise(err)` it yields
  * `onError(err)`.
