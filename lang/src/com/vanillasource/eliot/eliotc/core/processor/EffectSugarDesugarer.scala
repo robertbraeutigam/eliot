@@ -1,20 +1,15 @@
 package com.vanillasource.eliot.eliotc.core.processor
 
 import cats.syntax.all.*
-import com.vanillasource.eliot.eliotc.ast.fact.{
-  DataDefinition,
-  EffectRow,
-  FunctionDefinition,
-  GenericParameter,
-  UnresolvedAbilityConstraint
-}
+import com.vanillasource.eliot.eliotc.ast.fact.{EffectRow, FunctionDefinition, GenericParameter, UnresolvedAbilityConstraint}
 import com.vanillasource.eliot.eliotc.ast.fact.Expression
 import com.vanillasource.eliot.eliotc.ast.fact.Expression.*
 import com.vanillasource.eliot.eliotc.module.fact.{Qualifier, WellKnownTypes}
 import com.vanillasource.eliot.eliotc.source.content.Sourced
 
-/** Desugars the effect-row sugar `{ E1, E2, … } A` ([[Expression.EffectfulType]]) — effects v6, `docs/effects.md` §9.4
-  * step 2.
+/** Desugars an effect row, `{ E1, E2, … } A` ([[Expression.EffectfulType]]) — effects v6, `docs/effects.md` §9.4
+  * step 2. The user writes it as a `uses` clause, which the parser writes onto this node (D21), and as the body of a
+  * row alias; no other spelling parses.
   *
   * There is no carrier. A row entry and a `~` ability constraint each become **one phantom generic binder**: a binder
   * of kind `Type` that occurs in the generic list and in no parameter or return type, so rows still never flow into
@@ -38,7 +33,7 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   *     that must not run its argument says so by being a function, since there is no carrier left to hold an unrun
   *     computation. Only a *top-level* row thunks; a row in an arrow codomain (`onError: E => {} A`) is the callback's
   *     own row and lowers to the bare payload, exactly as a return row does. A `data` field takes no row at all — it
-  *     holds a value ([[rowErrors]]).
+  *     holds a value, and its parser admits neither a `uses` clause nor a row.
   *
   * **Every minted binder carries the mark** as its declared type — `Impl: Implementation[Console]`,
   * [[com.vanillasource.eliot.eliotc.ast.fact.GenericParameter.implementationMark]] — which is the one place the fact
@@ -52,20 +47,11 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
   * [[com.vanillasource.eliot.eliotc.ast.fact.AbilityMembers]] has already lowered: a definition with no remaining rows
   * and no unprocessed constraint is returned unchanged, and a constraint is "processed" once its first type argument
   * refers to one of this definition's **marked** binders — a shape only this desugar writes.
-  *
-  * A **pinned** row (`{E | T} A`) has no v6 meaning — there is no carrier stack to name — and is rejected by
-  * [[rowErrors]] rather than silently read as an open row.
   */
 object EffectSugarDesugarer {
 
   /** The binder name minted for a row entry or a `~` constraint. Nothing reads it: it is written positionally. */
   private val binderPrefix = "Impl"
-
-  /** A `data` field's type as the constructor, the accessor and the eliminator see it: its **payload**, with every row
-    * erased. A field holds a value (`docs/effects.md` D20 rule 6), so a row there has no meaning; [[rowErrors]] reports
-    * it, and erasing it here keeps that the only diagnostic, while the definitions are still lowered for other checks.
-    */
-  def fieldType(field: Sourced[Expression]): Sourced[Expression] = bare(field)
 
   /** Rewrite one function definition — see the object comment. */
   def desugar(function: FunctionDefinition): FunctionDefinition =
@@ -199,7 +185,7 @@ object EffectSugarDesugarer {
       case FlatExpression(parts) if parts.size > 1 =>
         val arrows = parts.count(isArrow)
         parts.last.value match {
-          case EffectfulType(effects, _, None) => Option.when(arrows > 0)(arrows -> effects)
+          case EffectfulType(effects, _) => Option.when(arrows > 0)(arrows -> effects)
           case _                               => codomainRow(parts.last).map { case (n, e) => (arrows + n, e) }
         }
       case _                                       => None
@@ -255,14 +241,14 @@ object EffectSugarDesugarer {
   private def topLevelRowEntries(expr: Sourced[Expression]): Seq[UnresolvedAbilityConstraint[Sourced[Expression]]] =
     expr.value match {
       case WithBinding(subject, _)         => topLevelRowEntries(subject)
-      case EffectfulType(effects, _, None) => effects
-      case _                               => Seq.empty
+      case EffectfulType(effects, _) => effects
+      case _                         => Seq.empty
     }
 
   private def isRow(expr: Sourced[Expression]): Boolean = expr.value match {
-    case WithBinding(subject, _)   => isRow(subject)
-    case EffectfulType(_, _, None) => true
-    case _                         => false
+    case WithBinding(subject, _) => isRow(subject)
+    case _: EffectfulType        => true
+    case _                       => false
   }
 
   /** How a definition's parameter types are rewritten: [[thunked]] ordinarily, and [[bare]] for a **meta companion**.
@@ -292,7 +278,7 @@ object EffectSugarDesugarer {
   private def thunked(expr: Sourced[Expression]): Sourced[Expression] = expr.value match {
     case WithBinding(subject, implementation) =>
       expr.as(WithBinding(thunked(subject), implementation))
-    case EffectfulType(_, resultType, None) =>
+    case EffectfulType(_, resultType)         =>
       expr.as(
         FunctionApplication(
           Some(expr.as(WellKnownTypes.functionDataTypeFQN.moduleName.show)),
@@ -301,12 +287,12 @@ object EffectSugarDesugarer {
           Seq.empty
         )
       )
-    case _                                  => bare(expr)
+    case _                                    => bare(expr)
   }
 
   /** Erase every effect row from an expression, keeping its payload: a row is declaration metadata and never a type. */
   private def bare(expr: Sourced[Expression]): Sourced[Expression] = expr.value match {
-    case EffectfulType(_, resultType, _)                          => bare(resultType)
+    case EffectfulType(_, resultType)                             => bare(resultType)
     case WithBinding(subject, implementation)                     =>
       expr.as(WithBinding(bare(subject), implementation))
     case FunctionApplication(moduleName, name, genericArgs, args) =>
@@ -336,54 +322,10 @@ object EffectSugarDesugarer {
       )
     )
 
-  /** A **pinned** row (`{E | T} A`) named a carrier stack, and effects v6 has no carrier: a computation is a thunk and
-    * a stored row is an ordinary field type. Rejected rather than read as an open row, so a v5 signature that survives
-    * the flag day fails loudly at the position that needs rewriting.
-    */
-  def rowErrors(data: DataDefinition): Seq[Sourced[String]] =
-    data.constructors.toSeq.flatten
-      .flatMap(_.fields.map(_.typeExpression))
-      .flatMap(collectRows)
-      .map(fieldRowError)
-
-  def rowErrors(function: FunctionDefinition): Seq[Sourced[String]] =
-    signatureAndBodyRows(function).filter(_.value.tail.isDefined).map(pinnedRowError) ++
-      (function.args.map(_.typeExpression) :+ function.typeDefinition).flatMap(collectRows).collect {
-        case Sourced(_, _, EffectfulType(_, inner @ Sourced(_, _, _: EffectfulType), _)) => doubleRowError(inner)
-      }
-
-  /** A row directly on a row — only a `uses` clause and a row written on the type as well can produce one, since the
-    * clause is parsed onto that very spelling (`def f(body uses *: {Console} A)`). Two spellings of one fact, so the
-    * second is refused rather than silently merged or dropped.
-    */
-  private def doubleRowError(row: Sourced[Expression]): Sourced[String] =
-    row.as(
-      "A `uses` clause is the effect row, so the type after it cannot carry one as well; name the effects in it."
-    )
-
-  /** A row anywhere in a `data` field's type (`docs/effects.md` D20 rule 6): **a field holds a value**. A stored
-    * computation was a thunk whose operations were bound where it was constructed, and that binding outlived the frames
-    * it named — a discharger had returned before the read ran it — or bound the platform's default where a test's
-    * double was meant (§8 item 12). Store data instead (`data Step = Skip | Print(line: String)`) and interpret it
-    * where the effects are in scope. A pinned row there is the same mistake and gets the same message.
-    */
-  private def fieldRowError(row: Sourced[EffectfulType]): Sourced[String] =
-    row.as(
-      "A data field holds a value, not a computation, so its type cannot carry an effect row. " +
-        "Store data describing the work instead, and perform it where the effects are in scope."
-    )
-
-  private def pinnedRowError(row: Sourced[EffectfulType]): Sourced[String] =
-    row.as(
-      "An effect row has no base: write `{Throw[Error]} String` rather than `{Throw[Error] | Id} String`. " +
-        "A computation is a thunk, and the implementation it runs on is bound by `with` or by the caller."
-    )
-
   /** Collects, in source order, every effect-row node within the expression, with its source position. */
   private def collectRows(expr: Sourced[Expression]): Seq[Sourced[EffectfulType]] = expr.value match {
-    case et @ EffectfulType(effects, resultType, tail) =>
-      (expr.as(et) +: effects.flatMap(_.typeArgs.flatMap(collectRows))) ++
-        collectRows(resultType) ++ tail.toSeq.flatMap(collectRows)
+    case et @ EffectfulType(effects, resultType)       =>
+      (expr.as(et) +: effects.flatMap(_.typeArgs.flatMap(collectRows))) ++ collectRows(resultType)
     case WithBinding(subject, _)                       => collectRows(subject)
     case FunctionApplication(_, _, genericArgs, args)  =>
       genericArgs.getOrElse(Seq.empty).flatMap(collectRows) ++ args.flatMap(collectRows)

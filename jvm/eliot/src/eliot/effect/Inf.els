@@ -6,7 +6,7 @@ effect Inf {
 
 /**
  * The JVM `Inf` implementation: the unbounded loop itself. `Inf` is *run, not discharged*, so this is what the
- * synthesized entry point binds when `{Inf}` reaches `main` — a deliberately non-terminating program. `step` arrives
+ * synthesized entry point binds when `Inf` reaches `main` — a deliberately non-terminating program. `step` arrives
  * suspended, so each iteration re-runs it and its effects repeat.
  */
 implement Inf {
@@ -15,6 +15,6 @@ implement Inf {
 
 /**
  * The single non-terminating operation: invokes a suspended computation endlessly. `private` so divergence is
- * reachable only through the `{Inf}`-typed `forever`. Implemented by the backend as an unbounded loop.
+ * reachable only through `forever`, which uses `Inf`. Implemented by the backend as an unbounded loop.
  */
 private def foreverInternal(step uses *: Unit): Unit

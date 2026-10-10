@@ -1,8 +1,8 @@
 /**
  * The state effect: a computation that threads a state of type `S`, reading and replacing it.
  *
- * A function that uses state declares `{State[S]}` and reads the current state as `state` or replaces it with
- * `putState`. Neither wraps the result — the effect floats up to the caller. The result paired with the final state is
+ * A function that uses state declares `uses State[S]` and reads the current state as `state` or replaces it with
+ * `putState`. Neither wraps the result — the effect floats up to the caller's clause. The result paired with the final state is
  * materialised only when the effect is discharged by `runStateToPair`, as a `Pair[A, S]` (or `runStateToValue` /
  * `runStateToFinalState` to keep only one side).
  *

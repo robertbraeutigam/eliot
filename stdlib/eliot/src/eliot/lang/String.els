@@ -323,7 +323,7 @@ private def indexOfInternal(part: String, s: String): Int {interval(Bounded(0 - 
 
 /**
  * The number `s` spells, or `0` when it spells none — the raw leaf behind `parseInt`, which turns that case into an
- * `{Abort}`. `private` so the zero can never escape into user code as if it were a parsed value.
+ * `Abort`. `private` so the zero can never escape into user code as if it were a parsed value.
  *
  * Total on purpose: an `if` *builds* both of its arms even though it runs only one, so a leaf that failed on a
  * malformed numeral would fail before `parseInt`'s guard could choose. Implemented by the backend.

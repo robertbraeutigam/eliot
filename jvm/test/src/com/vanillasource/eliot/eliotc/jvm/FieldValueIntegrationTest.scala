@@ -4,11 +4,14 @@ package com.vanillasource.eliot.eliotc.jvm
   * whose operations were bound where the value was constructed, read back later. That binding outlived what it named —
   * the constructor supplied the platform's default where a test's double was meant (§8 item 12), and a discharger's
   * frame was gone by the time the read ran it — so a row anywhere in a field's type is rejected, and the work is stored
-  * as data and performed where the effects are in scope.
+  * as data and performed where the effects are in scope. Since D21 step 6 a row in a type does not parse at all, and a
+  * field's refusal says why a field has none rather than naming a `uses` clause it cannot take.
   */
 class FieldValueIntegrationTest extends FullIntegrationTest {
 
-  private val fieldRow = "A data field holds a value, not a computation, so its type cannot carry an effect row."
+  private val fieldRow =
+    "Expected a value type, since a data field holds a value and not a computation (store data describing the work, " +
+      "and perform it where the effects are in scope), but encountered symbol '{'."
 
   // §8 item 12: the constructor supplied `Console` by `Default`, so the job printed to the real console under a double.
   "a field whose type carries a row" should "be rejected at the row" in {

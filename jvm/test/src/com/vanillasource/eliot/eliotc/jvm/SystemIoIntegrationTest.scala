@@ -124,7 +124,7 @@ class SystemIoIntegrationTest extends FullIntegrationTest {
       .asserting(_ shouldBe ("reconsidered", 0))
   }
 
-  /** A `{Console, Process} Unit` program: `registerExitCode` performs no I/O that can fail, so unlike the spawning
+  /** A `uses Console, Process` program: `registerExitCode` performs no I/O that can fail, so unlike the spawning
     * operations it needs no `Throw[IoError]` discharge.
     */
   private def exitCodeProgram(body: String, row: String = "Console, Process"): String =
@@ -132,10 +132,10 @@ class SystemIoIntegrationTest extends FullIntegrationTest {
        |import eliot.effect.Console
        |import eliot.system.Process
        |
-       |def main: {$row} Unit = {$body
+       |def main uses $row: Unit = {$body
        |}""".stripMargin
 
-  /** A `{Console, Environment} Unit` program — no failure channel, so it needs no discharge at all. */
+  /** A `uses Console, Environment` program — no failure channel, so it needs no discharge at all. */
   private def environmentProgram(body: String): String =
     s"""
        |import eliot.effect.Console
@@ -146,7 +146,7 @@ class SystemIoIntegrationTest extends FullIntegrationTest {
        |def main uses Console, Environment: Unit = {$body
        |}""".stripMargin
 
-  /** A `{Console, Environment, Process, Throw[IoError]} Unit` report body wrapped in a `main` that discharges the
+  /** A `uses Console, Environment, Process, Throw[IoError]` report body wrapped in a `main` that discharges the
     * failure with `catch`, printing "failed" on an `IoError` — the `FileIoIntegrationTest` shape, with `Environment`
     * added because every process needs a directory to run in.
     */

@@ -6,7 +6,7 @@
  * As with `eliot.compiler.Escape`, **the instantiation is passed as a type value**, the leading argument, because the
  * post-mono evaluator erases type arguments: `withCell(S[], initial, body)`, `read(S[])`, `write(S[], s)`.
  *
- * `body` is a **suspended slot** (`{} A`), as the jvm layer's `withCellInternal` declares it: the computation must not
+ * `body` is a **suspended slot** (`body uses *: A`), as the jvm layer's `withCellInternal` declares it: the computation must not
  * run before the cell is installed. Spelling it `Function[Unit, A]` would let a caller's suspended parameter be
  * *applied* at the call, running it outside the cell and handing the intrinsic its result to apply again.
  *

@@ -244,7 +244,7 @@ object BindingWriter {
       .map { case (ability, entry) =>
         Violation(
           entry.as(s"This value declares the effect '${ability.abilityName}' but does not perform it."),
-          Seq(s"Remove '${ability.abilityName}' from its { ... } effect set.")
+          Seq(s"Remove '${ability.abilityName}' from its `uses` clause.")
         )
       }
   }
@@ -570,7 +570,7 @@ object BindingWriter {
                     "no implementation of to give."
                 ),
                 Seq(
-                  s"Declare '${ability.abilityName}' in this definition's own {...} effect set so its caller " +
+                  s"Declare '${ability.abilityName}' in this definition's own `uses` clause so its caller " +
                     s"supplies it, pass '${name.value}' to a parameter that supplies it, or name an implementation " +
                     "on the slot with `with`."
                 )
@@ -994,8 +994,8 @@ object BindingWriter {
       if (scope.closed)
         Violation(
           at.as(
-            s"This uses the effect '${ability.abilityName}' inside an argument whose `uses` clause is closed, and " +
-              "names it not."
+            s"This uses the effect '${ability.abilityName}' inside an argument whose `uses` clause is closed and " +
+              "does not name it."
           ),
           Seq(
             s"Discharge '${ability.abilityName}' inside the argument, or pass it to a parameter whose clause is open " +
@@ -1019,7 +1019,7 @@ object BindingWriter {
         violations += Violation(
           at.as(
             s"This value performs the effect '${ability.abilityName}' but does not declare it; " +
-              "add it to its { ... } effect set."
+              "add it to its `uses` clause."
           ),
           Seq(s"Or bind an implementation for it here with `with`.")
         )

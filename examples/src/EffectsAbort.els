@@ -1,9 +1,9 @@
 
-// A config lookup that aborts on a missing key — this stand-in knows exactly one. Mirrors the `{Abort}` setting
+// A config lookup that aborts on a missing key — this stand-in knows exactly one. Mirrors the `uses Abort` setting
 // lookups in the Abort docs: `if` passes the value through when its condition holds and aborts when it does not.
 def lookupConfig(key: String) uses Abort: String = if(key == "app.name", "config-value")
 
-// A lookup that succeeds. The value comes back unchanged; the `{Abort}` is still declared, because the lookup it calls
+// A lookup that succeeds. The value comes back unchanged; `uses Abort` is still declared, because the lookup it calls
 // may short-circuit.
 def safe uses Abort: String = lookupConfig("app.name")
 
@@ -14,7 +14,7 @@ def greetOrGiveUp uses Console, Abort: String = {
    lookupConfig("db.url")
 }
 
-// `else` discharges {Abort} in one step, supplying a fallback if it short-circuits — no Option and no transformer in
+// `else` discharges the `Abort` in one step, supplying a fallback if it short-circuits — no Option and no transformer in
 // sight: it installs the frame `abort` leaves through, and reads what came back. `Abort` has one implementation per
 // platform, so there is nothing here to choose or to bind.
 def main uses Console: Unit = {

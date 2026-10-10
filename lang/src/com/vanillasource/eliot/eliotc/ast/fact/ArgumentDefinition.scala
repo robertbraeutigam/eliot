@@ -32,7 +32,8 @@ object ArgumentDefinition {
   extension (self: ArgumentDefinition) def render: String = self.name.show
 
   /** A field's or a meta slot's binder: `name: Type`, with an optional trailing `with` chain on the type. A field holds
-    * a value, so it takes no `uses` clause (`docs/effects.md` D20 rule 6) — the parser stops at the keyword.
+    * a value, so it takes no `uses` clause (`docs/effects.md` D20 rule 6) — the parser stops at the keyword — and no
+    * row (`Expression.fieldTypeRunParser`).
     */
   given ASTComponent[ArgumentDefinition] = new ASTComponent[ArgumentDefinition] {
     // The argument type uses `typeRunParser` (the shared type-position parser), so an infix type operator reads bare
@@ -42,7 +43,7 @@ object ArgumentDefinition {
     // [[Expression.WithBinding]]). Only a parameter's or a field's type admits it, which is why it is read here and not
     // in `typeRunParser`: a def's own return type stops at the `with` keyword and fails to parse.
     override def parser: Parser[Sourced[Token], ArgumentDefinition] =
-      acceptIf(isIdentifier, "argument name").flatMap(name => plainRest(name.map(_.content)))
+      acceptIf(isIdentifier, "argument name").flatMap(name => plainRest(name.map(_.content), Expression.fieldTypeRunParser))
   }
 
   /** A definition's parameter: a field's binder, or one carrying a **`uses` clause** (`docs/effects.md` D21) — the
@@ -59,12 +60,11 @@ object ArgumentDefinition {
     * The clause is written onto the spelling the rest of the compiler already reads — a row on the slot's type, and its
     * `with` chain after it — so no phase past this one learns the new surface; the one thing that spelling cannot say,
     * that the row is closed, is [[ArgumentDefinition.closedRow]]. `*` comes first and at most once. A type that already
-    * carries a row as well is refused at core (`EffectSugarDesugarer.rowErrors`): the clause is the row, and two
-    * would be two spellings of one fact.
+    * carries a row as well is refused by the parser, as a row in any type is: the clause is the only spelling.
     */
   val parameter: Parser[Sourced[Token], ArgumentDefinition] = for {
     name     <- acceptIf(isIdentifier, "argument name")
-    argument <- clauseRest(name.map(_.content)) or plainRest(name.map(_.content))
+    argument <- clauseRest(name.map(_.content)) or plainRest(name.map(_.content), Expression.typeRunParser)
   } yield argument
 
   private def clauseRest(name: Sourced[String]): Parser[Sourced[Token], ArgumentDefinition] = for {
@@ -73,9 +73,12 @@ object ArgumentDefinition {
     typed  <- sourced(Expression.typeRunParser)
   } yield ArgumentDefinition(name, clause.applyTo(typed), closedRow = !clause.open)
 
-  private def plainRest(name: Sourced[String]): Parser[Sourced[Token], ArgumentDefinition] = for {
+  private def plainRest(
+      name: Sourced[String],
+      typeRunParser: Parser[Sourced[Token], Expression]
+  ): Parser[Sourced[Token], ArgumentDefinition] = for {
     _              <- symbol(":")
-    typeRun        <- sourced(Expression.typeRunParser)
+    typeRun        <- sourced(typeRunParser)
     typeExpression <- Expression.typeWithBindings(typeRun)
   } yield ArgumentDefinition(name, typeExpression)
 
@@ -113,7 +116,7 @@ object ArgumentDefinition {
     }
 
     private def onRow(typed: Sourced[Expression]): Sourced[Expression] =
-      typed.as(EffectfulType(entries.map(_._1), typed, None))
+      typed.as(EffectfulType(entries.map(_._1), typed))
   }
 
   private def isArrow(part: Sourced[Expression]): Boolean = part.value match {

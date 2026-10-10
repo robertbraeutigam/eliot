@@ -136,7 +136,7 @@ class UsesClauseIntegrationTest extends FullIntegrationTest {
     ).asserting(_ should include("This uses the effect 'Console' inside an argument whose `uses` clause is closed"))
   }
 
-  "a uses clause with a row on the type as well" should "be rejected" in {
+  "a uses clause with a row on the type as well" should "be rejected, as a row in any type is" in {
     compileForErrors(
       """import eliot.effect.Console
         |
@@ -144,6 +144,6 @@ class UsesClauseIntegrationTest extends FullIntegrationTest {
         |
         |def main uses Console: Unit = run(printLine("x"))
         |""".stripMargin
-    ).asserting(_ should include("A `uses` clause is the effect row, so the type after it cannot carry one as well"))
+    ).asserting(_ should include("Expected a type, with its effects in a `uses` clause before the colon"))
   }
 }

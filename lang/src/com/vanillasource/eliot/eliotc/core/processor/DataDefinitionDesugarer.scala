@@ -26,14 +26,8 @@ import com.vanillasource.eliot.eliotc.source.content.Sourced
 object DataDefinitionDesugarer {
 
   def desugar(
-      written: DataDefinition
+      definition: DataDefinition
   ): Seq[(FunctionDefinition, RoleHint)] = {
-    // A field holds a value (`docs/effects.md` D20 rule 6): a row written on one is reported by
-    // `EffectSugarDesugarer.rowErrors` and erased here, so the constructor, the accessors and the eliminator all see
-    // the payload and nothing downstream reads the row as a computation.
-    val definition = written.copy(constructors = written.constructors.map(_.map { ctor =>
-      ctor.copy(fields = ctor.fields.map(f => f.copy(typeExpression = EffectSugarDesugarer.fieldType(f.typeExpression))))
-    }))
     // The synthetic `PatternMatch`/`TypeMatch` implementations are keyed by the data type's own name — there is exactly
     // one of each per data type per module, so the name is a stable, position-independent identity (matching the
     // `(ability, pattern)` scheme user implementations use, with the data type standing in for the pattern).
