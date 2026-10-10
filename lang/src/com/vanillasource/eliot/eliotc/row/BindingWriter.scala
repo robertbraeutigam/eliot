@@ -994,8 +994,8 @@ object BindingWriter {
       if (scope.closed)
         Violation(
           at.as(
-            s"This uses the effect '${ability.abilityName}' inside an argument whose `uses` clause is closed, and " +
-              "names it not."
+            s"This uses the effect '${ability.abilityName}' inside an argument whose `uses` clause is closed and " +
+              "does not name it."
           ),
           Seq(
             s"Discharge '${ability.abilityName}' inside the argument, or pass it to a parameter whose clause is open " +
