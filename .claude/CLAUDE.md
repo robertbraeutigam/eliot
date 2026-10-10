@@ -545,11 +545,11 @@ hands it. On a **parameter**, a clause makes the argument **code** the caller wr
 on to another `uses` slot and **never keep**; without one, a parameter is a **value**, computed before the call:
 
 ```eliot
-def map[A, B](f: A => B, list: List[A]): List[B]                // pure: f is a pure function value, keepable
-def foreach[A](action uses *: A => Unit, list: List[A]): Unit  // the caller's code, on the caller's effects
-def if[T](condition: Bool, value uses *: T) uses Abort: T      // nullary code: mentioning `value` runs it
-def runThrow[E, A](body uses *, Throw[E]: A): Either[E, A]     // the caller's effects plus Throw[E], supplied
-def runPure[E, A](body uses Throw[E]: A): Either[E, A]         // closed: Throw[E] and nothing from around it
+def compose[A, B, C](f: B => C, g: A => B): A => C = a -> f(g(a))   // pure: f and g are values, keepable
+def map[A, B](f uses *: A => B, list: List[A]): List[B]             // the caller's code, on the caller's effects
+def if[T](condition: Bool, value uses *, Abort: T) uses Abort: T    // nullary code: mentioning `value` runs it
+def runThrow[E, A](body uses *, Throw[E]: A): Either[E, A]          // the caller's effects plus Throw[E], supplied
+def runPure[E, A](body uses Throw[E]: A): Either[E, A]              // closed (D21's sample, not in the base)
 def mocked(body uses *, Mocking with recording, Calls with journal: Unit): Unit  // a `with` per entry
 ```
 
@@ -569,7 +569,8 @@ signature, an example or a test conflicts with them, the rule wins and the artef
    `choose(readLine, readLine)` runs both reads, `Box(shout)` runs `shout` and stores its value.
 2. **A value is pure.** A lambda in any value position — an unmarked function parameter, a field, a generic slot, a
    result, a `val` — may use no effect it does not discharge itself ("This uses the effect 'X' inside a function
-   written where a value is expected"), and an unapplied reference to a `uses` definition is not a value.
+   written where a value is expected"). The rule's other half — an unapplied reference to a `uses` definition is not
+   a value — is **not enforced yet** and fails silently (`docs/effects.md` §8 item 14).
 3. **Code is used, never kept.** A `uses` parameter can be called or passed on; anywhere else it is "code its caller
    wrote", and a value lambda cannot capture it. A pure function value may stand where code is expected.
 4. **A closed clause supplies and closes.** The argument at `body uses Throw[E]: A` may use what the slot supplies,
@@ -612,7 +613,7 @@ cannot be made from a declaration is a gap to close **in the declarations**.
 
 **A slot's entries are *supplied*, and that is what makes a discharger** (§2.2). `body uses *, Abort: A` says "on my
 caller's bindings **extended by** `Abort`": an entry the definition's own clause already has is *not* supplied and
-the walk continues outward (so `if`'s `value uses *: T` under `uses Abort` rides the caller's), and an entry it lacks
+the walk continues outward (so `if`'s `value uses *, Abort: T` under its own `uses Abort` rides the caller's), and an entry it lacks
 is supplied by the slot. A function-typed code parameter's clause is the callback's own scope (`onError uses *: E =>
 A`). A supplied entry's **type arguments** are written from the actual's declaration (`bad uses Throw[String]:
 String` against `Throw[E]` gives `E := String`); where no declaration answers, the call spells them
